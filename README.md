@@ -24,8 +24,22 @@ Status at a glance:
 - Your own full eMMC dump from the unlock, at least `boot_a`, for recovery.
 - `fastboot` (Android platform-tools) and `podman` on the host.
 - Network access while building: the test image downloads Alpine packages.
-- Optional: a 1.8 V UART adapter on test point TM58 (UART0 TX, 921600 8N1).
-  Output only; everything else goes over the pogo-pin USB port.
+- Access to the USB test points (TM4, TM5 and TM37 below), for example with
+  pogo pins. All flashing, the shell and the network go over this USB link.
+- Optional: a 1.8 V UART adapter on TM58 (UART0 TX, 921600 8N1), output only.
+
+### Test points
+
+| Pad | Signal | Notes |
+|---|---|---|
+| TM4 | USB D+ | device-mode USB to the host |
+| TM5 | USB D- | |
+| TM37 | GND | |
+| TM58 | UART0 TX | 1.8 V, 921600 8N1, kernel and bootloader log |
+| TM33 | power input, about 17 V | **never** connect logic-level tools; a slip onto a neighbouring pad can destroy the SoC |
+| TM35, TM45 | unknown | near 0 V; not UART0 RX (does not follow pin 62 when it is toggled) |
+
+UART0 RX is not on any known test point.
 
 ## Boot chain
 
