@@ -229,4 +229,15 @@ config MTK_LK_CHAINLOAD
 config LNX_KRNL_IMG_TEXT_OFFSET_BASE
 	default 0x40000000 if MTK_LK_CHAINLOAD
 
+config MTK_AMAZON_IDME
+	bool "Pass Amazon IDME fields from LK to the OS devicetree"
+	depends on MTK_LK_CHAINLOAD && TARGET_MT8516
+	select SAVE_PREV_BL_FDT_ADDR
+	select OF_BOARD_SETUP
+	help
+	  Amazon LK adds per-device manufacturing data (IDME) as an /idme
+	  node to the devicetree it passes on. Enable this to copy the Wi-Fi
+	  MAC address from there to local-mac-address of the Wi-Fi node in
+	  the devicetree of the OS being booted.
+
 endif
