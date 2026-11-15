@@ -45,6 +45,25 @@
 	};
 
 	/*
+	 * Previous boot's console and oops log (pstore). U-Boot loads kernel,
+	 * DTB and initramfs into 0x44000000-0x56000000 and relocates itself to
+	 * the top of RAM, so this region survives a warm reboot untouched.
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ramoops@60000000 {
+			compatible = "ramoops";
+			reg = <0 0x60000000 0 0x100000>;
+			record-size = <0x20000>;
+			console-size = <0x80000>;
+			pmsg-size = <0x20000>;
+		};
+	};
+
+	/*
 	 * Amazon's BL31 does not give the kernel access to the PMU registers,
 	 * so the armv8_pmu probe hangs.
 	 */
@@ -396,7 +415,11 @@
 	pinctrl-0 = <&i2c0_pins>;
 	status = "okay";
 
-	/* TSL2540 ambient light sensor @0x39: no mainline driver */
+	/* Behind the top cover; the vendor DT does not wire up its interrupt */
+	light-sensor@39 {
+		compatible = "ams,tsl2540";
+		reg = <0x39>;
+	};
 
 	led-controller@3f {
 		compatible = "issi,is31fl3236";

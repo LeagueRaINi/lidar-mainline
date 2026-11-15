@@ -22,7 +22,13 @@ ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
 	sed -n 's/^ *file: \(alpine-minirootfs-.*-aarch64\.tar\.gz\)$/\1/p' | head -n1)
 [ -n "$ROOTFS" ] || { echo "could not resolve Alpine minirootfs" >&2; exit 1; }
 curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
-python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant
+python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
+	busybox-extras uboot-tools
+# fw_printenv/fw_setenv: U-Boot keeps its environment at the top of misc
+cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
+/dev/disk/by-partlabel/misc 0x70000 0x10000
+/dev/disk/by-partlabel/misc 0x60000 0x10000
+EOF
 
 make -C /src/linux O="$B" -s INSTALL_MOD_PATH="$T/initramfs" INSTALL_MOD_STRIP=1 modules_install
 # Out-of-tree MT7668 WLAN driver, built against this exact kernel
@@ -44,6 +50,8 @@ mount -t devtmpfs devtmpfs /dev
 mkdir -p /dev/pts /sys/kernel/config && mount -t devpts devpts /dev/pts
 mount -t configfs configfs /sys/kernel/config 2>/dev/null
 mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+# Previous boot's console/oops log, if it was a warm reboot
+mount -t pstore pstore /sys/fs/pstore 2>/dev/null
 echo "lidar test initramfs: $(uname -r)"
 # Light-ring animation until the last boot job touches /run/boot-done
 mkdir -p /run && lidar-bootanim /run/boot-done &
@@ -61,20 +69,25 @@ if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null
 	ln -s $g/functions/acm.usb0 $g/configs/c.1/
 	ln -s $g/functions/ncm.usb0 $g/configs/c.1/
 	ls /sys/class/udc | head -n1 > $g/UDC
-	(while true; do setsid /bin/sh -l </dev/ttyGS0 >/dev/ttyGS0 2>&1; sleep 1; done) &
+	# -c: the shell owns the tty, so Ctrl-C reaches its foreground job
+	(while true; do setsid -c /bin/sh -l </dev/ttyGS0 >/dev/ttyGS0 2>&1; sleep 1; done) &
 	ip link set lo up
 	ip addr add 169.254.7.2/16 dev usb0 && ip link set usb0 up
+	# Second way in if the serial shell is stuck: telnet, USB link only
+	busybox-extras telnetd -b 169.254.7.2 -l /bin/sh
 fi
 # Stage the owner's own Wi-Fi firmware from Fire OS (system_a, read-only),
 # then load WLAN before Bluetooth: btmtksdio must not start while the WLAN
 # driver downloads the MT7668 patch. Backgrounded so the shell never waits.
 (
-	dev=
-	for i in $(seq 1 50); do
-		p=$(grep -l '^PARTNAME=system_a$' /sys/class/block/*/uevent 2>/dev/null | head -n1)
-		[ -n "$p" ] && dev=/dev/$(basename "$(dirname "$p")")
-		[ -b "$dev" ] && break
-		sleep 0.2
+	dev=/dev/disk/by-partlabel/system_a
+	for i in $(seq 1 50); do [ -b "$dev" ] && break; sleep 0.2
+		# no udev: name the GPT partitions ourselves (fw_env.config uses misc)
+		mkdir -p /dev/disk/by-partlabel
+		for u in /sys/class/block/*/uevent; do
+			n=$(sed -n 's/^PARTNAME=//p' "$u")
+			[ -n "$n" ] && ln -sf "/dev/$(basename "$(dirname "$u")")" "/dev/disk/by-partlabel/$n"
+		done
 	done
 	fw=/mnt/fireos/system/vendor/firmware
 	mkdir -p /mnt/fireos /lib/firmware/mediatek
@@ -89,7 +102,7 @@ fi
 	umount /mnt/fireos 2>/dev/null
 	touch /run/boot-done
 ) &
-exec setsid /bin/sh -l </dev/ttyS0 >/dev/ttyS0 2>&1
+exec setsid -c /bin/sh -l </dev/ttyS0 >/dev/ttyS0 2>&1
 EOF
 chmod +x "$T/initramfs/init"
 
