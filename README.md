@@ -259,9 +259,12 @@ Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB),
   `ringN:red/green/blue`. Mainline `leds-is31fl32xx` was missing
   `brightness_steps` for the IS31FL3236, so brightness writes were dropped;
   this is fixed.
-- **Microphones:** mics 1-6 respond (DIF_2L_3L/DIF_2R_3R inputs, PGA 20 dB).
-  Mic 7 (capture channel 6) is noisy and does not respond yet. Capture
-  channel 7 is the line-in, which has not been tested with a real source.
+- **Microphones:** all 7 mics capture with the `DIF_2L_3L`/`DIF_2R_3R`
+  inputs and PGA 20 dB. Room noise is coherent between mic 7 (capture
+  channel 6) and mics 1-6. On the development unit, mic 7 also picks up
+  narrow interference tones at about 50 Hz, 130-144 Hz and 2.41 kHz that the
+  other mics do not, so it needs filtering. Capture channel 7 is the line-in,
+  which has not been tested with a real source.
 - **Line-out / headphones:** both channels work through the `Output Route`
   control (GPIO109 low = jack, amp off). Every stream start makes a loud
   crack. Waiting for the output-driver gain ramp, a soft start (`HEADSTART`)
@@ -281,8 +284,9 @@ Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB),
   named lines, driven to their run state by pinctrl and left unclaimed for
   libgpiod.
 - **TSL2540 ambient light sensor:** new minimal IIO driver (`tsl2540`):
-  visible and IR counts, gain and integration time. Chip ID, configuration
-  and measurement cycles are verified on hardware. Values are relative: the
+  visible and IR counts, gain and integration time. Verified on hardware:
+  chip ID, configuration, and readings from 0 in the dark to about 7000
+  counts under a torch (128x gain, 360 ms). Values are relative: the
   datasheet has no lux equation and the cover calibration is not ported.
 
 ## Upstreaming
