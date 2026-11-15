@@ -1,0 +1,19 @@
+# Third-party trees and dumps: fetched or extracted locally, never published
+/amzn/
+/linux/
+/u-boot/
+/rt/
+/stock/
+
+# Build output, device images, owner-local firmware
+/out/
+*.img
+*.ext4
+*.bin
+*.dtb
+
+# Editor and tool noise
+*.orig
+*.rej
+*.pyc
+__pycache__/
