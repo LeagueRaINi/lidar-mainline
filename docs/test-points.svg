@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <title>Echo Plus 2nd gen (lidar) test pad block: top row TM45, TM4 USB D+, TM5 USB D-; bottom row TM35, TM37 GND, TM33 VIN ~17 V</title>
+
+  <!-- card background (self-contained: readable on light and dark pages) -->
+  <rect x=".5" y=".5" width="959" height="639" rx="14" fill="#10151c" stroke="#30363d"/>
+
+  <text x="24" y="38" font-size="22" font-weight="bold" fill="#f0f6fc">Echo Plus 2nd gen · test pad block</text>
+  <text x="24" y="60" fill="#9aa4af">Main board (codename <tspan font-family="monospace" fill="#c9d1d9">lidar</tspan>), seen from the back</text>
+
+  <!-- ===== board overview: centre (250,320), radius 225 ===== -->
+  <circle cx="250" cy="320" r="225" fill="#1f6b4a" stroke="#0b3323" stroke-width="3"/>
+  <!-- curved slot, upper left -->
+  <path d="M137 144A208 208 0 0 1 178 125" fill="none" stroke="#10151c" stroke-width="7" stroke-linecap="round"/>
+  <!-- IC above the AMP connector -->
+  <rect x="259" y="134" width="24" height="24" rx="2" fill="#22272e"/>
+  <!-- board mounting holes -->
+  <g fill="#10151c" stroke="#134a33" stroke-width="5">
+    <circle cx="142" cy="192" r="8"/>
+    <circle cx="382" cy="201" r="8"/>
+    <circle cx="148" cy="450" r="8"/>
+    <circle cx="365" cy="459" r="8"/>
+  </g>
+  <!-- speaker magnet -->
+  <circle cx="262" cy="314" r="68" fill="#b9bec4" stroke="#7d848c" stroke-width="2"/>
+  <!-- slot where the flex leaves the board -->
+  <rect x="223" y="431" width="77" height="11" rx="3" fill="#10151c"/>
+  <!-- AMP flex cable with black stiffener -->
+  <rect x="234" y="220" width="59" height="218" fill="#e08a1e"/>
+  <rect x="237" y="266" width="53" height="166" fill="#1a1a1a"/>
+  <text x="263.500" y="250" text-anchor="middle" font-weight="bold" fill="#fff">AMP</text>
+  <!-- AMP connector -->
+  <rect x="228" y="207" width="72" height="15" rx="2" fill="#d8ccb0" stroke="#22272e"/>
+  <!-- screws -->
+  <g fill="#d5d9de" stroke="#6e7681" stroke-width="1.500">
+    <circle cx="325" cy="232" r="9"/>
+    <circle cx="203" cy="411" r="9"/>
+  </g>
+  <path d="M325 227v10M320.700 229.500l8.600 5M320.700 234.500l8.600-5" stroke="#6e7681" stroke-width="1.500"/>
+  <!-- board marking on the right edge -->
+  <text transform="translate(456 402) rotate(-90)" font-size="12" fill="#e9f5ee">30-003941 REV 01</text>
+  <!-- labels -->
+  <g font-size="12" fill="#e9f5ee">
+    <text x="338" y="229">Torx screw</text>
+    <text x="186" y="312" text-anchor="end">speaker</text>
+    <text x="186" y="327" text-anchor="end">magnet</text>
+  </g>
+  <!-- pad block on the board -->
+  <g fill="#e3b341">
+    <circle cx="376" cy="255" r="4.500"/><circle cx="392.500" cy="255" r="4.500"/><circle cx="409" cy="255" r="4.500"/>
+    <circle cx="376" cy="272" r="4.500"/><circle cx="392.500" cy="272" r="4.500"/><circle cx="409" cy="272" r="4.500"/>
+  </g>
+  <rect x="364" y="243" width="57" height="42" rx="4" fill="none" stroke="#58a6ff" stroke-width="2.500"/>
+
+  <!-- leader lines to the zoomed view -->
+  <path d="M421 243L540 100M421 285L540 270" fill="none" stroke="#58a6ff" stroke-width="1.500" stroke-dasharray="6 4"/>
+
+  <!-- ===== zoomed pad block ===== -->
+  <rect x="540" y="100" width="390" height="170" rx="10" fill="#1f6b4a" stroke="#58a6ff" stroke-width="2.500"/>
+  <!-- ticks from tags to columns -->
+  <path d="M605 90v10M735 90v10M865 90v10M605 270v12M735 270v12M865 270v12" stroke="#9aa4af" stroke-width="1.500"/>
+  <!-- pads: top row TM45 TM4 TM5, bottom row TM35 TM37 TM33 -->
+  <g fill="#e3b341" stroke-width="4">
+    <circle cx="605" cy="140" r="20" stroke="#9aa4af" stroke-dasharray="5 4"/>
+    <circle cx="735" cy="140" r="20" stroke="#58a6ff"/>
+    <circle cx="865" cy="140" r="20" stroke="#58a6ff"/>
+    <circle cx="605" cy="214" r="20" stroke="#9aa4af" stroke-dasharray="5 4"/>
+    <circle cx="735" cy="214" r="20" stroke="#d0d7de"/>
+    <circle cx="865" cy="214" r="20" stroke="#ff4d42"/>
+  </g>
+  <!-- silkscreen names, below each pad as on the board -->
+  <g font-family="monospace" font-size="14" font-weight="bold" fill="#e9f5ee" text-anchor="middle">
+    <text x="605" y="180">TM45</text><text x="735" y="180">TM4</text><text x="865" y="180">TM5</text>
+    <text x="605" y="254">TM35</text><text x="735" y="254">TM37</text><text x="865" y="254">TM33</text>
+  </g>
+
+  <!-- signal tags -->
+  <g stroke-width="1.500">
+    <rect x="546" y="64" width="118" height="26" rx="6" fill="#1c232c" stroke="#6e7681" stroke-dasharray="4 3"/>
+    <rect x="676" y="64" width="118" height="26" rx="6" fill="#1f6feb" stroke="#58a6ff"/>
+    <rect x="806" y="64" width="118" height="26" rx="6" fill="#1f6feb" stroke="#58a6ff"/>
+    <rect x="546" y="282" width="118" height="26" rx="6" fill="#1c232c" stroke="#6e7681" stroke-dasharray="4 3"/>
+    <rect x="676" y="282" width="118" height="26" rx="6" fill="#57606a" stroke="#d0d7de"/>
+    <rect x="806" y="282" width="118" height="26" rx="6" fill="#cf222e" stroke="#ff8f87"/>
+  </g>
+  <g text-anchor="middle" font-weight="bold" fill="#fff">
+    <text x="605" y="81.500" font-weight="normal" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="735" y="81.500">USB D+</text>
+    <text x="865" y="81.500">USB D-</text>
+    <text x="605" y="299.500" font-weight="normal" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="735" y="299.500">GND</text>
+    <text x="875" y="299.500">VIN ~17 V</text>
+  </g>
+  <!-- warning triangle in the TM33 tag -->
+  <path d="M826 287l8 15h-16z" fill="#ffd33d" stroke="#3b2300" stroke-linejoin="round"/>
+  <path d="M826 292v5M826 299.500v.500" stroke="#3b2300" stroke-width="1.600" stroke-linecap="round"/>
+
+  <!-- pad table -->
+  <g fill="#c9d1d9">
+    <text x="546" y="352" font-weight="bold" fill="#f0f6fc">Pad</text>
+    <text x="620" y="352" font-weight="bold" fill="#f0f6fc">Signal</text>
+    <path d="M546 360h378" stroke="#30363d"/>
+    <g font-family="monospace" font-weight="bold">
+      <text x="546" y="382">TM45</text><text x="546" y="408">TM4</text><text x="546" y="434">TM5</text>
+      <text x="546" y="460">TM35</text><text x="546" y="486">TM37</text><text x="546" y="512" fill="#ff7b72">TM33</text>
+    </g>
+    <text x="620" y="382" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="620" y="408">USB D+</text>
+    <text x="620" y="434">USB D-</text>
+    <text x="620" y="460" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="620" y="486">GND</text>
+    <text x="620" y="512" font-weight="bold" fill="#ff7b72">VIN, ~17 V adapter rail (not logic level!)</text>
+  </g>
+
+  <!-- warning -->
+  <rect x="24" y="576" width="912" height="40" rx="8" fill="#3d1114" stroke="#cf222e"/>
+  <path d="M48 586l11 20h-22z" fill="#ffd33d" stroke="#3b2300" stroke-linejoin="round"/>
+  <path d="M48 593v6M48 602.500v.500" stroke="#3b2300" stroke-width="2" stroke-linecap="round"/>
+  <text x="72" y="600.500" fill="#ffdcd7"><tspan font-weight="bold" fill="#fff">TM33 is VIN (~17 V adapter rail):</tspan> never connect logic-level tools; avoid bridging it to the USB and GND pads next to it.</text>
+</svg>

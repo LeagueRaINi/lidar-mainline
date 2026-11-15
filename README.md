@@ -30,13 +30,17 @@ Status at a glance:
 
 ### Test points
 
+The USB and supply pads form a 2x3 block next to the AMP flex cable:
+
+![Test pad block](docs/test-points.svg)
+
 | Pad | Signal | Notes |
 |---|---|---|
 | TM4 | USB D+ | device-mode USB to the host |
 | TM5 | USB D- | |
 | TM37 | GND | |
 | TM58 | UART0 TX | 1.8 V, 921600 8N1, kernel and bootloader log |
-| TM33 | power input, about 17 V | **never** connect logic-level tools; a slip onto a neighbouring pad can destroy the SoC |
+| TM33 | VIN, about 17 V (adapter rail) | next to USB D+/D- and GND: never connect logic-level tools, and avoid bridging it to neighbouring pads |
 | TM35, TM45 | unknown | near 0 V; not UART0 RX (does not follow pin 62 when it is toggled) |
 
 UART0 RX is not on any known test point.
