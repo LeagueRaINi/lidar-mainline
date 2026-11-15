@@ -34,6 +34,7 @@ depmod -b "$T/initramfs" "$KREL"
 aarch64-linux-gnu-gcc -O2 -static -o "$T/devmem" /work/tools/devmem.c
 install -m755 "$T/devmem" "$T/initramfs/usr/bin/devmem"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
+install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 
 cat > "$T/initramfs/init" <<'EOF'
 #!/bin/sh
@@ -44,6 +45,8 @@ mkdir -p /dev/pts /sys/kernel/config && mount -t devpts devpts /dev/pts
 mount -t configfs configfs /sys/kernel/config 2>/dev/null
 mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
 echo "lidar test initramfs: $(uname -r)"
+# Light-ring animation until the last boot job touches /run/boot-done
+mkdir -p /run && lidar-bootanim /run/boot-done &
 # no udev here: load the sound stack by hand (codecs before the card)
 for m in snd-soc-mt8516-afe snd-soc-tlv320adc3xxx snd-soc-tlv320aic32x4-i2c mt8516-amazon-lidar; do
 	modprobe $m
@@ -84,6 +87,7 @@ fi
 		echo "lidar: Wi-Fi firmware not staged" > /dev/kmsg
 	fi
 	umount /mnt/fireos 2>/dev/null
+	touch /run/boot-done
 ) &
 exec setsid /bin/sh -l </dev/ttyS0 >/dev/ttyS0 2>&1
 EOF
