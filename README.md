@@ -16,7 +16,7 @@ Status at a glance:
 | Audio: speaker, line-out, microphones 1-6 | working (see Status) |
 | CPU frequency scaling (598 MHz-1.3 GHz) | working |
 | Wi-Fi / Bluetooth (MT7668 on SDIO) | host side working; untested on hardware |
-| EFR32 Zigbee/Thread radio | UARTs and GPIOs exposed |
+| EFR32 Zigbee/Thread radio | alive (bootloader only); firmware not flashed |
 
 ## Prerequisites
 
@@ -143,7 +143,14 @@ workaround while not every clock consumer is described in the DT.
 3. **Shell.** The test system exports a root shell on a USB ACM gadget
    (`/dev/ttyACM0` on Linux hosts, a COM port on Windows). It also exports a
    USB NCM network interface: the device is `169.254.7.2/16`, so give the
-   host's interface any other link-local address.
+   host's interface any other link-local address. A second root shell runs as
+   `telnet 169.254.7.2`, bound to that link only, for when the serial shell is
+   busy.
+
+**Previous boot's log:** after a warm reboot or a kernel panic (the kernel
+reboots 10 s after a panic), `/sys/fs/pstore/` holds the previous boot's
+console (`console-ramoops-0`) and crash report (`dmesg-ramoops-0`). The log
+lives in a reserved RAM region at `0x60000000` that U-Boot never loads into.
 
 **Recovery:** hold **Action** while plugging in, then
 `fastboot flash boot_a <your boot_a dump>` restores the stock boot path.
@@ -164,7 +171,9 @@ workaround while not every clock consumer is described in the DT.
   on the exact string `lidar`, so noise on a floating RX pin cannot strand
   U-Boot at a prompt.
 - The OS comes from `/boot/extlinux/extlinux.conf` on ext4 `system_${lidar_slot}`.
-- A/B fallback uses `bootcount`, `bootlimit=3` and `upgrade_available`. They
+- A/B fallback uses `bootcount`, `bootlimit=3` and `upgrade_available`
+  (verified on hardware: after three unconfirmed boots U-Boot switched
+  `lidar_slot` and still came up through the other slot). They
   are stored in the environment at the top of `misc`: two 64 KiB copies at
   partition offsets `0x70000` and `0x60000`. Amazon only uses the first 6 KiB
   of `misc`. For `fw_setenv` in the OS, `/etc/fw_env.config` is:
@@ -241,10 +250,11 @@ Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB),
   `btmtksdio` (`softdep btmtksdio pre: wlan_mt76x8_sdio`). Mainline btmtksdio
   reads "patch download in progress" as "done", so bringing up `hci0` during
   the WLAN firmware download can fail.
-- **Wi-Fi MAC:** stock reads it from Amazon IDME. The driver takes
-  `local-mac-address` on `&mmc2/wifi@1`, then `wifi.cfg`, then eFuse. Without
-  any of these it falls back to a random `00:08:22:xx:xx:xx` on every boot.
-  U-Boot does not fill the node from IDME yet.
+- **Wi-Fi MAC:** stock reads it from Amazon IDME, which LK places as an
+  `/idme` node in the devicetree it hands over. U-Boot copies
+  `/idme/mac_addr` from there into `local-mac-address` on `&mmc2/wifi@1`
+  (verified on hardware). The driver falls back to `wifi.cfg`, then eFuse,
+  then a random `00:08:22:xx:xx:xx`.
 - **LED ring:** LED n uses channels 3n-2, 3n-1 and 3n (R, G, B), named
   `ringN:red/green/blue`. Mainline `leds-is31fl32xx` was missing
   `brightness_steps` for the IS31FL3236, so brightness writes were dropped;
@@ -261,12 +271,19 @@ Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB),
   and the button as `KEY_MICMUTE` (GPIO108). Software can force privacy on
   through GPIO107 (active low). This is left released, and the line is free
   for userspace.
-- **EFR32 (Zigbee + Thread):** needs no kernel driver. Zigbee EZSP is on
-  `ttyS1`, and Spinel is on `ttyS2` with RTS/CTS. `EFR32_RESET_N` (GPIO13) and
-  `EFR32_SWCLK` (GPIO1) are named lines, driven to their run state by pinctrl
-  and left unclaimed for libgpiod.
-- **TSL2540 ambient light sensor:** no mainline driver. A vendor driver
-  (`drivers/misc/ams_tsl2540*.c`) is in Amazon's GPL release.
+- **EFR32 (Zigbee + Thread):** needs no kernel driver. On `ttyS2` (115200)
+  the chip answers with its Silicon Labs Gecko Bootloader menu and holds no
+  application firmware. Fire OS ships its own image
+  (`/system/vendor/firmware/dsr/zb_mux_rcp.gbl`, DSR's multiprotocol Zigbee +
+  Thread RCP for Amazon's daemon) and presumably uploads it at runtime. For
+  Home Assistant, flash a Silicon Labs RCP or NCP image through the
+  bootloader instead. `EFR32_RESET_N` (GPIO13) and `EFR32_SWCLK` (GPIO1) are
+  named lines, driven to their run state by pinctrl and left unclaimed for
+  libgpiod.
+- **TSL2540 ambient light sensor:** new minimal IIO driver (`tsl2540`):
+  visible and IR counts, gain and integration time. Chip ID, configuration
+  and measurement cycles are verified on hardware. Values are relative: the
+  datasheet has no lux equation and the cover calibration is not ported.
 
 ## Upstreaming
 
