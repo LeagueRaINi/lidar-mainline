@@ -103,17 +103,26 @@ mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
 # Previous boot's console/oops log, if it was a warm reboot
 mount -t pstore pstore /sys/fs/pstore 2>/dev/null
 echo "lidar test initramfs: $(uname -r)"
-# No udev: name the GPT partitions ourselves. lidar-feature reads its
-# switches from the U-Boot environment in misc, so this comes first.
-mkdir -p /dev/disk/by-partlabel /run
+# No udev: name the GPT partitions ourselves (fw_env.config uses misc, the
+# add-on config lives on the booted slot), so this comes first.
+mkdir -p /dev/disk/by-partlabel /run /media/system
+# The slot that booted: U-Boot puts it on the command line through the
+# extlinux append line. Its filesystem holds /etc/lidar.conf (add-on
+# switches); it stays mounted read-only and lidar-feature remounts it only
+# to write.
+slot=$(sed -n 's/.*\(^\| \)lidar\.slot=\([ab]\)\( .*\)\?$/\2/p' /proc/cmdline)
 for i in $(seq 1 25); do
 	for u in /sys/class/block/*/uevent; do
 		n=$(sed -n 's/^PARTNAME=//p' "$u")
 		[ -n "$n" ] && ln -sf "/dev/$(basename "$(dirname "$u")")" "/dev/disk/by-partlabel/$n"
 	done
-	[ -b /dev/disk/by-partlabel/misc ] && [ -b /dev/disk/by-partlabel/system_a ] && break
+	[ -b /dev/disk/by-partlabel/misc ] && [ -b /dev/disk/by-partlabel/system_a ] &&
+		[ -b "/dev/disk/by-partlabel/system_${slot:-a}" ] && break
 	sleep 0.2
 done
+if [ -z "$slot" ] || ! mount -o ro -t ext4 "/dev/disk/by-partlabel/system_$slot" /media/system; then
+	echo "lidar: booted slot not mounted (lidar.slot='$slot'): no /etc/lidar.conf, all add-ons off" > /dev/kmsg
+fi
 # Light-ring animation until the last boot job touches /run/boot-done
 if lidar-feature enabled bootanim; then
 	lidar-bootanim /run/boot-done &
@@ -223,7 +232,17 @@ label lidar-test
 	kernel /boot/Image.gz
 	fdtdir /boot/dtbs
 	initrd /boot/initramfs.gz
-	append console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000 loglevel=7 clk_ignore_unused
+	append console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000 loglevel=7 clk_ignore_unused lidar.slot=${lidar_slot}
+EOF
+
+# This bring-up image opts in to the add-ons it is used with. Everything is
+# off by default; edit with lidar-feature on the device.
+mkdir -p "$T/fs/etc"
+cat > "$T/fs/etc/lidar.conf" <<'EOF'
+feature.bootanim=1
+feature.usbaudio=1
+feature.telnet=1
+feature.wireless=1
 EOF
 
 rm -f "$OUT/lidar-test-system.ext4"

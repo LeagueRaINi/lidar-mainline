@@ -12,7 +12,7 @@
 # If the host had configured the gadget before and does not configure it
 # again within 15 s after the audio function is added, the function is
 # removed and the previous gadget is restored, so the USB shell and network
-# come back. Opt out with: lidar-feature disable usbaudio
+# come back. Off by default; opt in with: lidar-feature enable usbaudio
 G=/sys/kernel/config/usb_gadget/lidar
 F=$G/functions/uac2.usb0
 CARD=UAC2Gadget

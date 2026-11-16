@@ -1,12 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
-# Opt-in/opt-out switches for the add-ons on top of the base system, and
-# their settings.
+# Opt-in switches for the add-ons on top of the base system, and their
+# settings. Every add-on is off unless the OS image or its owner enables it.
 #
-# Each feature is a U-Boot environment variable lidar_feature_<name> (0 or 1)
-# in the "misc" partition, each setting a variable
-# lidar_setting_<feature>_<key>. Both slots share them, so a choice survives
-# updates. Unset or invalid variables fall back to the defaults below.
+# They live in a plain file, one "key=value" per line:
+#   feature.<name>=0|1
+#   <name>.<key>=<value>
+# By default that is /etc/lidar.conf on the root filesystem of the slot
+# that booted (LIDAR_CONF overrides the path). It belongs to the OS, not to
+# the bootloader: the U-Boot environment only holds boot state. Missing or
+# invalid entries fall back to the defaults below.
 #
 # Usage: lidar-feature list
 #        lidar-feature enabled <name>      (exit status 0 if enabled)
@@ -16,14 +19,15 @@
 #        lidar-feature set <name> <key> <value>
 #        lidar-feature unset <name> <key>  (back to the default)
 #
-# Without Linux: fastboot oem run:"setenv lidar_feature_<name> 0; saveenv"
+# Changes take effect on the next boot.
+CONF=${LIDAR_CONF:-/media/system/etc/lidar.conf}
 
 # name default description
 FEATURES='
-bootanim 1 light-ring animation while booting
-usbaudio 1 USB speakerphone: the Echo appears as a sound card on the USB host
-telnet 1 root shell without authentication on port 23 of the USB network
-wireless 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
+bootanim 0 light-ring animation while booting
+usbaudio 0 USB speakerphone: the Echo appears as a sound card on the USB host
+telnet 0 root shell without authentication on port 23 of the USB network
+wireless 0 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
 '
 
 # feature key default allowed description
@@ -42,8 +46,39 @@ default_of() {
 	echo "$FEATURES" | awk -v n="$1" '$1 == n { print $2; found = 1 } END { exit !found }'
 }
 
+conf_get() { # key -> last value in the file, empty if none
+	[ -r "$CONF" ] || return 0
+	awk -v k="$1" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) } END { print v }' "$CONF"
+}
+
+# The file may sit on a filesystem mounted read-only (the test image mounts
+# the booted slot that way): open it for writing only around the change.
+conf_put() { # key [value]: replace the entry, or remove it without value
+	dir=${CONF%/*}
+	# Without the directory the slot is not mounted; writing would land in
+	# RAM and be lost at reboot.
+	[ -d "$dir" ] || {
+		echo "$dir: no such directory (booted slot not mounted? needs lidar.slot=a|b on the kernel command line)" >&2
+		return 1
+	}
+	mnt=$(df -P "$dir" 2>/dev/null | awk 'NR == 2 { print $6 }')
+	ro=
+	if [ -n "$mnt" ] && awk -v m="$mnt" '$2 == m && $4 ~ /(^|,)ro(,|$)/ { f = 1 } END { exit !f }' /proc/mounts; then
+		mount -o remount,rw "$mnt" || return 1
+		ro=1
+	fi
+	{
+		[ -f "$CONF" ] && awk -v k="$1" 'index($0, k "=") != 1' "$CONF"
+		[ $# -lt 2 ] || echo "$1=$2"
+	} > "$CONF.new" && mv "$CONF.new" "$CONF" && sync
+	rc=$?
+	[ $rc -eq 0 ] || rm -f "$CONF.new"
+	[ -z "$ro" ] || mount -o remount,ro "$mnt"
+	return $rc
+}
+
 value_of() { # name -> 0/1
-	v=$(fw_printenv -n "lidar_feature_$1" 2>/dev/null)
+	v=$(conf_get "feature.$1")
 	case $v in
 	0 | 1) echo "$v" ;;
 	*) default_of "$1" ;;
@@ -92,17 +127,8 @@ valid() { # allowed value
 }
 
 setting_value() { # feature key default allowed -> value in effect
-	v=$(fw_printenv -n "lidar_setting_$1_$2" 2>/dev/null)
+	v=$(conf_get "$1.$2")
 	if valid "$4" "$v"; then echo "$v"; else echo "$3"; fi
-}
-
-# On a never-saved environment fw_setenv would write its built-in default,
-# which lacks this U-Boot's boot commands.
-need_env() {
-	fw_printenv -n lidar_slot >/dev/null 2>&1 || {
-		echo "U-Boot environment in misc is not initialised; run 'saveenv' in U-Boot first" >&2
-		exit 1
-	}
 }
 
 case $1 in
@@ -120,11 +146,10 @@ enabled)
 	;;
 enable | disable | reset)
 	need_name "$2"
-	need_env
 	case $1 in
-	enable) fw_setenv "lidar_feature_$2" 1 && echo "$2: enabled (takes effect on next boot)" ;;
-	disable) fw_setenv "lidar_feature_$2" 0 && echo "$2: disabled (takes effect on next boot)" ;;
-	reset) fw_setenv "lidar_feature_$2" && echo "$2: back to default" ;;
+	enable) conf_put "feature.$2" 1 && echo "$2: enabled (takes effect on next boot)" ;;
+	disable) conf_put "feature.$2" 0 && echo "$2: disabled (takes effect on next boot)" ;;
+	reset) conf_put "feature.$2" && echo "$2: back to default" ;;
 	esac
 	;;
 settings)
@@ -148,16 +173,14 @@ set)
 		echo "invalid value '$4' for $2 $3 (allowed: $ALLOWED)" >&2
 		exit 2
 	}
-	need_env
-	fw_setenv "lidar_setting_$2_$3" "$4" && echo "$2 $3: $4 (takes effect on next boot)"
+	conf_put "$2.$3" "$4" && echo "$2 $3: $4 (takes effect on next boot)"
 	;;
 unset)
 	need_setting "$2" "$3"
-	need_env
-	fw_setenv "lidar_setting_$2_$3" && echo "$2 $3: back to default (${DEF:-unset})"
+	conf_put "$2.$3" && echo "$2 $3: back to default (${DEF:-unset})"
 	;;
 *)
-	sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

@@ -41,7 +41,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | **Software** | | |
 | Voice assistant | ✅ Alexa | 🛠️ local userspace, e.g. a Home Assistant voice satellite |
 | USB speakerphone for a PC | ➖ | ✅ USB Audio Class 2: speaker and 6-mic mono capture; echo cancellation planned |
-| Opt-out switches for add-ons | n/a | ✅ `lidar-feature` |
+| Add-ons, opt-in with settings | n/a | ✅ `lidar-feature`, all off by default |
 | Alexa cloud services | ✅ | ➖ |
 | Kernel and U-Boot upstreaming | n/a | 🛠️ patch series drafted |
 
@@ -118,7 +118,7 @@ decompression.
 | `tools/alpine-fetch.py` | installs Alpine aarch64 packages into the test initramfs |
 | `tools/devmem.c`, `tools/lidar-regdump.sh` | register access and a diffable dump of the SoC state for bring-up |
 | `tools/lidar-bootanim.sh` | light-ring boot animation: twin comets over a drifting colour wheel, then a rainbow sweep and fade when boot completes |
-| `tools/lidar-feature.sh` | per-add-on on/off switches and settings stored in the U-Boot environment |
+| `tools/lidar-feature.sh` | per-add-on switches and settings in `/etc/lidar.conf` (all off by default) |
 | `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
 | `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
 
@@ -173,11 +173,11 @@ workaround while not every clock consumer is described in the DT.
 3. **Shell.** The test system exports a root shell on a USB ACM gadget
    (`/dev/ttyACM0` on Linux hosts, a COM port on Windows). It also exports a
    USB NCM network interface: the device is `169.254.7.2/16`, so give the
-   host's interface any other link-local address. A second root shell
-   without authentication listens on `telnet 169.254.7.2`, for when the
-   serial shell is busy. It is bound to that address, not to the USB
-   interface, so it is also reachable from the Wi-Fi network once `wlan0` is
-   up: do not join untrusted networks with the test image.
+   host's interface any other link-local address. If the `telnet` add-on is
+   on (the test image enables it), a second root shell without
+   authentication listens on `telnet 169.254.7.2` for when the serial shell
+   is busy. By default it only accepts connections arriving on `usb0`; see
+   `telnet listen` under Add-ons.
 
 **Previous boot's log:** after a warm reboot or a kernel panic (the kernel
 reboots 10 s after a panic), `/sys/fs/pstore/` holds the previous boot's
@@ -189,36 +189,49 @@ area.
 **Recovery:** hold **Action** while plugging in, then
 `fastboot flash boot_a <your boot_a dump>` restores the stock boot path.
 
-## Add-ons and how to opt out
+## Add-ons
 
-Everything on top of the base system can be switched off. Each add-on is a
-U-Boot environment variable `lidar_feature_<name>` (0 or 1) in `misc`. Both
-slots share it, so a choice survives updates and slot switches.
+Add-ons sit on top of the base system and are all **off by default**. An OS
+image, or its owner, opts in. The switches and settings live in
+`/etc/lidar.conf` on the root filesystem of the slot that booted, one
+`key=value` per line: `feature.<name>=0|1` and `<name>.<key>=<value>`. This
+file belongs to the OS. The U-Boot environment in `misc` only holds boot
+state (`lidar_slot`, `bootcount`, `upgrade_available`). Because the file is
+per slot, an updater that wants to keep the owner's choices copies it into
+the new slot.
+
+Earlier builds stored these in the U-Boot environment
+(`lidar_feature_*`, `lidar_setting_*`); those variables are ignored now.
+Flashing a slot's image replaces its `/etc/lidar.conf`, so the image's
+opt-ins (telnet included) come back. Changing an add-on needs a shell on the
+device, or editing the file in the image before flashing.
+
+The test image ships an `/etc/lidar.conf` that enables `bootanim`,
+`usbaudio`, `telnet` and `wireless`. U-Boot passes the booted slot as
+`lidar.slot=${lidar_slot}` on the kernel command line, and the test image
+mounts that slot read-only at `/media/system`.
 
 ```sh
 lidar-feature list                 # current state and defaults
 lidar-feature disable usbaudio     # takes effect on the next boot
-lidar-feature reset usbaudio       # back to the default
-fastboot oem run:"setenv lidar_feature_usbaudio 0; saveenv"   # without Linux
+lidar-feature reset usbaudio       # back to the default (off)
 ```
 
 | Feature | Default | What it does |
 |---|---|---|
-| `bootanim` | on | light-ring animation while booting |
-| `usbaudio` | on | USB speakerphone (below) |
-| `telnet` | on | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
-| `wireless` | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
+| `bootanim` | off | light-ring animation while booting |
+| `usbaudio` | off | USB speakerphone (below) |
+| `telnet` | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
+| `wireless` | off | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
 
-Add-ons have settings, stored the same way as
-`lidar_setting_<feature>_<key>`. Invalid values are refused, and a variable
-that is unset or invalid means the default.
+Settings are refused if invalid, and a missing or invalid entry means the
+default.
 
 ```sh
 lidar-feature settings [feature]          # values in effect, defaults, allowed
 lidar-feature get telnet listen           # prints the value in effect
 lidar-feature set wireless country DE     # takes effect on the next boot
 lidar-feature unset wireless country      # back to the default
-fastboot oem run:"setenv lidar_setting_telnet_listen usb; saveenv"   # without Linux
 ```
 
 | Setting | Default | Allowed | What it does |
