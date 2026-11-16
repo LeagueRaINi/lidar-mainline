@@ -40,6 +40,8 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Temperature sensors | ✅ | ✅ |
 | **Software** | | |
 | Voice assistant | ✅ Alexa | 🛠️ local userspace, e.g. a Home Assistant voice satellite |
+| USB speakerphone for a PC | ➖ | ✅ USB Audio Class 2: speaker and 6-mic mono capture; echo cancellation planned |
+| Opt-out switches for add-ons | n/a | ✅ `lidar-feature` |
 | Alexa cloud services | ✅ | ➖ |
 | Kernel and U-Boot upstreaming | n/a | 🛠️ patch series drafted |
 
@@ -116,6 +118,9 @@ decompression.
 | `tools/alpine-fetch.py` | installs Alpine aarch64 packages into the test initramfs |
 | `tools/devmem.c`, `tools/lidar-regdump.sh` | register access and a diffable dump of the SoC state for bring-up |
 | `tools/lidar-bootanim.sh` | light-ring boot animation: twin comets over a drifting colour wheel, then a rainbow sweep and fade when boot completes |
+| `tools/lidar-feature.sh` | per-add-on on/off switches and settings stored in the U-Boot environment |
+| `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
+| `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -183,6 +188,93 @@ area.
 
 **Recovery:** hold **Action** while plugging in, then
 `fastboot flash boot_a <your boot_a dump>` restores the stock boot path.
+
+## Add-ons and how to opt out
+
+Everything on top of the base system can be switched off. Each add-on is a
+U-Boot environment variable `lidar_feature_<name>` (0 or 1) in `misc`. Both
+slots share it, so a choice survives updates and slot switches.
+
+```sh
+lidar-feature list                 # current state and defaults
+lidar-feature disable usbaudio     # takes effect on the next boot
+lidar-feature reset usbaudio       # back to the default
+fastboot oem run:"setenv lidar_feature_usbaudio 0; saveenv"   # without Linux
+```
+
+| Feature | Default | What it does |
+|---|---|---|
+| `bootanim` | on | light-ring animation while booting |
+| `usbaudio` | on | USB speakerphone (below) |
+| `telnet` | on | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
+| `wireless` | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
+
+Add-ons have settings, stored the same way as
+`lidar_setting_<feature>_<key>`. Invalid values are refused, and a variable
+that is unset or invalid means the default.
+
+```sh
+lidar-feature settings [feature]          # values in effect, defaults, allowed
+lidar-feature get telnet listen           # prints the value in effect
+lidar-feature set wireless country DE     # takes effect on the next boot
+lidar-feature unset wireless country      # back to the default
+fastboot oem run:"setenv lidar_setting_telnet_listen usb; saveenv"   # without Linux
+```
+
+| Setting | Default | Allowed | What it does |
+|---|---|---|---|
+| `telnet listen` | `usb` | `usb`, `any` | `usb`: only connections arriving on `usb0` are accepted. `any`: every interface, so the passwordless root shell is open to the Wi-Fi network too |
+| `wireless bluetooth` | `on` | `on`, `off` | `off`: the Bluetooth driver (`btmtksdio`) is not loaded |
+| `wireless country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
+| `usbaudio speaker_volume` | 47 | 0-127 | `PCM Playback Volume` in 0.5 dB steps: 47 is -40 dB, 127 is 0 dB (full scale, loud) |
+| `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
+| `usbaudio keepalive` | `on` | `on`, `off` | `off`: no silent keep-alive stream, and the speaker output only opens while the host plays. No idle hiss, but a pop and up to a second of lost audio at the start of each stream |
+
+- The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
+  (`tools/lidar-listen.c`), not a packet filter: the kernel only matches
+  the listener for connections that come in on `usb0`, whatever address
+  they are sent to. If `usb0` is missing, telnet does not start. The USB
+  host, and whatever that host forwards onto the USB network, still gets a
+  root shell without a password. Not yet verified on hardware.
+- The two audio levels are applied when the speakerphone starts
+  (`lidar-usbaudio start`), so they need the `usbaudio` add-on.
+- `wireless country` and `usbaudio keepalive off` have not been tried on
+  hardware.
+
+### USB speakerphone
+
+The USB host sees the Echo as a USB Audio Class 2 sound card, with no driver
+needed: "Speakers (Echo Plus speakerphone)" and "Microphone (Echo Plus
+speakerphone)" on Windows. PC audio plays on the Echo speaker (verified by
+ear), and mics 1-6 summed to mono come back as the microphone, both at
+48 kHz.
+`lidar-usbaudio start|stop|status` controls it at runtime.
+
+- The audio function is added next to the serial shell and network. If the
+  host had configured the gadget before but does not configure it again
+  within about 15 s, the function is removed and the shell and network come
+  back. This rollback path has not been exercised on hardware.
+- The codec output never closes while the speakerphone exists, just as
+  stock keeps its output open between sounds. A silent keep-alive stream
+  feeds `dmix`, and the bridge from the gadget mixes into it, so the codec
+  and amplifier don't power-cycle and pop. Starting the output per stream
+  had cut off short sounds and popped at each start. Expect a faint amplifier
+  hiss, as on stock. The mic pipe (the six-mic mix) only runs while the host
+  records, which the gadget's `Playback Rate` control reports.
+- Two USB kernel fixes in `drivers/usb/musb/musb_gadget.c`:
+  - Isochronous transfers through MUSB's Inventra DMA failed (IN produced no
+    packets; root cause unknown), so isochronous endpoints use PIO.
+  - Isochronous packets that fail their CRC (`DATAERROR`) are dropped
+    instead of being passed on with a garbage length. That had shifted the
+    PC-to-Echo stream by single bytes, which played as static. Each drop
+    costs 1 ms of audio. Over the pogo-pin connection to the test pads they
+    happen several times per second, which a soldered, twisted D+/D- pair
+    should reduce.
+- Not yet done:
+  - echo cancellation, beamforming and noise suppression
+  - mapping the host's volume slider to the speaker
+  - clock-drift compensation: the mic and USB clocks are independent, so
+    latency can creep up to about 0.7 s before the pipe resets
 
 ## U-Boot behaviour
 
