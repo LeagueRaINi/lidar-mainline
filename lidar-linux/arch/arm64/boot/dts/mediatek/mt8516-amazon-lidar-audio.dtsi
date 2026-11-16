@@ -96,9 +96,10 @@
 		ldoin-supply = <&vcc33>;
 		/*
 		 * MFP4 and MFP5 are general purpose outputs. MFP5 mutes the
-		 * speaker amplifier when driven high.
+		 * speaker amplifier when driven high: it starts high (muted)
+		 * and the machine driver releases it once the DAC is up.
 		 */
-		aic32x4-gpio-func = <0xff 0xff 0xff 0x04 0x0c>;
+		aic32x4-gpio-func = <0xff 0xff 0xff 0x04 0x0d>;
 	};
 };
 

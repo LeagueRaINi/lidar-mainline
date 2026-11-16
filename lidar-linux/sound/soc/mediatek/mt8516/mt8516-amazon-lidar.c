@@ -7,6 +7,7 @@
  * Derived from the MediaTek/Amazon mt8167 driver in Amazon's GPL release.
  */
 
+#include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -14,6 +15,16 @@
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
 
+#include "../../codecs/tlv320aic32x4.h"
+
+/*
+ * The DAC's MFP5 pin mutes the speaker amplifier when high. Without it the
+ * DAC's power-up and power-down transients reach the speaker as pops. The
+ * DAC comes up with MFP5 high (aic32x4-gpio-func); the amplifier is only
+ * unmuted once the DAC output has settled, and muted again before anything
+ * powers down.
+ */
+#define LIDAR_AMP_SETTLE_MS	100
 /* Every microphone ADC fills two 32 bit slots of the TDM frame. */
 #define LIDAR_MIC_SLOT_WIDTH	32
 #define LIDAR_MIC_MAX_CODECS	4
@@ -40,13 +51,33 @@ struct lidar_priv {
 	unsigned int route;
 };
 
+static void lidar_amp_mute(struct snd_soc_card *card, bool mute)
+{
+	struct snd_soc_dai *dai = snd_soc_card_get_codec_dai(card, "tlv320aic32x4-hifi");
+
+	if (!dai) {
+		dev_err(card->dev, "DAC not found, speaker amplifier stays muted\n");
+		return;
+	}
+	snd_soc_component_update_bits(dai->component, AIC32X4_GPIOCTL,
+				      AIC32X4_MFP5_GPIO_OUT_HIGH,
+				      mute ? AIC32X4_MFP5_GPIO_OUT_HIGH : 0);
+}
+
 static int lidar_amp_event(struct snd_soc_dapm_widget *w,
 			   struct snd_kcontrol *kcontrol, int event)
 {
 	struct snd_soc_card *card = snd_soc_dapm_to_card(w->dapm);
 	struct lidar_priv *priv = snd_soc_card_get_drvdata(card);
 
-	gpiod_set_value_cansleep(priv->amp_gpio, SND_SOC_DAPM_EVENT_ON(event));
+	if (SND_SOC_DAPM_EVENT_ON(event)) {
+		gpiod_set_value_cansleep(priv->amp_gpio, 1);
+		msleep(LIDAR_AMP_SETTLE_MS);
+		lidar_amp_mute(card, false);
+	} else {
+		lidar_amp_mute(card, true);
+		gpiod_set_value_cansleep(priv->amp_gpio, 0);
+	}
 
 	return 0;
 }
@@ -56,23 +87,88 @@ static int lidar_amp_event(struct snd_soc_dapm_widget *w,
  * 3.5 mm jack. The endpoint that is not selected is disabled, and the
  * speaker endpoint (and so the amplifier) is powered down before the switch
  * moves away from it.
+ *
+ * The speaker is a two-way system: the left DAC channel drives the woofer
+ * and the right one the tweeter, through a crossover in the DAC's biquads.
+ * Both channels then play the mono mix of the stream. These are the
+ * coefficients Amazon's firmware loads for its speaker path: a low-pass with
+ * inverted polarity for the woofer (-3.5 dB at 1 kHz) and a fourth order
+ * high-pass for the tweeter (-3.4 dB at 3 kHz). Without them the tweeter
+ * would get the full band, bass included. The jack gets plain stereo.
  */
+static const u8 lidar_speaker_biquads[AIC32X4_BIQUAD_BYTES] = {
+	/* left: woofer low-pass, polarity inverted, pass-through */
+	0x00, 0x74, 0x50, 0x00, 0x74, 0x50, 0x00, 0x74, 0x50, 0x74, 0xc4, 0xcc, 0x94, 0xa5, 0x24,
+	0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x7f, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	/* right: tweeter high-pass, twice, pass-through */
+	0x65, 0x86, 0x3b, 0x9a, 0x79, 0xc5, 0x65, 0x86, 0x3b, 0x62, 0xc1, 0xc9, 0xaf, 0x6a, 0xa2,
+	0x65, 0x86, 0x3b, 0x9a, 0x79, 0xc5, 0x65, 0x86, 0x3b, 0x62, 0xc1, 0xc9, 0xaf, 0x6a, 0xa2,
+	0x7f, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+/* Three pass-through biquads (N0 = 1.0) per channel */
+static void lidar_flat_biquads(u8 *c)
+{
+	memset(c, 0, AIC32X4_BIQUAD_BYTES);
+	for (int i = 0; i < AIC32X4_BIQUAD_BYTES; i += 15) {
+		c[i] = 0x7f;
+		c[i + 1] = 0xff;
+		c[i + 2] = 0xff;
+	}
+}
+
+/* Set a DAC control through its kcontrol, so the codec driver keeps owning it */
+static int lidar_dac_ctl(struct snd_soc_card *card, const char *name,
+			 const u8 *bytes, long value)
+{
+	struct snd_kcontrol *kctl = snd_soc_card_get_kcontrol(card, name);
+	struct snd_ctl_elem_value *v;
+	int ret;
+
+	if (!kctl)
+		return -ENOENT;
+	v = kzalloc_obj(*v, GFP_KERNEL);
+	if (!v)
+		return -ENOMEM;
+	if (bytes)
+		memcpy(v->value.bytes.data, bytes, AIC32X4_BIQUAD_BYTES);
+	else
+		v->value.integer.value[0] = value;
+	ret = kctl->put(kctl, v);
+	kfree(v);
+	if (ret > 0)
+		snd_ctl_notify(card->snd_card, SNDRV_CTL_EVENT_MASK_VALUE, &kctl->id);
+
+	return ret < 0 ? ret : 0;
+}
+
 static int lidar_apply_route(struct snd_soc_card *card, unsigned int route)
 {
 	struct snd_soc_dapm_context *dapm = snd_soc_card_to_dapm(card);
 	struct lidar_priv *priv = snd_soc_card_get_drvdata(card);
+	u8 flat[AIC32X4_BIQUAD_BYTES];
+	bool speaker = route == LIDAR_OUTPUT_SPEAKER;
+	int ret;
 
-	if (route == LIDAR_OUTPUT_SPEAKER) {
-		snd_soc_dapm_disable_pin(dapm, "Line Out");
-		snd_soc_dapm_sync(dapm);
-		gpiod_set_value_cansleep(priv->mux_gpio, 1);
-		snd_soc_dapm_enable_pin(dapm, "Speaker");
-	} else {
-		snd_soc_dapm_disable_pin(dapm, "Speaker");
-		snd_soc_dapm_sync(dapm);
-		gpiod_set_value_cansleep(priv->mux_gpio, 0);
-		snd_soc_dapm_enable_pin(dapm, "Line Out");
+	snd_soc_dapm_disable_pin(dapm, speaker ? "Line Out" : "Speaker");
+	snd_soc_dapm_sync(dapm);
+
+	/* Takes effect now if the DACs are off, else at their next power-up */
+	lidar_flat_biquads(flat);
+	ret = lidar_dac_ctl(card, "DAC Biquad Coefficients",
+			    speaker ? lidar_speaker_biquads : flat, 0);
+	if (!ret)
+		ret = lidar_dac_ctl(card, "DAC Mono Mix Switch", NULL, speaker);
+	if (ret) {
+		/* Never drive the tweeter without its high-pass */
+		dev_err(card->dev, "cannot set the DAC filters: %d\n", ret);
+		if (speaker)
+			return ret;
 	}
+
+	gpiod_set_value_cansleep(priv->mux_gpio, speaker);
+	snd_soc_dapm_enable_pin(dapm, speaker ? "Speaker" : "Line Out");
 	priv->route = route;
 
 	return snd_soc_dapm_sync(dapm);
@@ -125,21 +221,33 @@ static const struct snd_soc_dapm_widget lidar_widgets[] = {
 	SND_SOC_DAPM_LINE("Line Out", NULL),
 };
 
+/* As on Amazon's firmware: line-out drivers for the speaker, headphone drivers for the jack */
 static const struct snd_soc_dapm_route lidar_routes[] = {
-	{"Speaker", NULL, "HPL"},
-	{"Speaker", NULL, "HPR"},
 	{"Speaker", NULL, "LOL"},
 	{"Speaker", NULL, "LOR"},
 	{"Line Out", NULL, "HPL"},
 	{"Line Out", NULL, "HPR"},
-	{"Line Out", NULL, "LOL"},
-	{"Line Out", NULL, "LOR"},
 };
 
 static int lidar_late_probe(struct snd_soc_card *card)
 {
 	return lidar_apply_route(card, LIDAR_OUTPUT_SPEAKER);
 }
+
+/*
+ * The crossover coefficients are designed for 48 kHz; at other rates its
+ * corners move (at 16 kHz the tweeter high-pass would drop to about 1 kHz),
+ * so playback runs at 48 kHz only.
+ */
+static int lidar_playback_startup(struct snd_pcm_substream *substream)
+{
+	return snd_pcm_hw_constraint_single(substream->runtime,
+					    SNDRV_PCM_HW_PARAM_RATE, 48000);
+}
+
+static const struct snd_soc_ops lidar_playback_ops = {
+	.startup = lidar_playback_startup,
+};
 
 /*
  * The DAC always gets the full rate master clock of the sample rate family,
@@ -267,6 +375,7 @@ static struct snd_soc_dai_link lidar_dai_links[] = {
 		.playback_only = 1,
 		.dpcm_merged_format = 1,
 		.dpcm_merged_rate = 1,
+		.ops = &lidar_playback_ops,
 		SND_SOC_DAILINK_REG(playback),
 	},
 	[DAI_LINK_MIC_CAPTURE] = {
