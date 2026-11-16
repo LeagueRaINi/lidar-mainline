@@ -35,14 +35,14 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Zigbee hub (EFR32) | ✅ Amazon firmware | 🛠️ chip alive in its bootloader; needs a Silicon Labs RCP/NCP image |
 | Thread border router (EFR32) | ✅ | 🛠️ same chip and firmware as Zigbee |
 | **Interface and sensors** | | |
-| LED ring (12 RGB) | ✅ | ✅ including a boot animation |
+| LED ring (12 RGB) | ✅ | ✅ boot animation; red while the mics are muted, volume arc (`ring` service) |
 | Buttons, mic mute, privacy latch | ✅ | ✅ |
 | Ambient light sensor | ✅ | ✅ relative readings (no lux calibration) |
 | Temperature sensors | ✅ | ✅ |
 | **Software** | | |
 | Voice assistant | ✅ Alexa | 🛠️ local userspace, e.g. a Home Assistant voice satellite |
 | USB speakerphone for a PC | ➖ | ✅ USB Audio Class 2: speaker and 6-mic mono capture; echo cancellation planned |
-| Add-ons, opt-in with settings | n/a | ✅ `lidar-feature`, all off by default |
+| Services, with settings | n/a | ✅ `lidar-feature`: core services on, extras off by default |
 | Alexa cloud services | ✅ | ➖ |
 | Kernel and U-Boot upstreaming | n/a | 🛠️ patch series drafted |
 
@@ -119,10 +119,11 @@ decompression.
 | `tools/alpine-fetch.py` | installs Alpine aarch64 packages into the test initramfs |
 | `tools/devmem.c`, `tools/lidar-regdump.sh` | register access and a diffable dump of the SoC state for bring-up |
 | `tools/lidar-bootanim.sh` | light-ring boot animation: twin comets over a drifting colour wheel, then a rainbow sweep and fade when boot completes |
-| `tools/lidar-feature.sh` | per-add-on switches and settings in `/etc/lidar.conf` (all off by default) |
+| `tools/lidar-feature.sh` | service switches (core on, extras off by default) and settings in `/etc/lidar.conf` |
 | `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
 | `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
+| `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -175,11 +176,11 @@ workaround while not every clock consumer is described in the DT.
 3. **Shell.** The test system exports a root shell on a USB ACM gadget
    (`/dev/ttyACM0` on Linux hosts, a COM port on Windows). It also exports a
    USB NCM network interface: the device is `169.254.7.2/16`, so give the
-   host's interface any other link-local address. If the `telnet` add-on is
+   host's interface any other link-local address. If the `telnet` extra is
    on (the test image enables it), a second root shell without
    authentication listens on `telnet 169.254.7.2` for when the serial shell
    is busy. By default it only accepts connections arriving on `usb0`; see
-   `telnet listen` under Add-ons.
+   `telnet listen` under Services.
 
 **Previous boot's log:** after a warm reboot or a kernel panic (the kernel
 reboots 10 s after a panic), `/sys/fs/pstore/` holds the previous boot's
@@ -191,41 +192,50 @@ area.
 **Recovery:** hold **Action** while plugging in, then
 `fastboot flash boot_a <your boot_a dump>` restores the stock boot path.
 
-## Add-ons
+## Services
 
-Add-ons sit on top of the base system and are all **off by default**. An OS
-image, or its owner, opts in. The switches and settings live in
-`/etc/lidar.conf` on the root filesystem of the slot that booted, one
-`key=value` per line: `feature.<name>=0|1` and `<name>.<key>=<value>`. This
-file belongs to the OS. The U-Boot environment in `misc` only holds boot
-state (`lidar_slot`, `bootcount`, `upgrade_available`). Because the file is
-per slot, an updater that wants to keep the owner's choices copies it into
-the new slot.
+Services sit on top of the base system, in two groups:
+
+- **Core** services give the stock behaviour: system volume, LED ring,
+  wireless and the boot animation. They are **on by default**. A system that
+  brings its own (its own volume handling or LED daemon, say) turns the
+  matching service off so the two do not fight over the same controls.
+- **Extras** are tools for development and testing: the USB speakerphone
+  and a passwordless telnet shell. They are **off by default**.
+
+The switches and settings live in `/etc/lidar.conf` on the root filesystem
+of the slot that booted, one `key=value` per line: `feature.<name>=0|1` and
+`<name>.<key>=<value>`. This file belongs to the OS. The U-Boot environment
+in `misc` only holds boot state (`lidar_slot`, `bootcount`,
+`upgrade_available`). Because the file is per slot, an updater that wants
+to keep the owner's choices copies it into the new slot.
 
 Earlier builds stored these in the U-Boot environment
 (`lidar_feature_*`, `lidar_setting_*`); those variables are ignored now.
 Flashing a slot's image replaces its `/etc/lidar.conf`, so the image's
-opt-ins (telnet included) come back. Changing an add-on needs a shell on the
-device, or editing the file in the image before flashing.
+choices (telnet included) come back. Changing a service needs a shell on
+the device, or editing the file in the image before flashing.
 
-The test image ships an `/etc/lidar.conf` that enables `bootanim`,
-`usbaudio`, `telnet`, `wireless` and `volume`. U-Boot passes the booted slot as
+The test image ships an `/etc/lidar.conf` that also enables the `usbaudio`
+and `telnet` extras. U-Boot passes the booted slot as
 `lidar.slot=${lidar_slot}` on the kernel command line, and the test image
-mounts that slot read-only at `/media/system`.
+mounts that slot read-only at `/media/system`. If it cannot, the defaults
+apply.
 
 ```sh
-lidar-feature list                 # current state and defaults
+lidar-feature list                 # group, current state and defaults
 lidar-feature disable usbaudio     # takes effect on the next boot
 lidar-feature reset usbaudio       # back to the default (off)
 ```
 
-| Feature | Default | What it does |
-|---|---|---|
-| `bootanim` | off | light-ring animation while booting |
-| `usbaudio` | off | USB speakerphone (below) |
-| `telnet` | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
-| `wireless` | off | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
-| `volume` | off | system volume for the speaker (below) |
+| Service | Group | Default | What it does |
+|---|---|---|---|
+| `bootanim` | core | on | light-ring animation while booting |
+| `volume` | core | on | system volume for the speaker (below) |
+| `ring` | core | on | LED ring after boot: red while the mics are muted, volume changes (below) |
+| `wireless` | core | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
+| `usbaudio` | extra | off | USB speakerphone (below) |
+| `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -244,8 +254,10 @@ lidar-feature unset wireless country      # back to the default
 | `wireless country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
 | `volume max_attenuation` | 0 | 0-60 | cap in dB: full volume is this far below the codec's 0 dB. 0 is Amazon's maximum; raise it to keep the speaker quieter |
 | `volume initial` | 30 | 0-100 | volume at boot, in percent of the range up to the cap |
+| `volume ring` | `on` | `on`, `off` | show volume changes on the LED ring (needs the `ring` service) |
+| `volume sound` | `on` | `on`, `off` | short tone at the new level when the volume buttons change it |
+| `volume keepalive` | `on` | `on`, `off` | `off`: no silent stream holding the speaker output open. No idle amplifier hiss, but every sound then clicks at its start and end |
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
-| `usbaudio keepalive` | `on` | `on`, `off` | `off`: no silent keep-alive stream, and the speaker output only opens while the host plays. No idle amplifier hiss, but up to a second of the start of each stream is lost |
 
 - The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
   (`tools/lidar-listen.c`), not a packet filter: the kernel only matches
@@ -254,14 +266,14 @@ lidar-feature unset wireless country      # back to the default
   host, and whatever that host forwards onto the USB network, still gets a
   root shell without a password. Not yet verified on hardware.
 - `usbaudio mic_gain` is applied when the speakerphone starts
-  (`lidar-usbaudio start`). An old `usbaudio.speaker_volume` line in
-  `lidar.conf` is ignored: speaker volume belongs to the `volume` add-on.
-- `wireless country` and `usbaudio keepalive off` have not been tried on
-  hardware.
+  (`lidar-usbaudio start`). Old `usbaudio.speaker_volume` and
+  `usbaudio.keepalive` lines in `lidar.conf` are ignored: speaker volume and
+  the keep-alive belong to the `volume` service.
+- `wireless country` has not been tried on hardware.
 
 ### System volume
 
-`lidar-volume` (the `volume` add-on) owns one speaker volume and mute, applied
+`lidar-volume` (the `volume` service) owns one speaker volume and mute, applied
 to the codec's `PCM Playback Volume` in 0.5 dB steps from silent up to the
 safety cap. Everything that changes volume feeds the same state:
 
@@ -269,14 +281,38 @@ safety cap. Everything that changes volume feeds the same state:
   whose steps are the codec's steps, so the host's own volume curve applies
   unchanged. Changes made on the Echo are reported back, so the host's slider
   follows them.
-- **Volume buttons:** 3 dB per press.
+- **Volume buttons:** 3 dB per press; holding repeats after 0.4 s, one step
+  every 0.15 s. A short 520 Hz tone plays at the new level on the press and,
+  after a hold, once at the final level, as on stock. Host slider changes
+  stay silent: the host plays its own sound.
 - **Command line:** `lidar-volume get | set <percent> | up | down | mute |
   unmute | toggle`. Other sources, such as Bluetooth absolute volume, can send
   the same commands later.
 
-Without the `volume` add-on the speaker stays at the test image's base level
+With the `ring` service, every change shows as a white arc on the LED ring
+(the leading LED dims in between, so each step is visible; one dim red LED
+when the speaker is muted), which goes back to the ring's normal state 2 s
+after the last change.
+
+The service also holds the speaker output open with a silent stream, as stock
+keeps its output open between sounds. Measured with the Echo's own mics:
+every time the codec stream starts or stops, it clicks, either because the
+SoC stops the DAC's clocks or, if the amplifier is muted around that,
+because the amplifier's mute pin itself clicks when it switches. With the
+stream held open, sounds start at once and without clicks. Expect a faint
+amplifier hiss, as on stock.
+
+Without the `volume` service the speaker stays at the test image's base level
 (-40 dB), and the USB host gets no hardware volume, so it scales the audio
 itself.
+
+### LED ring
+
+`lidar-ring` (the `ring` service) owns the LED ring once the boot animation
+is done. As on stock, the whole ring is red while the microphones are muted
+by the privacy button (the button's own red LED is switched by the hardware
+latch). Other programs show short overlays through `/run/lidar-ring.fifo`;
+`lidar-volume` uses it for the volume arc.
 
 ### USB speakerphone
 
@@ -291,11 +327,12 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
   host had configured the gadget before but does not configure it again
   within about 15 s, the function is removed and the shell and network come
   back. This rollback path has not been exercised on hardware.
-- By default the codec output never closes while the speakerphone exists,
-  just as stock keeps its output open between sounds. A silent keep-alive
-  stream feeds `dmix` and the bridge from the gadget mixes into it, so short
-  sounds start at once. Expect a faint amplifier hiss, as on stock. The mic
-  pipe (the six-mic mix) only runs while the host records, which the gadget's
+- With the `volume` service's keep-alive on (the default), the speaker pipe
+  stays up while the speakerphone exists, mixed into the speaker output that
+  `lidar-volume` holds open, so short sounds start at once. Without it the
+  pipe only runs while the host plays: no idle hiss, but each stream clicks
+  at start and end and loses up to a second of its start. The mic pipe (the
+  six-mic mix) only runs while the host records, which the gadget's
   `Playback Rate` control reports.
 - Two USB kernel fixes in `drivers/usb/musb/musb_gadget.c`:
   - Isochronous transfers through MUSB's Inventra DMA failed (IN produced no
@@ -308,7 +345,6 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
     should reduce.
 - Not yet done:
   - echo cancellation, beamforming and noise suppression
-  - volume buttons (`lidar-volume`) not yet tried on hardware
   - clock-drift compensation: the mic and USB clocks are independent, so
     latency can creep up to about 0.7 s before the pipe resets
 
@@ -370,7 +406,7 @@ From the test system's shell:
 ### Speaker tests
 
 Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB), or
-`lidar-volume set 20` with the `volume` add-on. The test image sets the
+`lidar-volume set 20` with the `volume` service. The test image sets the
 output drivers as Amazon does (line-out 0 dB, headphone +5 dB), so PCM
 volume 127 (0 dB) is the speaker's full stock loudness.
 

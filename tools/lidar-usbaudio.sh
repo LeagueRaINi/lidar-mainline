@@ -34,8 +34,7 @@ bind() {
 }
 
 # The gadget reports the rate the host selected, or 0 while it is not
-# streaming. By default the speaker output stays open while the function
-# exists: starting it per stream cut off the start of short sounds. The mic
+# streaming. The speaker pipe stays up while the function exists; the mic
 # pipe (six-mic mix) only runs while the host records.
 # Plain blocking arecord|aplay pipes sleep in the kernel instead of polling.
 rate() {
@@ -57,7 +56,7 @@ pipe_stop() { # kill the whole pipeline: its process group
 
 # Owner's mic level (lidar-feature settings usbaudio), on top of init's base
 # audio setup. An unreadable setting leaves the base level alone. Speaker
-# volume belongs to the volume add-on (lidar-volume).
+# volume belongs to the volume service (lidar-volume).
 levels() {
 	v=$(lidar-feature get usbaudio mic_gain) && [ -n "$v" ] &&
 		for n in 1 2 3 4; do
@@ -65,7 +64,7 @@ levels() {
 		done
 }
 
-# Host volume for the speaker direction. With the volume add-on the gadget
+# Host volume for the speaker direction. With the volume service the gadget
 # offers a hardware volume whose steps are the codec's 0.5 dB steps up to
 # the safety cap, so the host's own volume curve applies unchanged and
 # lidar-volume copies the value to the codec. Without it the gadget offers
@@ -96,16 +95,15 @@ pipe_while_streaming() { # name direction command
 }
 
 supervise() {
-	# Silence keeps the codec stream open through dmix, as stock keeps its
-	# output open, so short sounds start at once. The bridge mixes into the
-	# same dmix; its aplay stays open and only the reader restarts: reading
-	# the gadget fails with EIO whenever the host is not streaming.
-	# With the keepalive setting off there is no silence stream and the
-	# bridge only runs while the host plays: no amplifier hiss when idle,
-	# but up to a second of the start of each stream is lost. The amplifier
-	# mute in the machine driver keeps either way free of pops.
-	keepalive=$(lidar-feature get usbaudio keepalive)
-	keep="aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 /dev/zero"
+	# The bridge's aplay stays open and only the reader restarts: reading
+	# the gadget fails with EIO whenever the host is not streaming. The
+	# codec output itself is held open by lidar-volume's silent stream
+	# (volume keepalive), so host streams start at once and without clicks.
+	# Without that keep-alive the bridge only runs while the host plays, so
+	# the speaker output can close in between.
+	persistent=
+	lidar-feature enabled volume &&
+		[ "$(lidar-feature get volume keepalive)" != off ] && persistent=1
 	spk="while [ -e /proc/asound/$CARD ]; do
 	       arecord -q -D hw:$CARD,0 -t raw -f S16_LE -c 2 -r 48000 2>/dev/null ||
 	         sleep 0.1
@@ -113,17 +111,15 @@ supervise() {
 	mic="arecord -q -D lidar_mics -t raw -f S16_LE -c 1 -r 48000 |
 	     aplay -q -D hw:$CARD,0 -t raw -f S16_LE -c 1 -r 48000"
 	while [ -d $F ]; do
-		if [ "$keepalive" = off ]; then
-			pipe_while_streaming spk Capture "$spk"	# host -> Echo
-		else
-			pipe_alive keep || pipe_start keep "$keep"
+		if [ -n "$persistent" ]; then
 			pipe_alive spk || pipe_start spk "$spk"	# host -> Echo
+		else
+			pipe_while_streaming spk Capture "$spk"
 		fi
 		pipe_while_streaming mic Playback "$mic"	# Echo -> host
 		sleep 1
 	done
 	pipe_stop spk
-	pipe_stop keep
 	pipe_stop mic
 }
 

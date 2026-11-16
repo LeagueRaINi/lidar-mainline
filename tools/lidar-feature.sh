@@ -1,7 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
-# Opt-in switches for the add-ons on top of the base system, and their
-# settings. Every add-on is off unless the OS image or its owner enables it.
+# Switches for the services on top of the base system, and their settings.
+# Core services give the stock behaviour (volume, LED ring, wireless, boot
+# animation) and are on by default; a system that brings its own can turn
+# them off. Extras are tools for development and testing, off by default.
 #
 # They live in a plain file, one "key=value" per line:
 #   feature.<name>=0|1
@@ -22,13 +24,14 @@
 # Changes take effect on the next boot.
 CONF=${LIDAR_CONF:-/media/system/etc/lidar.conf}
 
-# name default description
+# name category default description
 FEATURES='
-bootanim 0 light-ring animation while booting
-usbaudio 0 USB speakerphone: the Echo appears as a sound card on the USB host
-telnet 0 root shell without authentication on port 23 of the USB network
-wireless 0 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
-volume 0 system volume for the speaker: USB host slider, volume buttons, lidar-volume
+bootanim core 1 light-ring animation while booting
+volume core 1 system volume for the speaker: USB host slider, volume buttons, lidar-volume
+ring core 1 LED ring after boot: red while the mics are muted, volume changes
+wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
+usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
+telnet extra 0 root shell without authentication on port 23 of the USB network
 '
 
 # feature key default allowed description
@@ -40,12 +43,14 @@ wireless bluetooth on on|off off: do not load the Bluetooth driver
 wireless country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
 volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
 volume initial 30 0-100 volume at boot, percent of the range up to the cap
+volume ring on on|off on: show volume changes on the LED ring (needs the ring service), as stock does
+volume sound on on|off on: a short tone at the new level when the volume buttons change it, as stock does
+volume keepalive on on|off on: speaker output stays open, as stock (no clicks, sounds start at once, faint hiss); off: opens per sound
 usbaudio mic_gain 70 0-80 ADC PGA Capture Volume, 0.5 dB steps, 70 = +35 dB
-usbaudio keepalive on on|off on: speaker output stays open (short sounds start at once, faint hiss); off: opens per stream
 '
 
 default_of() {
-	echo "$FEATURES" | awk -v n="$1" '$1 == n { print $2; found = 1 } END { exit !found }'
+	echo "$FEATURES" | awk -v n="$1" '$1 == n { print $3; found = 1 } END { exit !found }'
 }
 
 conf_get() { # key -> last value in the file, empty if none
@@ -135,11 +140,11 @@ setting_value() { # feature key default allowed -> value in effect
 
 case $1 in
 list)
-	echo "$FEATURES" | while read -r n d desc; do
+	echo "$FEATURES" | while read -r n c d desc; do
 		[ -n "$n" ] || continue
 		v=$(value_of "$n")
 		s=off; [ "$v" = 1 ] && s=on
-		printf '%-9s %-3s (default %s)  %s\n' "$n" "$s" "$( [ "$d" = 1 ] && echo on || echo off)" "$desc"
+		printf '%-9s %-5s %-3s (default %s)  %s\n' "$n" "$c" "$s" "$( [ "$d" = 1 ] && echo on || echo off)" "$desc"
 	done
 	;;
 enabled)
@@ -182,7 +187,7 @@ unset)
 	conf_put "$2.$3" && echo "$2 $3: back to default (${DEF:-unset})"
 	;;
 *)
-	sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

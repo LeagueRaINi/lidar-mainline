@@ -46,13 +46,30 @@ install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
 install -m755 /work/tools/lidar-usbaudio.sh "$T/initramfs/usr/bin/lidar-usbaudio"
 install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
+install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
+# Volume feedback tone: 90 ms at 520 Hz, -10 dBFS, 20 ms raised-cosine
+# fades, in the speaker's native format (48 kHz, 16 bit stereo).
+mkdir -p "$T/initramfs/usr/share/lidar"
+python3 - "$T/initramfs/usr/share/lidar/volume-tone.wav" <<'EOF'
+import math, struct, sys, wave
+fs, n, fade, f = 48000, 4320, 960, 520
+with wave.open(sys.argv[1], "wb") as w:
+    w.setnchannels(2); w.setsampwidth(2); w.setframerate(fs)
+    frames = bytearray()
+    for i in range(n):
+        env = min(1.0, i / fade, (n - 1 - i) / fade)
+        env = 0.5 - 0.5 * math.cos(math.pi * env)
+        s = int(0.316 * env * math.sin(2 * math.pi * f * i / fs) * 32767)
+        frames += struct.pack("<hh", s, s)
+    w.writeframes(bytes(frames))
+EOF
 
 # Named ALSA devices: the speaker, and mics 1-6 summed to mono at 0.5 each
 # (+9.5 dB for coherent speech). Mic 7 (capture channel 6) is left out: it
 # picks up interference tones on the development unit.
 cat > "$T/initramfs/etc/asound.conf" <<'EOF'
-# The speaker goes through dmix so a silent keep-alive stream and the USB
-# bridge can share it (lidar-usbaudio).
+# The speaker goes through dmix so lidar-volume's silent keep-alive stream,
+# its feedback tone and the USB bridge can share it.
 pcm.lidar_dmix {
 	type dmix
 	ipc_key 2468
@@ -105,10 +122,10 @@ mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
 mount -t pstore pstore /sys/fs/pstore 2>/dev/null
 echo "lidar test initramfs: $(uname -r)"
 # No udev: name the GPT partitions ourselves (fw_env.config uses misc, the
-# add-on config lives on the booted slot), so this comes first.
+# service config lives on the booted slot), so this comes first.
 mkdir -p /dev/disk/by-partlabel /run /media/system
 # The slot that booted: U-Boot puts it on the command line through the
-# extlinux append line. Its filesystem holds /etc/lidar.conf (add-on
+# extlinux append line. Its filesystem holds /etc/lidar.conf (service
 # switches); it stays mounted read-only and lidar-feature remounts it only
 # to write.
 slot=$(sed -n 's/.*\(^\| \)lidar\.slot=\([ab]\)\( .*\)\?$/\2/p' /proc/cmdline)
@@ -122,7 +139,7 @@ for i in $(seq 1 25); do
 	sleep 0.2
 done
 if [ -z "$slot" ] || ! mount -o ro -t ext4 "/dev/disk/by-partlabel/system_$slot" /media/system; then
-	echo "lidar: booted slot not mounted (lidar.slot='$slot'): no /etc/lidar.conf, all add-ons off" > /dev/kmsg
+	echo "lidar: booted slot not mounted (lidar.slot='$slot'): no /etc/lidar.conf, defaults apply" > /dev/kmsg
 fi
 # Light-ring animation until the last boot job touches /run/boot-done
 if lidar-feature enabled bootanim; then
@@ -179,9 +196,12 @@ if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null
 		fi
 	fi
 fi
-# System volume: init owns the daemon and restarts it
+# System volume and LED ring: init owns the daemons and restarts them
 if lidar-feature enabled volume; then
 	echo '::respawn:/usr/bin/lidar-volume daemon' >> /etc/inittab
+fi
+if lidar-feature enabled ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
+	echo '::respawn:/usr/bin/lidar-ring daemon' >> /etc/inittab
 fi
 # Stage the owner's own Wi-Fi firmware from Fire OS (system_a, read-only),
 # then load WLAN before Bluetooth: btmtksdio must not start while the WLAN
@@ -240,15 +260,12 @@ label lidar-test
 	append console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000 loglevel=7 clk_ignore_unused lidar.slot=${lidar_slot}
 EOF
 
-# This bring-up image opts in to the add-ons it is used with. Everything is
-# off by default; edit with lidar-feature on the device.
+# The core services are on by default; this bring-up image also opts in to
+# the extras it is used with. Edit with lidar-feature on the device.
 mkdir -p "$T/fs/etc"
 cat > "$T/fs/etc/lidar.conf" <<'EOF'
-feature.bootanim=1
 feature.usbaudio=1
 feature.telnet=1
-feature.wireless=1
-feature.volume=1
 EOF
 
 rm -f "$OUT/lidar-test-system.ext4"

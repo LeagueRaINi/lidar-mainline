@@ -5,12 +5,16 @@
 # changes feeds the same state:
 #   - the USB host's volume slider and mute (UAC2 gadget, lidar-usbaudio),
 #     which also hears back about changes made here;
-#   - the volume buttons;
+#   - the volume buttons (hold to repeat; a short tone at the new level);
 #   - this command.
 # Other sources (e.g. Bluetooth absolute volume) can send the same commands.
 #
 # The level runs from 0 (codec -63.5 dB, practically silent) to the safety
 # cap set by "lidar-feature set volume max_attenuation <dB>".
+#
+# The speaker output is held open by a silent stream (volume keepalive), as
+# on stock: every start and stop of the codec stream clicks, either through
+# the DAC clocks stopping or through the amplifier's mute pin.
 #
 # Usage: lidar-volume daemon
 #        lidar-volume get
@@ -19,7 +23,11 @@ CODEC=amazonlidar
 GADGET=UAC2Gadget
 RUN=/run/lidar-volume
 FIFO=$RUN.fifo
+RING_FIFO=/run/lidar-ring.fifo	# lidar-ring draws the volume arc
 STEP=6		# volume buttons: 3 dB per press
+REPEAT_DELAY=0.4	# held button: first repeat after this many seconds,
+REPEAT_EVERY=0.15	# then one step every this many seconds
+TONE=/usr/share/lidar/volume-tone.wav
 
 a=$(lidar-feature get volume max_attenuation 2>/dev/null)
 VMAX=$((127 - 2 * ${a:-20}))
@@ -30,7 +38,7 @@ ctl_get() { # card name -> first value
 
 # Codec output, and the gadget's copy so the host slider follows changes
 # made here. Equal values are not written again: that would only echo back
-# as another host event.
+# as another host event. "show" puts the volume on the LED ring.
 apply() {
 	c=$level
 	[ "$mute" = 1 ] && c=0
@@ -43,6 +51,19 @@ apply() {
 			amixer -q -c $GADGET cset name='PCM Capture Switch' "$s"
 	fi
 	echo "$level $mute $VMAX" > $RUN.state
+	[ "$1" = show ] && show
+}
+
+# The ring belongs to lidar-ring (the ring service); its FIFO is opened
+# read-write once it exists, so a write never blocks.
+show() {
+	[ "$ring_on" = on ] || return
+	if [ -z "$ring_open" ]; then
+		[ -p $RING_FIFO ] || return
+		exec 4<> $RING_FIFO
+		ring_open=1
+	fi
+	echo "volume $level $mute $VMAX" >&4
 }
 
 clamp() { # value -> 0..VMAX
@@ -56,20 +77,66 @@ from_host() {
 	v=$(ctl_get $GADGET 'PCM Capture Volume')
 	s=$(ctl_get $GADGET 'PCM Capture Switch')
 	[ -n "$v" ] && [ -n "$s" ] || return
+	old="$level $mute"
 	level=$(clamp "$v")
 	mute=0; [ "$s" = off ] && mute=1
-	apply
+	if [ "$old" = "$level $mute" ]; then apply; else apply show; fi
 }
 
-buttons() { # feed volume-key presses and repeats from gpio-keys
+# Volume buttons: a press steps once, holding repeats until release. The
+# feedback tone sounds on the press and, after a hold, once at the final
+# level, not on every repeat.
+buttons() {
 	ev=$(awk '/^N: Name="gpio-keys"/ { k = 1 } k && /^H: / {
 		for (i = 1; i <= NF; i++) if ($i ~ /^event/) print $i; exit }' /proc/bus/input/devices)
 	[ -n "$ev" ] || return
-	evtest "/dev/input/$ev" 2>/dev/null | while read -r line; do
-		case $line in
-		*KEY_VOLUMEUP*'value 1'* | *KEY_VOLUMEUP*'value 2'*) echo up >&3 ;;
-		*KEY_VOLUMEDOWN*'value 1'* | *KEY_VOLUMEDOWN*'value 2'*) echo down >&3 ;;
-		esac
+	evtest "/dev/input/$ev" 2>/dev/null | {
+		rp=
+		held=
+		stop() {
+			[ -n "$rp" ] && kill "$rp" 2>/dev/null && wait "$rp" 2>/dev/null
+			rp=
+			held=
+		}
+		hold() { # direction
+			stop
+			(sleep $REPEAT_DELAY
+			 while :; do echo "$1" >&3; sleep $REPEAT_EVERY; done) &
+			rp=$!
+			held=$1
+		}
+		while read -r line; do
+			case $line in
+			*KEY_VOLUMEUP*'value 1'*) echo "up tone" >&3; hold up ;;
+			*KEY_VOLUMEDOWN*'value 1'*) echo "down tone" >&3; hold down ;;
+			*KEY_VOLUMEUP*'value 0'*) [ "$held" = up ] && stop && echo "tone" >&3 ;;
+			*KEY_VOLUMEDOWN*'value 0'*) [ "$held" = down ] && stop && echo "tone" >&3 ;;
+			esac
+		done
+		stop
+	}
+}
+
+# Short feedback tone at the current volume. A tone still playing is not cut
+# off (that clicks); the new one is skipped. If the codec output is closed
+# (volume keepalive off), 150 ms of silence go first: the amplifier only
+# unmutes 100 ms after the DAC starts, and would otherwise chop the tone.
+tone() {
+	[ "$sound_on" = on ] && [ "$mute" = 0 ] && [ -r $TONE ] || return
+	[ -n "$tp" ] && kill -0 "$tp" 2>/dev/null && return
+	if grep -qs closed /proc/asound/$CODEC/pcm0p/sub0/status; then
+		{ head -c 28800 /dev/zero; tail -c +45 $TONE; } |
+			aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 2>/dev/null &
+	else
+		aplay -q -D lidar_speaker $TONE 2>/dev/null &
+	fi
+	tp=$!
+}
+
+keepalive() { # silence into dmix holds the codec output open
+	while :; do
+		aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 /dev/zero 2>/dev/null
+		sleep 1
 	done
 }
 
@@ -91,24 +158,34 @@ host_watch() { # the gadget's card comes and goes with lidar-usbaudio
 daemon() {
 	[ -p $FIFO ] || mkfifo $FIFO || exit 1
 	exec 3<> $FIFO
+	ring_on=$(lidar-feature get volume ring 2>/dev/null)
+	ring_open=
+	sound_on=$(lidar-feature get volume sound 2>/dev/null)
+	tp=
+	last_tone=
 	p=$(lidar-feature get volume initial 2>/dev/null)
 	level=$(clamp $(( (${p:-30} * VMAX + 50) / 100 )))
 	mute=0
 	apply
 	buttons &
 	host_watch &
+	[ "$(lidar-feature get volume keepalive 2>/dev/null)" = off ] || keepalive &
 	trap 'trap "" TERM; kill 0; exit' INT TERM
 	while read -r cmd arg <&3; do
 		case $cmd in
-		up) level=$(clamp $((level + STEP))); mute=0; apply ;;
-		down) level=$(clamp $((level - STEP))); apply ;;
-		set) level=$(clamp $(( (arg * VMAX + 50) / 100 ))); apply ;;
-		mute) mute=1; apply ;;
-		unmute) mute=0; apply ;;
-		toggle) mute=$((1 - mute)); apply ;;
+		up) level=$(clamp $((level + STEP))); mute=0; apply show ;;
+		down) level=$(clamp $((level - STEP))); apply show ;;
+		set) level=$(clamp $(( (arg * VMAX + 50) / 100 ))); apply show ;;
+		mute) mute=1; apply show ;;
+		unmute) mute=0; apply show ;;
+		toggle) mute=$((1 - mute)); apply show ;;
 		host) from_host ;;
 		sync) apply ;;
+		tone)	# release: only if a hold moved the level since the press
+			[ "$level" != "$last_tone" ] && tone && last_tone=$level ;;
 		esac
+		# a press: tone right away at the new level
+		if [ "$arg" = tone ]; then tone; last_tone=$level; fi
 	done
 }
 
@@ -132,7 +209,7 @@ set)
 	;;
 up | down | mute | unmute | toggle | sync) send "$1" ;;
 *)
-	sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac
