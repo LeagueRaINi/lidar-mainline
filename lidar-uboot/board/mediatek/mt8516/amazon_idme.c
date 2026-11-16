@@ -50,7 +50,8 @@ int ft_board_setup(void *blob, struct bd_info *bd)
 		return 0;
 
 	idme = map_sysmem(addr, 0);
-	if (fdt_check_header(idme))
+	/* LK copies its devicetree with a 0x80000 byte limit */
+	if (fdt_check_header(idme) || fdt_totalsize(idme) > 0x80000)
 		return 0;
 
 	/* An address already in the OS devicetree wins */

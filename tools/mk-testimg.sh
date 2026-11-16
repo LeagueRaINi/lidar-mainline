@@ -73,7 +73,7 @@ if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null
 	(while true; do setsid -c /bin/sh -l </dev/ttyGS0 >/dev/ttyGS0 2>&1; sleep 1; done) &
 	ip link set lo up
 	ip addr add 169.254.7.2/16 dev usb0 && ip link set usb0 up
-	# Second way in if the serial shell is stuck: telnet, USB link only
+	# Second way in if the serial shell is stuck: telnet, no auth, USB address
 	busybox-extras telnetd -b 169.254.7.2 -l /bin/sh
 fi
 # Stage the owner's own Wi-Fi firmware from Fire OS (system_a, read-only),

@@ -62,12 +62,12 @@
 /*
  * The datasheet does not give a lux equation. It specifies a typical visible
  * channel responsivity of 363 counts/(uW/cm^2) for a 2700 K white LED at 64x
- * gain and 36 integration steps. With a luminous efficacy of 300 lm/W for
- * such a source this is 2.116 lux per count at 1x gain and one step, for a
- * device in open air. Anything in front of the sensor needs its own
- * correction on top of this.
+ * gain and 36 integration steps. 1 uW/cm^2 is 0.01 W/m^2, which at 300 lm/W
+ * for such a source is 3 lux, so one count is 3 / 363 * 64 * 36 = 19.04 lux
+ * at 1x gain and one step, for a device in open air. Anything in front of the
+ * sensor needs its own correction on top of this.
  */
-#define TSL2540_NANOLUX_PER_COUNT	2116000000ULL
+#define TSL2540_NANOLUX_PER_COUNT	19041000000ULL
 
 struct tsl2540_gain {
 	u16 gain_x2;
@@ -122,6 +122,9 @@ static int tsl2540_configure(struct tsl2540_data *data, unsigned int gain,
 	unsigned int i;
 	int ret;
 
+	/* Until the new configuration is complete, no sample is current */
+	data->settling = true;
+
 	/* The configuration has to be in place before ALS is enabled */
 	ret = regmap_write(regmap, TSL2540_REG_ENABLE, 0);
 	if (ret)
@@ -150,6 +153,13 @@ static int tsl2540_configure(struct tsl2540_data *data, unsigned int gain,
 	if (ret)
 		return ret;
 
+	/* From here the chip runs with the new gain and integration time */
+	data->gain = gain;
+	data->steps = steps;
+	for (i = 0; i < ARRAY_SIZE(tsl2540_gains); i++)
+		tsl2540_scale(i, steps, &data->scale_avail[2 * i],
+			      &data->scale_avail[2 * i + 1]);
+
 	/* Setting both bits in one write runs autozero before the first cycle */
 	ret = regmap_write(regmap, TSL2540_REG_ENABLE,
 			   TSL2540_ENABLE_PON | TSL2540_ENABLE_AEN);
@@ -163,13 +173,6 @@ static int tsl2540_configure(struct tsl2540_data *data, unsigned int gain,
 	ret = regmap_write(regmap, TSL2540_REG_STATUS, TSL2540_STATUS_AINT);
 	if (ret)
 		return ret;
-
-	data->gain = gain;
-	data->steps = steps;
-	data->settling = true;
-	for (i = 0; i < ARRAY_SIZE(tsl2540_gains); i++)
-		tsl2540_scale(i, steps, &data->scale_avail[2 * i],
-			      &data->scale_avail[2 * i + 1]);
 
 	return 0;
 }

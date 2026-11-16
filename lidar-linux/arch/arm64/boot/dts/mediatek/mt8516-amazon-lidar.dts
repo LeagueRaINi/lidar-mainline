@@ -46,8 +46,9 @@
 
 	/*
 	 * Previous boot's console and oops log (pstore). U-Boot loads kernel,
-	 * DTB and initramfs into 0x44000000-0x56000000 and relocates itself to
-	 * the top of RAM, so this region survives a warm reboot untouched.
+	 * DTB and initramfs into 0x44000000-0x56000000, receives fastboot
+	 * downloads at 0x60100000 and above, and relocates itself to the top of
+	 * RAM, so this region survives a warm reboot untouched.
 	 */
 	reserved-memory {
 		#address-cells = <2>;
