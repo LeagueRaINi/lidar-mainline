@@ -45,6 +45,7 @@ install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
 install -m755 /work/tools/lidar-usbaudio.sh "$T/initramfs/usr/bin/lidar-usbaudio"
+install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 
 # Named ALSA devices: the speaker, and mics 1-6 summed to mono at 0.5 each
 # (+9.5 dB for coherent speech). Mic 7 (capture channel 6) is left out: it
@@ -131,9 +132,9 @@ fi
 for m in snd-soc-mt8516-afe snd-soc-tlv320adc3xxx snd-soc-tlv320aic32x4-i2c mt8516-amazon-lidar; do
 	modprobe $m
 done
-# Base audio setup: the verified microphone routing (PGA +35 dB); the DAC
-# drives both line-out and headphone drivers (the Output Route control picks
-# speaker amp or jack) at -6 dB driver gain, speaker volume -40 dB.
+# Base audio setup: the verified microphone routing (PGA +35 dB); output
+# driver gains as on Amazon's firmware (line-out 0 dB for the speaker amp,
+# headphone +5 dB for the jack), speaker volume -40 dB.
 A="amixer -q -c amazonlidar cset"
 for n in 1 2 3 4; do
 	$A name="ADC$n Left Input DIF_2L_3L Capture Switch" on
@@ -147,8 +148,8 @@ for s in 'LOL Output Mixer L_DAC' 'LOR Output Mixer R_DAC' \
 done
 $A name='LO DAC Playback Switch' on,on
 $A name='HP DAC Playback Switch' on,on
-$A name='LO Driver Gain Volume' 0,0
-$A name='HP Driver Gain Volume' 0,0
+$A name='LO Driver Gain Volume' 6,6
+$A name='HP Driver Gain Volume' 11,11
 $A name='PCM Playback Volume' 47,47
 # USB gadget on the pogo-pin port: serial shell + NCM network (169.254.7.2)
 g=/sys/kernel/config/usb_gadget/lidar
@@ -177,6 +178,10 @@ if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null
 				>> /etc/inittab
 		fi
 	fi
+fi
+# System volume: init owns the daemon and restarts it
+if lidar-feature enabled volume; then
+	echo '::respawn:/usr/bin/lidar-volume daemon' >> /etc/inittab
 fi
 # Stage the owner's own Wi-Fi firmware from Fire OS (system_a, read-only),
 # then load WLAN before Bluetooth: btmtksdio must not start while the WLAN
@@ -243,6 +248,7 @@ feature.bootanim=1
 feature.usbaudio=1
 feature.telnet=1
 feature.wireless=1
+feature.volume=1
 EOF
 
 rm -f "$OUT/lidar-test-system.ext4"

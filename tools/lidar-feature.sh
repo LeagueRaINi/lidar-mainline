@@ -28,6 +28,7 @@ bootanim 0 light-ring animation while booting
 usbaudio 0 USB speakerphone: the Echo appears as a sound card on the USB host
 telnet 0 root shell without authentication on port 23 of the USB network
 wireless 0 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
+volume 0 system volume for the speaker: USB host slider, volume buttons, lidar-volume
 '
 
 # feature key default allowed description
@@ -37,9 +38,10 @@ SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
 wireless bluetooth on on|off off: do not load the Bluetooth driver
 wireless country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
-usbaudio speaker_volume 47 0-127 PCM Playback Volume, 0.5 dB steps, 47 = -40 dB, 127 = 0 dB
+volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
+volume initial 30 0-100 volume at boot, percent of the range up to the cap
 usbaudio mic_gain 70 0-80 ADC PGA Capture Volume, 0.5 dB steps, 70 = +35 dB
-usbaudio keepalive on on|off on: speaker output stays open (no pops, faint hiss); off: opens per stream
+usbaudio keepalive on on|off on: speaker output stays open (short sounds start at once, faint hiss); off: opens per stream
 '
 
 default_of() {

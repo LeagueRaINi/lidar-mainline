@@ -34,9 +34,9 @@ bind() {
 }
 
 # The gadget reports the rate the host selected, or 0 while it is not
-# streaming. The speaker pipe stays open while the function exists: starting
-# it per stream cut off short sounds and made the codec crack at every
-# power-up. The mic pipe (six-mic mix) only runs while the host records.
+# streaming. By default the speaker output stays open while the function
+# exists: starting it per stream cut off the start of short sounds. The mic
+# pipe (six-mic mix) only runs while the host records.
 # Plain blocking arecord|aplay pipes sleep in the kernel instead of polling.
 rate() {
 	amixer -c $CARD cget iface=PCM,name="$1 Rate" 2>/dev/null |
@@ -55,15 +55,35 @@ pipe_stop() { # kill the whole pipeline: its process group
 	rm -f $RUN.$1
 }
 
-# Owner's levels (lidar-feature settings usbaudio), on top of init's base
-# audio setup. An unreadable setting leaves the base level alone.
+# Owner's mic level (lidar-feature settings usbaudio), on top of init's base
+# audio setup. An unreadable setting leaves the base level alone. Speaker
+# volume belongs to the volume add-on (lidar-volume).
 levels() {
-	v=$(lidar-feature get usbaudio speaker_volume) && [ -n "$v" ] &&
-		amixer -q -c amazonlidar cset name='PCM Playback Volume' "$v,$v"
 	v=$(lidar-feature get usbaudio mic_gain) && [ -n "$v" ] &&
 		for n in 1 2 3 4; do
 			amixer -q -c amazonlidar cset name="ADC$n PGA Capture Volume" "$v,$v"
 		done
+}
+
+# Host volume for the speaker direction. With the volume add-on the gadget
+# offers a hardware volume whose steps are the codec's 0.5 dB steps up to
+# the safety cap, so the host's own volume curve applies unchanged and
+# lidar-volume copies the value to the codec. Without it the gadget offers
+# no volume and the host scales the audio itself. The mic direction never
+# has one: the host applies its own gain.
+host_volume() {
+	echo 0 > $F/p_volume_present
+	echo 0 > $F/p_mute_present
+	if lidar-feature enabled volume; then
+		a=$(lidar-feature get volume max_attenuation)
+		steps=$((127 - 2 * ${a:-20}))
+		echo 0 > $F/c_volume_max
+		echo $((-steps * 128)) > $F/c_volume_min	# 1/256 dB units
+		echo 128 > $F/c_volume_res			# 0.5 dB
+	else
+		echo 0 > $F/c_volume_present
+		echo 0 > $F/c_mute_present
+	fi
 }
 
 pipe_while_streaming() { # name direction command
@@ -76,14 +96,14 @@ pipe_while_streaming() { # name direction command
 }
 
 supervise() {
-	# Silence keeps the codec stream open through dmix, so the codec and
-	# amplifier never power-cycle (each power-up pops), as stock keeps its
-	# output open. The bridge mixes into the same dmix; its aplay stays open
-	# and only the reader restarts: reading the gadget fails with EIO
-	# whenever the host is not streaming.
+	# Silence keeps the codec stream open through dmix, as stock keeps its
+	# output open, so short sounds start at once. The bridge mixes into the
+	# same dmix; its aplay stays open and only the reader restarts: reading
+	# the gadget fails with EIO whenever the host is not streaming.
 	# With the keepalive setting off there is no silence stream and the
-	# bridge only runs while the host plays: no hiss when idle, but a pop
-	# and up to a second of lost audio at the start of every stream.
+	# bridge only runs while the host plays: no amplifier hiss when idle,
+	# but up to a second of the start of each stream is lost. The amplifier
+	# mute in the machine driver keeps either way free of pops.
 	keepalive=$(lidar-feature get usbaudio keepalive)
 	keep="aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 /dev/zero"
 	spk="while [ -e /proc/asound/$CARD ]; do
@@ -143,6 +163,7 @@ start)
 	echo 48000 > $F/p_srate
 	echo 2 > $F/p_ssize
 	echo "Echo Plus speakerphone" > $F/function_name
+	host_volume
 	unbind
 	if ! ln -s $F $G/configs/c.1/; then
 		rmdir $F
@@ -162,6 +183,9 @@ start)
 	# Not "a && b || c": echo fails on the hung-up USB console and must not
 	# undo a successful start.
 	if bridge_start; then
+		# A new gadget control starts at its maximum: let the volume
+		# daemon push its level to it.
+		[ -p /run/lidar-volume.fifo ] && lidar-volume sync
 		echo "USB speakerphone started"
 	else
 		function_remove
