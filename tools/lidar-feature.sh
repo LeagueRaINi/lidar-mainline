@@ -161,7 +161,7 @@ settings)
 		[ -z "$2" ] || [ "$f" = "$2" ] || continue
 		[ "$d" != - ] || d=
 		v=$(setting_value "$f" "$k" "$d" "$a")
-		printf '%-8s %-14s %-5s (default %s, allowed %s)  %s\n' \
+		printf '%-8s %-15s %-5s (default %s, allowed %s)  %s\n' \
 			"$f" "$k" "${v:-unset}" "${d:-unset}" "$a" "$desc"
 	done
 	;;
