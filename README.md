@@ -6,17 +6,42 @@ the driver work that runs **after** the unlock. There is no exploit or unlock
 code here: the device must already run Kaeru LK, as installed by
 [`davidwatters/echo-plus-2-unlock`](https://github.com/davidwatters/echo-plus-2-unlock).
 
-Status at a glance:
+## Roadmap: compared with stock
 
-| Area | Status |
-|---|---|
-| U-Boot as second stage (fastboot, A/B slots, environment) | working |
-| eMMC, I2C, buttons, mic-mute and privacy latch, temperatures | working |
-| LED ring (12 RGB LEDs) | working |
-| Audio: speaker, line-out, microphones 1-6 | working (see Status) |
-| CPU frequency scaling (598 MHz-1.3 GHz) | working |
-| Wi-Fi / Bluetooth (MT7668 on SDIO) | host side working; untested on hardware |
-| EFR32 Zigbee/Thread radio | alive (bootloader only); firmware not flashed |
+✅ working · ⚠️ works, known issue · 🧪 implemented, needs testing on
+hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#status).
+
+| Feature | Stock Fire OS | lidar-mainline |
+|---|---|---|
+| **Boot and system** | | |
+| Bootloader | Amazon LK | ✅ U-Boot as a second stage after LK, USB fastboot, no UART input needed |
+| Updates with automatic fallback | ✅ Amazon OTA | ✅ A/B slots with bootcount fallback (verified on hardware) |
+| Recovery | ✅ | ✅ Kaeru fastboot (Action) and U-Boot fastboot (Volume Up) |
+| Previous boot's log after a crash | ✅ ram_console | ✅ pstore console and panic logs |
+| eMMC | ✅ | ✅ HS200 |
+| CPU frequency scaling | ✅ | ✅ 598 MHz to 1.3 GHz with voltage scaling |
+| CPU idle | WFI with several cores online | ✅ WFI, same as stock |
+| Deep idle / suspend | ✅ via SPM firmware | ➖ |
+| **Audio** | | |
+| Speaker | ✅ | ✅ |
+| 3.5 mm line-out | ✅ | ⚠️ works, loud crack at every stream start |
+| Microphones (7) | ✅ | ⚠️ all 7 capture; mic 7 picks up interference tones on the development unit |
+| Echo-cancellation reference | ✅ | 🧪 playback loopback capture exists, not validated |
+| Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
+| **Wireless** | | |
+| Wi-Fi (MT7668) | ✅ | 🧪 driver, firmware import and MAC from IDME done; the development unit's radio is faulty |
+| Bluetooth (MT7668) | ✅ | 🧪 loads after Wi-Fi; untested for the same reason |
+| Zigbee hub (EFR32) | ✅ Amazon firmware | 🛠️ chip alive in its bootloader; needs a Silicon Labs RCP/NCP image |
+| Thread border router (EFR32) | ✅ | 🛠️ same chip and firmware as Zigbee |
+| **Interface and sensors** | | |
+| LED ring (12 RGB) | ✅ | ✅ including a boot animation |
+| Buttons, mic mute, privacy latch | ✅ | ✅ |
+| Ambient light sensor | ✅ | ✅ relative readings (no lux calibration) |
+| Temperature sensors | ✅ | ✅ |
+| **Software** | | |
+| Voice assistant | ✅ Alexa | 🛠️ local userspace, e.g. a Home Assistant voice satellite |
+| Alexa cloud services | ✅ | ➖ |
+| Kernel and U-Boot upstreaming | n/a | 🛠️ patch series drafted |
 
 ## Prerequisites
 
@@ -143,14 +168,18 @@ workaround while not every clock consumer is described in the DT.
 3. **Shell.** The test system exports a root shell on a USB ACM gadget
    (`/dev/ttyACM0` on Linux hosts, a COM port on Windows). It also exports a
    USB NCM network interface: the device is `169.254.7.2/16`, so give the
-   host's interface any other link-local address. A second root shell runs as
-   `telnet 169.254.7.2`, bound to that link only, for when the serial shell is
-   busy.
+   host's interface any other link-local address. A second root shell
+   without authentication listens on `telnet 169.254.7.2`, for when the
+   serial shell is busy. It is bound to that address, not to the USB
+   interface, so it is also reachable from the Wi-Fi network once `wlan0` is
+   up: do not join untrusted networks with the test image.
 
 **Previous boot's log:** after a warm reboot or a kernel panic (the kernel
 reboots 10 s after a panic), `/sys/fs/pstore/` holds the previous boot's
 console (`console-ramoops-0`) and crash report (`dmesg-ramoops-0`). The log
-lives in a reserved RAM region at `0x60000000` that U-Boot never loads into.
+lives in a reserved RAM region at `0x60000000`, below U-Boot's fastboot
+download buffer (`0x60100000`) and outside its kernel and initramfs load
+area.
 
 **Recovery:** hold **Action** while plugging in, then
 `fastboot flash boot_a <your boot_a dump>` restores the stock boot path.
