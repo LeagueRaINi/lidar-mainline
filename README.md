@@ -24,7 +24,8 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Deep idle / suspend | ✅ via SPM firmware | ➖ |
 | **Audio** | | |
 | Speaker | ✅ | ✅ |
-| 3.5 mm line-out | ✅ | ⚠️ works, loud crack at every stream start |
+| 3.5 mm line-out | ✅ | ⚠️ works; start-of-stream crack not re-tested since the jack moved to the headphone drivers |
+| Speaker crossover (woofer + tweeter) | ✅ | ✅ Amazon's filters in the DAC, amplifier mute against pops |
 | Microphones (7) | ✅ | ⚠️ all 7 capture; mic 7 picks up interference tones on the development unit |
 | Echo-cancellation reference | ✅ | 🧪 playback loopback capture exists, not validated |
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
@@ -121,6 +122,7 @@ decompression.
 | `tools/lidar-feature.sh` | per-add-on switches and settings in `/etc/lidar.conf` (all off by default) |
 | `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
 | `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
+| `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -207,7 +209,7 @@ opt-ins (telnet included) come back. Changing an add-on needs a shell on the
 device, or editing the file in the image before flashing.
 
 The test image ships an `/etc/lidar.conf` that enables `bootanim`,
-`usbaudio`, `telnet` and `wireless`. U-Boot passes the booted slot as
+`usbaudio`, `telnet`, `wireless` and `volume`. U-Boot passes the booted slot as
 `lidar.slot=${lidar_slot}` on the kernel command line, and the test image
 mounts that slot read-only at `/media/system`.
 
@@ -223,6 +225,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `usbaudio` | off | USB speakerphone (below) |
 | `telnet` | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 | `wireless` | off | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
+| `volume` | off | system volume for the speaker (below) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -239,9 +242,10 @@ lidar-feature unset wireless country      # back to the default
 | `telnet listen` | `usb` | `usb`, `any` | `usb`: only connections arriving on `usb0` are accepted. `any`: every interface, so the passwordless root shell is open to the Wi-Fi network too |
 | `wireless bluetooth` | `on` | `on`, `off` | `off`: the Bluetooth driver (`btmtksdio`) is not loaded |
 | `wireless country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
-| `usbaudio speaker_volume` | 47 | 0-127 | `PCM Playback Volume` in 0.5 dB steps: 47 is -40 dB, 127 is 0 dB (full scale, loud) |
+| `volume max_attenuation` | 0 | 0-60 | cap in dB: full volume is this far below the codec's 0 dB. 0 is Amazon's maximum; raise it to keep the speaker quieter |
+| `volume initial` | 30 | 0-100 | volume at boot, in percent of the range up to the cap |
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
-| `usbaudio keepalive` | `on` | `on`, `off` | `off`: no silent keep-alive stream, and the speaker output only opens while the host plays. No idle hiss, but a pop and up to a second of lost audio at the start of each stream |
+| `usbaudio keepalive` | `on` | `on`, `off` | `off`: no silent keep-alive stream, and the speaker output only opens while the host plays. No idle amplifier hiss, but up to a second of the start of each stream is lost |
 
 - The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
   (`tools/lidar-listen.c`), not a packet filter: the kernel only matches
@@ -249,10 +253,30 @@ lidar-feature unset wireless country      # back to the default
   they are sent to. If `usb0` is missing, telnet does not start. The USB
   host, and whatever that host forwards onto the USB network, still gets a
   root shell without a password. Not yet verified on hardware.
-- The two audio levels are applied when the speakerphone starts
-  (`lidar-usbaudio start`), so they need the `usbaudio` add-on.
+- `usbaudio mic_gain` is applied when the speakerphone starts
+  (`lidar-usbaudio start`). An old `usbaudio.speaker_volume` line in
+  `lidar.conf` is ignored: speaker volume belongs to the `volume` add-on.
 - `wireless country` and `usbaudio keepalive off` have not been tried on
   hardware.
+
+### System volume
+
+`lidar-volume` (the `volume` add-on) owns one speaker volume and mute, applied
+to the codec's `PCM Playback Volume` in 0.5 dB steps from silent up to the
+safety cap. Everything that changes volume feeds the same state:
+
+- **USB host:** the speakerphone offers the host a hardware volume and mute
+  whose steps are the codec's steps, so the host's own volume curve applies
+  unchanged. Changes made on the Echo are reported back, so the host's slider
+  follows them.
+- **Volume buttons:** 3 dB per press.
+- **Command line:** `lidar-volume get | set <percent> | up | down | mute |
+  unmute | toggle`. Other sources, such as Bluetooth absolute volume, can send
+  the same commands later.
+
+Without the `volume` add-on the speaker stays at the test image's base level
+(-40 dB), and the USB host gets no hardware volume, so it scales the audio
+itself.
 
 ### USB speakerphone
 
@@ -267,13 +291,12 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
   host had configured the gadget before but does not configure it again
   within about 15 s, the function is removed and the shell and network come
   back. This rollback path has not been exercised on hardware.
-- The codec output never closes while the speakerphone exists, just as
-  stock keeps its output open between sounds. A silent keep-alive stream
-  feeds `dmix`, and the bridge from the gadget mixes into it, so the codec
-  and amplifier don't power-cycle and pop. Starting the output per stream
-  had cut off short sounds and popped at each start. Expect a faint amplifier
-  hiss, as on stock. The mic pipe (the six-mic mix) only runs while the host
-  records, which the gadget's `Playback Rate` control reports.
+- By default the codec output never closes while the speakerphone exists,
+  just as stock keeps its output open between sounds. A silent keep-alive
+  stream feeds `dmix` and the bridge from the gadget mixes into it, so short
+  sounds start at once. Expect a faint amplifier hiss, as on stock. The mic
+  pipe (the six-mic mix) only runs while the host records, which the gadget's
+  `Playback Rate` control reports.
 - Two USB kernel fixes in `drivers/usb/musb/musb_gadget.c`:
   - Isochronous transfers through MUSB's Inventra DMA failed (IN produced no
     packets; root cause unknown), so isochronous endpoints use PIO.
@@ -285,7 +308,7 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
     should reduce.
 - Not yet done:
   - echo cancellation, beamforming and noise suppression
-  - mapping the host's volume slider to the speaker
+  - volume buttons (`lidar-volume`) not yet tried on hardware
   - clock-drift compensation: the mic and USB clocks are independent, so
     latency can creep up to about 0.7 s before the pipe resets
 
@@ -346,9 +369,10 @@ From the test system's shell:
 
 ### Speaker tests
 
-Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB),
-`'LO Driver Gain Volume' 0,0` and `'HP Driver Gain Volume' 0,0`. PCM volume
-127 (0 dB) with driver gain is very loud on this speaker.
+Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB), or
+`lidar-volume set 20` with the `volume` add-on. The test image sets the
+output drivers as Amazon does (line-out 0 dB, headphone +5 dB), so PCM
+volume 127 (0 dB) is the speaker's full stock loudness.
 
 ## Status
 
@@ -399,11 +423,24 @@ Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB),
   narrow interference tones at about 50 Hz, 130-144 Hz and 2.41 kHz that the
   other mics do not, so it needs filtering. Capture channel 7 is the line-in,
   which has not been tested with a real source.
+- **Speaker:** a two-way system. The DAC's left channel drives the woofer
+  and its right channel the tweeter, through the crossover Amazon's firmware
+  loads into the DAC biquads:
+  - woofer: low-pass, -3.5 dB at 1 kHz, inverted polarity
+  - tweeter: fourth order high-pass, -3.4 dB at 3 kHz
+
+  Both channels play the mono mix of the stream, from the line-out drivers.
+  The machine driver loads the filters whenever the output route is Speaker
+  (`DAC Biquad Coefficients`, `DAC Mono Mix Switch`), refuses the speaker
+  route if they cannot be set, and limits playback to 48 kHz, the rate the
+  coefficients are designed for. The DAC's MFP5 pin mutes the amplifier: it
+  starts muted, is released 100 ms after the DAC is up and is muted again
+  before anything powers down, so boot, stream start and unplugging do not
+  pop.
 - **Line-out / headphones:** both channels work through the `Output Route`
-  control (GPIO109 low = jack, amp off). Every stream start makes a loud
-  crack. Waiting for the output-driver gain ramp, a soft start (`HEADSTART`)
-  and `pmdown_time = 0` did not cure it. The next suspects are the HP vs LO
-  driver choice and the codec power sequence.
+  control (GPIO109 low = jack, amp off), now from the headphone drivers in
+  plain stereo as on stock. Before that change every stream start made a
+  loud crack; it has not been re-tested since.
 - **Mic privacy:** the hardware latch is exposed as `SW_MUTE_DEVICE` (GPIO18)
   and the button as `KEY_MICMUTE` (GPIO108). Software can force privacy on
   through GPIO107 (active low). This is left released, and the line is free
