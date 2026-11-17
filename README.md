@@ -454,7 +454,9 @@ volume 127 (0 dB) is the speaker's full stock loudness.
 - **LED ring:** LED n uses channels 3n-2, 3n-1 and 3n (R, G, B), named
   `ringN:red/green/blue`. Mainline `leds-is31fl32xx` was missing
   `brightness_steps` for the IS31FL3236, so brightness writes were dropped;
-  this is fixed.
+  this is fixed. The controller is the IS31FL3236A variant, run at 22 kHz
+  PWM (`issi,22khz-pwm`) as stock does: the default 3 kHz was audible as a
+  whine through the speaker whenever LEDs were lit.
 - **Microphones:** all 7 mics capture with the `DIF_2L_3L`/`DIF_2R_3R`
   inputs and PGA 20 dB. Room noise is coherent between mic 7 (capture
   channel 6) and mics 1-6. On the development unit, mic 7 also picks up
@@ -471,10 +473,14 @@ volume 127 (0 dB) is the speaker's full stock loudness.
   The machine driver loads the filters whenever the output route is Speaker
   (`DAC Biquad Coefficients`, `DAC Mono Mix Switch`), refuses the speaker
   route if they cannot be set, and limits playback to 48 kHz, the rate the
-  coefficients are designed for. The DAC's MFP5 pin mutes the amplifier: it
-  starts muted, is released 100 ms after the DAC is up and is muted again
-  before anything powers down, so boot, stream start and unplugging do not
-  pop.
+  coefficients are designed for. The DAC's MFP5 pin mutes the amplifier,
+  which has no status output of its own. Measured by ear and with the
+  Echo's microphones: enabling it while muted and disabling it are silent,
+  unmuting less than about 250 ms after enabling it clicks, and muting it
+  while it runs clicks. So the amplifier is enabled muted, unmuted 500 ms
+  later, and on power-down disabled first and muted afterwards. The first
+  unmute after boot still makes one faint click, whatever the delay; with
+  the speaker output held open that happens once per boot.
 - **Line-out / headphones:** both channels work through the `Output Route`
   control (GPIO109 low = jack, amp off), now from the headphone drivers in
   plain stereo as on stock. Before that change every stream start made a
