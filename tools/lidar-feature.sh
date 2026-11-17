@@ -49,6 +49,7 @@ volume keepalive on on|off on: speaker output stays open, as stock (no clicks, s
 ring auto_brightness on on|off on: ring brightness follows the light sensor, as stock does; off: always full
 ring min_brightness 15 5-100 ring brightness in the dark, percent of full
 usbaudio mic_gain 70 0-80 ADC PGA Capture Volume, 0.5 dB steps, 70 = +35 dB
+usbaudio aec on on|off on: the host gets the mics with the echo of the speaker and background noise removed (lidar-aec); off: the plain mic mix
 '
 
 default_of() {

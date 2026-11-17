@@ -108,8 +108,13 @@ supervise() {
 	       arecord -q -D hw:$CARD,0 -t raw -f S16_LE -c 2 -r 48000 2>/dev/null ||
 	         sleep 0.1
 	     done | aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 2>/dev/null"
-	mic="arecord -q -D lidar_mics -t raw -f S16_LE -c 1 -r 48000 |
-	     aplay -q -D hw:$CARD,0 -t raw -f S16_LE -c 1 -r 48000"
+	# Echo -> host: by default through lidar-aec, which removes the echo of
+	# whatever the speaker plays (the host's own audio included) and steady
+	# background noise. It holds the mic and reference devices only while
+	# the host records.
+	src="arecord -q -D lidar_mics -t raw -f S16_LE -c 1 -r 48000"
+	[ "$(lidar-feature get usbaudio aec)" = off ] || src=lidar-aec
+	mic="$src | aplay -q -D hw:$CARD,0 -t raw -f S16_LE -c 1 -r 48000"
 	while [ -d $F ]; do
 		if [ -n "$persistent" ]; then
 			pipe_alive spk || pipe_start spk "$spk"	# host -> Echo
