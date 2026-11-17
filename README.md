@@ -27,7 +27,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | 3.5 mm line-out | ✅ | ⚠️ works; start-of-stream crack not re-tested since the jack moved to the headphone drivers |
 | Speaker crossover (woofer + tweeter) | ✅ | ✅ Amazon's filters in the DAC, amplifier mute against pops |
 | Microphones (7) | ✅ | ⚠️ all 7 capture; mic 7 picks up interference tones on the development unit |
-| Echo-cancellation reference | ✅ | 🧪 playback loopback capture exists, not validated |
+| Echo-cancellation reference | ✅ | ✅ playback loopback capture, bit-exact; used by `lidar-aec` |
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
 | **Wireless** | | |
 | Wi-Fi (MT7668) | ✅ | 🧪 driver, firmware import and MAC from IDME done; the development unit's radio is faulty |
@@ -41,7 +41,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Temperature sensors | ✅ | ✅ |
 | **Software** | | |
 | Voice assistant | ✅ Alexa | 🛠️ local userspace, e.g. a Home Assistant voice satellite |
-| USB speakerphone for a PC | ➖ | ✅ USB Audio Class 2: speaker and 6-mic mono capture; echo cancellation planned |
+| USB speakerphone for a PC | ➖ | ✅ USB Audio Class 2: speaker and 6-mic mono capture with echo cancellation |
 | Services, with settings | n/a | ✅ `lidar-feature`: core services on, extras off by default |
 | Alexa cloud services | ✅ | ➖ |
 | Kernel and U-Boot upstreaming | n/a | 🛠️ patch series drafted |
@@ -125,6 +125,7 @@ decompression.
 | `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
 | `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes |
+| `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -261,6 +262,7 @@ lidar-feature unset wireless country      # back to the default
 | `ring auto_brightness` | `on` | `on`, `off` | ring brightness follows the ambient light sensor, as on stock; `off`: always full |
 | `ring min_brightness` | 15 | 5-100 | ring brightness in a dark room, in percent of full |
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
+| `usbaudio aec` | `on` | `on`, `off` | `on`: the microphone the host gets is cleaned by `lidar-aec` (echo cancellation, noise suppression); `off`: the plain six-mic mix |
 
 - The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
   (`tools/lidar-listen.c`), not a packet filter: the kernel only matches
@@ -343,9 +345,20 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
   stays up while the speakerphone exists, mixed into the speaker output that
   `lidar-volume` holds open, so short sounds start at once. Without it the
   pipe only runs while the host plays: no idle hiss, but each stream clicks
-  at start and end and loses up to a second of its start. The mic pipe (the
-  six-mic mix) only runs while the host records, which the gadget's
-  `Playback Rate` control reports.
+  at start and end and loses up to a second of its start. The mic pipe only
+  runs while the host records, which the gadget's `Playback Rate` control
+  reports.
+- The microphone goes through `lidar-aec` (setting `usbaudio aec`): mics 1-6
+  mixed to mono, with WebRTC's AEC3 echo cancellation against the playback
+  loopback (a bit-exact copy of what the DAC gets, on the same clock),
+  noise suppression and a high-pass filter. The speaker plays the mono mix,
+  so the reference is mixed to mono too. The echo reaches the mics only
+  2.4 ms after the reference, too little for AEC3's delay estimator: without
+  a margin it settled on about 100 ms and never converged. The mic is
+  therefore run 40 ms behind the reference. Measured with music at 60 %
+  volume: the echo drops from -31 dBFS at the mics to about -72 dBFS, the
+  noise floor, after 4-5 s of adaptation (AEC3: ERL 20 dB, ERLE 15 dB).
+  It costs about a third of one core while the host records.
 - Two USB kernel fixes in `drivers/usb/musb/musb_gadget.c`:
   - Isochronous transfers through MUSB's Inventra DMA failed (IN produced no
     packets; root cause unknown), so isochronous endpoints use PIO.
@@ -356,7 +369,7 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
     happen several times per second, which a soldered, twisted D+/D- pair
     should reduce.
 - Not yet done:
-  - echo cancellation, beamforming and noise suppression
+  - beamforming
   - clock-drift compensation: the mic and USB clocks are independent, so
     latency can creep up to about 0.7 s before the pipe resets
 
