@@ -23,7 +23,7 @@ ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
 [ -n "$ROOTFS" ] || { echo "could not resolve Alpine minirootfs" >&2; exit 1; }
 curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
-	wireless-regdb busybox-extras uboot-tools
+	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2
 # fw_printenv/fw_setenv: U-Boot keeps its environment at the top of misc
 cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
@@ -41,6 +41,23 @@ aarch64-linux-gnu-gcc -O2 -static -o "$T/devmem" /work/tools/devmem.c
 install -m755 "$T/devmem" "$T/initramfs/usr/bin/devmem"
 aarch64-linux-gnu-gcc -O2 -Wall -static -o "$T/lidar-listen" /work/tools/lidar-listen.c
 install -m755 "$T/lidar-listen" "$T/initramfs/usr/bin/lidar-listen"
+# lidar-aec links against Alpine's C++ WebRTC library: clang builds it for
+# musl against an Alpine sysroot (cached per Alpine release in /src).
+SYSROOT=/src/alpine-sysroot-$(cat "$T/initramfs/etc/alpine-release")
+if [ ! -e "$SYSROOT/.complete" ]; then
+	rm -rf "$SYSROOT"
+	mkdir -p "$SYSROOT"
+	curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$SYSROOT"
+	python3 /work/tools/alpine-fetch.py "$SYSROOT" musl-dev libstdc++-dev gcc \
+		alsa-lib-dev webrtc-audio-processing-2-dev
+	touch "$SYSROOT/.complete"
+fi
+clang++ --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=c++17 -O2 -Wall -Wextra -Wno-nullability-completeness \
+	-isystem "$SYSROOT/usr/include/webrtc-audio-processing-2" \
+	-DWEBRTC_POSIX -DWEBRTC_LIBRARY_IMPL -s -o "$T/lidar-aec" /work/tools/lidar-aec.cc \
+	-lwebrtc-audio-processing-2 -lasound
+install -m755 "$T/lidar-aec" "$T/initramfs/usr/bin/lidar-aec"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
