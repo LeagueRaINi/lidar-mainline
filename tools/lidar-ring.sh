@@ -73,6 +73,8 @@ daemon() {
 	while [ ! -e /run/boot-done ] || pidof lidar-bootanim >/dev/null; do
 		sleep 0.2
 	done
+	# Overlays sent in the meantime are stale: show none of them.
+	while read -t 0.05 _ <&3; do :; done
 	mic_muted=0
 	overlay=
 	mic_watch &

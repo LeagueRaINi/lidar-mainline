@@ -72,7 +72,9 @@ clamp() { # value -> 0..VMAX
 	else echo "$1"; fi
 }
 
-# The host changed its slider or mute: take its values.
+# The host changed its slider or mute: take its values. Right after the
+# gadget appears (or a sync) the host is only reporting its stored setting,
+# not a change by the user, so the ring stays dark until quiet_until.
 from_host() {
 	v=$(ctl_get $GADGET 'PCM Capture Volume')
 	s=$(ctl_get $GADGET 'PCM Capture Switch')
@@ -80,7 +82,12 @@ from_host() {
 	old="$level $mute"
 	level=$(clamp "$v")
 	mute=0; [ "$s" = off ] && mute=1
-	if [ "$old" = "$level $mute" ]; then apply; else apply show; fi
+	if [ "$old" = "$level $mute" ] ||
+	   [ "$(cut -d. -f1 /proc/uptime)" -lt "$quiet_until" ]; then
+		apply
+	else
+		apply show
+	fi
 }
 
 # Volume buttons: a press steps once, holding repeats until release. The
@@ -119,13 +126,13 @@ buttons() {
 
 # Short feedback tone at the current volume. A tone still playing is not cut
 # off (that clicks); the new one is skipped. If the codec output is closed
-# (volume keepalive off), 150 ms of silence go first: the amplifier only
-# unmutes 100 ms after the DAC starts, and would otherwise chop the tone.
+# (volume keepalive off), 600 ms of silence go first: the amplifier only
+# unmutes 500 ms after the DAC starts, and would otherwise chop the tone.
 tone() {
 	[ "$sound_on" = on ] && [ "$mute" = 0 ] && [ -r $TONE ] || return
 	[ -n "$tp" ] && kill -0 "$tp" 2>/dev/null && return
 	if grep -qs closed /proc/asound/$CODEC/pcm0p/sub0/status; then
-		{ head -c 28800 /dev/zero; tail -c +45 $TONE; } |
+		{ head -c 115200 /dev/zero; tail -c +45 $TONE; } |
 			aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 2>/dev/null &
 	else
 		aplay -q -D lidar_speaker $TONE 2>/dev/null &
@@ -163,6 +170,7 @@ daemon() {
 	sound_on=$(lidar-feature get volume sound 2>/dev/null)
 	tp=
 	last_tone=
+	quiet_until=0
 	p=$(lidar-feature get volume initial 2>/dev/null)
 	level=$(clamp $(( (${p:-30} * VMAX + 50) / 100 )))
 	mute=0
@@ -180,7 +188,7 @@ daemon() {
 		unmute) mute=0; apply show ;;
 		toggle) mute=$((1 - mute)); apply show ;;
 		host) from_host ;;
-		sync) apply ;;
+		sync) quiet_until=$(( $(cut -d. -f1 /proc/uptime) + 5 )); apply ;;
 		tone)	# release: only if a hold moved the level since the press
 			[ "$level" != "$last_tone" ] && tone && last_tone=$level ;;
 		esac
