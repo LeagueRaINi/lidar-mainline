@@ -423,10 +423,13 @@
 	};
 
 	led-controller@3f {
-		compatible = "issi,is31fl3236";
+		/* The A variant: it has the PWM frequency register (0x4b). */
+		compatible = "issi,is31fl3236a";
 		pinctrl-names = "default";
 		pinctrl-0 = <&led_sdb_pins>;
 		reg = <0x3f>;
+		/* As on stock: the default 3 kHz PWM is audible through the speaker. */
+		issi,22khz-pwm;
 		#address-cells = <1>;
 		#size-cells = <0>;
 
