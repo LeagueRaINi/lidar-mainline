@@ -7,6 +7,9 @@
 #                                      when the speaker is muted), shown for
 #                                      HOLD seconds after the last change
 # A change of the privacy state ends any overlay at once.
+# Brightness follows the ambient light sensor, as on stock: full from a lit
+# room down to "ring min_brightness" percent in the dark (setting "ring
+# auto_brightness off" keeps it at full).
 # Writers should open the FIFO read-write ("exec 5<>/run/lidar-ring.fifo") so
 # a write never blocks.
 #
@@ -17,6 +20,11 @@ N=12
 HOLD=2
 WHITE=96
 RED=160
+# Sensor counts at its most sensitive setting: covered reads 0-20, a dimly
+# lit room about 550, a flashlight about 9000. Brightness is interpolated on
+# a log scale between ALS_DARK (minimum) and ALS_BRIGHT (full).
+ALS_DARK=30
+ALS_BRIGHT=8000
 
 set_led() { # n r g b
 	echo "$2" > "$L/ring$1:red/brightness"
@@ -29,23 +37,59 @@ fill() { # r g b
 	while [ $i -le $N ]; do set_led $i "$1" "$2" "$3"; i=$((i + 1)); done
 }
 
+# Ambient light sensor (TSL2540): most sensitive gain and longest
+# integration, so a dark room still reads hundreds of counts.
+als_setup() {
+	als=
+	[ "$(lidar-feature get ring auto_brightness 2>/dev/null)" = off ] && return
+	for d in /sys/bus/iio/devices/iio:device*; do
+		[ "$(cat "$d/name" 2>/dev/null)" = tsl2540 ] && als=$d
+	done
+	[ -n "$als" ] || return
+	tr ' ' '\n' < "$als/in_illuminance_scale_available" | sort -g | head -n1 \
+		> "$als/in_illuminance_scale"
+	tr -d '[]' < "$als/integration_time_available" | awk '{ print $NF }' \
+		> "$als/integration_time"
+}
+
+level() { # -> P, the brightness in percent
+	P=100
+	[ -n "$als" ] || return
+	P=$(awk -v v="$(cat "$als/in_illuminance_raw" 2>/dev/null)" -v min="$dim_min" \
+		-v lo=$ALS_DARK -v hi=$ALS_BRIGHT 'BEGIN {
+		if (v == "" || v >= hi) { print 100; exit }
+		if (v <= lo) { print min; exit }
+		printf "%d\n", min + (100 - min) * (log(v) - log(lo)) / (log(hi) - log(lo))
+	}')
+}
+
+scaled() { # value -> value * P / 100, at least 1 unless 0
+	s=$(( $1 * P / 100 ))
+	[ "$1" -gt 0 ] && [ $s -lt 1 ] && s=1
+	echo $s
+}
+
 base() {
-	if [ "$mic_muted" = 1 ]; then fill $RED 0 0; else fill 0 0 0; fi
+	level
+	p_drawn=$P
+	if [ "$mic_muted" = 1 ]; then fill $(scaled $RED) 0 0; else fill 0 0 0; fi
 }
 
 # The arc covers the level in brightness units: full LEDs, then one partly
 # lit LED, so every volume step changes the ring (12 LEDs, 21 button steps).
 volume() { # level muted max
 	[ "$3" -gt 0 ] 2>/dev/null && [ "$1" -ge 0 ] 2>/dev/null || return
+	level
+	w=$(scaled $WHITE)
 	t=0
-	[ "$2" = 1 ] || t=$(( ($1 * N * WHITE + $3 - 1) / $3 ))
+	[ "$2" = 1 ] || t=$(( ($1 * N * w + $3 - 1) / $3 ))
 	i=1
 	while [ $i -le $N ]; do
-		if [ "$2" = 1 ] && [ $i = 1 ]; then set_led $i 24 0 0
-		elif [ $t -ge $WHITE ]; then set_led $i $WHITE $WHITE $WHITE
+		if [ "$2" = 1 ] && [ $i = 1 ]; then set_led $i $(scaled 24) 0 0
+		elif [ $t -ge $w ]; then set_led $i $w $w $w
 		else set_led $i $t $t $t
 		fi
-		t=$((t - WHITE)); [ $t -lt 0 ] && t=0
+		t=$((t - w)); [ $t -lt 0 ] && t=0
 		i=$((i + 1))
 	done
 }
@@ -77,6 +121,10 @@ daemon() {
 	while read -t 0.05 _ <&3; do :; done
 	mic_muted=0
 	overlay=
+	p_drawn=100
+	dim_min=$(lidar-feature get ring min_brightness 2>/dev/null)
+	dim_min=${dim_min:-15}
+	als_setup
 	mic_watch &
 	trap 'trap "" TERM; kill 0; exit' INT TERM
 	base
@@ -89,6 +137,15 @@ daemon() {
 		elif [ -n "$overlay" ]; then
 			overlay=
 			base
+		elif [ "$mic_muted" = 1 ]; then
+			# follow the room light in steps that do not flicker; the end
+			# values are clamped, so reaching them cannot flicker either
+			level
+			d=$((P - p_drawn)); [ $d -lt 0 ] && d=$((-d))
+			if [ $d -ge 10 ] || { [ $d -gt 0 ] &&
+			   { [ $P = 100 ] || [ $P = "$dim_min" ]; }; }; then
+				base
+			fi
 		fi
 	done
 }
@@ -96,7 +153,7 @@ daemon() {
 case $1 in
 daemon) daemon ;;
 *)
-	sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

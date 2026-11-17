@@ -46,6 +46,8 @@ volume initial 30 0-100 volume at boot, percent of the range up to the cap
 volume ring on on|off on: show volume changes on the LED ring (needs the ring service), as stock does
 volume sound on on|off on: a short tone at the new level when the volume buttons change it, as stock does
 volume keepalive on on|off on: speaker output stays open, as stock (no clicks, sounds start at once, faint hiss); off: opens per sound
+ring auto_brightness on on|off on: ring brightness follows the light sensor, as stock does; off: always full
+ring min_brightness 15 5-100 ring brightness in the dark, percent of full
 usbaudio mic_gain 70 0-80 ADC PGA Capture Volume, 0.5 dB steps, 70 = +35 dB
 '
 

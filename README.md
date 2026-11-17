@@ -258,6 +258,8 @@ lidar-feature unset wireless country      # back to the default
 | `volume ring` | `on` | `on`, `off` | show volume changes on the LED ring (needs the `ring` service) |
 | `volume sound` | `on` | `on`, `off` | short tone at the new level when the volume buttons change it |
 | `volume keepalive` | `on` | `on`, `off` | `off`: no silent stream holding the speaker output open. No idle amplifier hiss, but every sound then clicks at its start and end |
+| `ring auto_brightness` | `on` | `on`, `off` | ring brightness follows the ambient light sensor, as on stock; `off`: always full |
+| `ring min_brightness` | 15 | 5-100 | ring brightness in a dark room, in percent of full |
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
 
 - The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
@@ -315,6 +317,14 @@ by the privacy button (the button's own red LED is switched by the hardware
 latch). Other programs show short overlays through `/run/lidar-ring.fifo`;
 `lidar-volume` uses it for the volume arc. Muting or unmuting the mics ends
 an overlay at once, so the privacy state always shows immediately.
+
+As on stock, the ring dims in the dark. The service sets the TSL2540 to its
+most sensitive range (highest gain, 0.72 s integration) and maps its counts
+on a log scale: about 30 or less (covered, dark room at night) gives
+`ring min_brightness`, 8000 (a flashlight on the top) and more give full
+brightness; a dimly lit room (about 550) gives about 60 %. A steady red ring
+follows the room light every 2 s, in steps of at least 10 % so it does not
+flicker. The ring's own light does not reach the sensor (measured).
 
 ### USB speakerphone
 
@@ -503,6 +513,9 @@ volume 127 (0 dB) is the speaker's full stock loudness.
   chip ID, configuration, and readings from 0 in the dark to about 7000
   counts under a torch (128x gain, 360 ms). Values are relative: the
   datasheet has no lux equation and the cover calibration is not ported.
+  The `ring` service sets it to 256x gain and 0.72 s integration for its
+  brightness control; with `ring auto_brightness off` the driver default
+  (1x, 0.18 s) stays.
 
 ## Upstreaming
 
