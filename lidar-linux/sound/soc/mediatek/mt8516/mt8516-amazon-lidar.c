@@ -20,11 +20,18 @@
 /*
  * The DAC's MFP5 pin mutes the speaker amplifier when high. Without it the
  * DAC's power-up and power-down transients reach the speaker as pops. The
- * DAC comes up with MFP5 high (aic32x4-gpio-func); the amplifier is only
- * unmuted once the DAC output has settled, and muted again before anything
- * powers down.
+ * DAC comes up with MFP5 high (aic32x4-gpio-func).
+ *
+ * The amplifier has no status output, so its start-up time is a fixed
+ * delay. Measured by ear: unmuting 100 ms after enabling it still clicks,
+ * 250 ms and later is silent. Enabling it while muted is silent, and so is
+ * disabling it, muted or not; muting it while it runs clicks. So it is
+ * enabled muted and unmuted after the delay, and on power-down disabled
+ * first and muted afterwards, ready for the next start. The first unmute
+ * after boot still makes a faint click (measured with the microphones),
+ * whatever the delay.
  */
-#define LIDAR_AMP_SETTLE_MS	100
+#define LIDAR_AMP_SETTLE_MS	500
 /* Every microphone ADC fills two 32 bit slots of the TDM frame. */
 #define LIDAR_MIC_SLOT_WIDTH	32
 #define LIDAR_MIC_MAX_CODECS	4
@@ -75,8 +82,8 @@ static int lidar_amp_event(struct snd_soc_dapm_widget *w,
 		msleep(LIDAR_AMP_SETTLE_MS);
 		lidar_amp_mute(card, false);
 	} else {
-		lidar_amp_mute(card, true);
 		gpiod_set_value_cansleep(priv->amp_gpio, 0);
+		lidar_amp_mute(card, true);
 	}
 
 	return 0;
