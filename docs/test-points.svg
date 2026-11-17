@@ -83,10 +83,10 @@
     <rect x="806" y="282" width="118" height="26" rx="6" fill="#cf222e" stroke="#ff8f87"/>
   </g>
   <g text-anchor="middle" font-weight="bold" fill="#fff">
-    <text x="605" y="81.500" font-weight="normal" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="605" y="81.500">USB ID</text>
     <text x="735" y="81.500">USB D+</text>
     <text x="865" y="81.500">USB D-</text>
-    <text x="605" y="299.500" font-weight="normal" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="605" y="299.500" font-weight="normal" fill="#9aa4af">VBUS? (likely)</text>
     <text x="735" y="299.500">GND</text>
     <text x="875" y="299.500">VIN ~17 V</text>
   </g>
@@ -103,10 +103,10 @@
       <text x="546" y="382">TM45</text><text x="546" y="408">TM4</text><text x="546" y="434">TM5</text>
       <text x="546" y="460">TM35</text><text x="546" y="486">TM37</text><text x="546" y="512" fill="#ff7b72">TM33</text>
     </g>
-    <text x="620" y="382" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="620" y="382">USB ID (SoC pin 41, 1.8 V)</text>
     <text x="620" y="408">USB D+</text>
     <text x="620" y="434">USB D-</text>
-    <text x="620" y="460" fill="#9aa4af">unknown, ~0 V</text>
+    <text x="620" y="460" fill="#9aa4af">likely USB VBUS from the factory fixture</text>
     <text x="620" y="486">GND</text>
     <text x="620" y="512" font-weight="bold" fill="#ff7b72">VIN, ~17 V adapter rail (not logic level!)</text>
   </g>

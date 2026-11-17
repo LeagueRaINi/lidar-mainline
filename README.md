@@ -69,7 +69,8 @@ The USB and supply pads form a 2x3 block next to the AMP flex cable:
 | TM37 | GND | |
 | TM58 | UART0 TX | 1.8 V, 921600 8N1, kernel and bootloader log |
 | TM33 | VIN, about 17 V (adapter rail) | next to USB D+/D- and GND: never connect logic-level tools, and avoid bridging it to neighbouring pads |
-| TM35, TM45 | unknown | near 0 V; not UART0 RX (does not follow pin 62 when it is toggled) |
+| TM45 | USB ID | SoC pin 41 (KPROW1, function `IDDIG`), 1.8 V logic; follows the pin's internal pull (1.8 V with pull-up, 0 V with pull-down). Pulled up by default (device role); leave unconnected |
+| TM35 | probably USB VBUS from the factory fixture (unused) | near 0 V. Not a SoC GPIO: no response to pull changes on any free GPIO, and not UART0 RX. Unpowered: open to GND with the pad positive (even on 2 MΩ), ~600 Ω and a 0.61 V diode drop with GND positive, i.e. only a diode to ground. 5 V through 10 kΩ changed nothing the SoC can see (GPIO inputs, USB PHY monitor, MUSB DEVCTL); the board has no MT6392 PMIC to sense VBUS. Leave unconnected |
 
 UART0 RX is not on any known test point.
 
