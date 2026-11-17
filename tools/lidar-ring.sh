@@ -6,6 +6,7 @@
 #   volume <level> <muted 0|1> <max>   arc of white LEDs (one dim red LED
 #                                      when the speaker is muted), shown for
 #                                      HOLD seconds after the last change
+# A change of the privacy state ends any overlay at once.
 # Writers should open the FIFO read-write ("exec 5<>/run/lidar-ring.fifo") so
 # a write never blocks.
 #
@@ -80,7 +81,7 @@ daemon() {
 	while :; do
 		if read -t $HOLD cmd a b c <&3; then
 			case $cmd in
-			mic) mic_muted=$a; [ -n "$overlay" ] || base ;;
+			mic) mic_muted=$a; overlay=; base ;;	# privacy state wins at once
 			volume) volume "$a" "$b" "$c"; overlay=1 ;;
 			esac
 		elif [ -n "$overlay" ]; then

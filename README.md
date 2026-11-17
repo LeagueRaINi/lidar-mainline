@@ -312,7 +312,8 @@ itself.
 is done. As on stock, the whole ring is red while the microphones are muted
 by the privacy button (the button's own red LED is switched by the hardware
 latch). Other programs show short overlays through `/run/lidar-ring.fifo`;
-`lidar-volume` uses it for the volume arc.
+`lidar-volume` uses it for the volume arc. Muting or unmuting the mics ends
+an overlay at once, so the privacy state always shows immediately.
 
 ### USB speakerphone
 
