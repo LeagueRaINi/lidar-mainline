@@ -12,6 +12,12 @@
 # The level runs from 0 (codec -63.5 dB, practically silent) to the safety
 # cap set by "lidar-feature set volume max_attenuation <dB>".
 #
+# With the speaker tuning (dsp feature) the volume is applied by lidar-dsp,
+# before its EQ and compressor as on stock: lidar-volume writes the level to
+# /run/lidar-dsp/volume and, once lidar-dsp reports that its output runs,
+# parks the codec at the safety cap. Until then the codec keeps the level
+# too, so a missing DSP can only make the speaker quieter, never louder.
+#
 # The speaker output is held open by a silent stream (volume keepalive), as
 # on stock: every start and stop of the codec stream clicks, either through
 # the DAC clocks stopping or through the amplifier's mute pin.
@@ -28,6 +34,7 @@ STEP=6		# volume buttons: 3 dB per press
 REPEAT_DELAY=0.4	# held button: first repeat after this many seconds,
 REPEAT_EVERY=0.15	# then one step every this many seconds
 TONE=/usr/share/lidar/volume-tone.wav
+DSP=/run/lidar-dsp
 
 a=$(lidar-feature get volume max_attenuation 2>/dev/null)
 VMAX=$((127 - 2 * ${a:-20}))
@@ -42,6 +49,13 @@ ctl_get() { # card name -> first value
 apply() {
 	c=$level
 	[ "$mute" = 1 ] && c=0
+	if [ -e $DSP/active ]; then
+		awk -v l="$level" -v m="$VMAX" -v u="$mute" \
+			'BEGIN { printf "%.1f %.1f %d\n", (l - 127) / 2, (l - m) / 2, u }' > $DSP/volume.new &&
+			mv $DSP/volume.new $DSP/volume
+		# a lidar-dsp killed without cleanup leaves ready behind
+		[ -e $DSP/ready ] && pidof lidar-dsp >/dev/null && c=$VMAX
+	fi
 	amixer -q -c $CODEC cset name='PCM Playback Volume' "$c,$c"
 	if [ -e /proc/asound/$GADGET ]; then
 		[ "$(ctl_get $GADGET 'PCM Capture Volume')" = "$level" ] ||
@@ -189,6 +203,7 @@ daemon() {
 		toggle) mute=$((1 - mute)); apply show ;;
 		host) from_host ;;
 		sync) quiet_until=$(( $(cut -d. -f1 /proc/uptime) + 5 )); apply ;;
+		refresh) apply ;;	# lidar-dsp started or stopped
 		tone)	# release: only if a hold moved the level since the press
 			[ "$level" != "$last_tone" ] && tone && last_tone=$level ;;
 		esac
@@ -217,7 +232,7 @@ set)
 	;;
 up | down | mute | unmute | toggle | sync) send "$1" ;;
 *)
-	sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

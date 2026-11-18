@@ -23,7 +23,7 @@ ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
 [ -n "$ROOTFS" ] || { echo "could not resolve Alpine minirootfs" >&2; exit 1; }
 curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
-	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod
+	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod cjson
 # fw_printenv/fw_setenv: U-Boot keeps its environment at the top of misc
 cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
@@ -41,16 +41,17 @@ aarch64-linux-gnu-gcc -O2 -static -o "$T/devmem" /work/tools/devmem.c
 install -m755 "$T/devmem" "$T/initramfs/usr/bin/devmem"
 aarch64-linux-gnu-gcc -O2 -Wall -static -o "$T/lidar-listen" /work/tools/lidar-listen.c
 install -m755 "$T/lidar-listen" "$T/initramfs/usr/bin/lidar-listen"
-# lidar-aec links against Alpine's C++ WebRTC library: clang builds it for
-# musl against an Alpine sysroot (cached per Alpine release in /src).
+# lidar-aec and lidar-dsp link against Alpine libraries: clang builds them
+# for musl against an Alpine sysroot, cached per Alpine release in /src and
+# rebuilt when the package list changes.
 SYSROOT=/src/alpine-sysroot-$(cat "$T/initramfs/etc/alpine-release")
-if [ ! -e "$SYSROOT/.complete" ]; then
+SYSPKGS="musl-dev libstdc++-dev gcc alsa-lib-dev webrtc-audio-processing-2-dev cjson-dev"
+if [ "$(cat "$SYSROOT/.complete" 2>/dev/null)" != "$SYSPKGS" ]; then
 	rm -rf "$SYSROOT"
 	mkdir -p "$SYSROOT"
 	curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$SYSROOT"
-	python3 /work/tools/alpine-fetch.py "$SYSROOT" musl-dev libstdc++-dev gcc \
-		alsa-lib-dev webrtc-audio-processing-2-dev
-	touch "$SYSROOT/.complete"
+	python3 /work/tools/alpine-fetch.py "$SYSROOT" $SYSPKGS
+	echo "$SYSPKGS" > "$SYSROOT/.complete"
 fi
 clang++ --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=c++17 -O2 -Wall -Wextra -Wno-nullability-completeness \
@@ -58,6 +59,10 @@ clang++ --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-DWEBRTC_POSIX -DWEBRTC_LIBRARY_IMPL -s -o "$T/lidar-aec" /work/tools/lidar-aec.cc \
 	-lwebrtc-audio-processing-2 -lasound
 install -m755 "$T/lidar-aec" "$T/initramfs/usr/bin/lidar-aec"
+clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=gnu11 -O2 -ffp-contract=fast -Wall -Wextra -Wno-nullability-completeness \
+	-s -o "$T/lidar-dsp" /work/tools/lidar-dsp.c -lcjson -lasound -lm
+install -m755 "$T/lidar-dsp" "$T/initramfs/usr/bin/lidar-dsp"
 aarch64-linux-gnu-gcc -O2 -Wall -static -o "$T/lidar-xmodem" /work/tools/lidar-xmodem.c
 install -m755 "$T/lidar-xmodem" "$T/initramfs/usr/bin/lidar-xmodem"
 install -m755 /work/tools/lidar-zigbee.sh "$T/initramfs/usr/bin/lidar-zigbee"
@@ -128,6 +133,18 @@ pcm.lidar_mics {
 }
 EOF
 
+# With the speaker tuning (dsp feature) the mix goes into snd-aloop instead,
+# for lidar-dsp to process. The loopback is clocked by the codec's period
+# ticks, so dmix uses lidar-dsp's period (384 frames); the buffer stays
+# about as long as above.
+sed -e 's|pcm "hw:amazonlidar,0"|pcm "hw:Loopback,0,0"|' \
+    -e 's|period_size 1024|period_size 384|' \
+    -e 's|buffer_size 8192|buffer_size 7680|' \
+	"$T/initramfs/etc/asound.conf" > "$T/initramfs/usr/share/lidar/asound-dsp.conf"
+grep -q 'hw:Loopback,0,0' "$T/initramfs/usr/share/lidar/asound-dsp.conf"
+grep -q 'period_size 384' "$T/initramfs/usr/share/lidar/asound-dsp.conf"
+grep -q 'buffer_size 7680' "$T/initramfs/usr/share/lidar/asound-dsp.conf"
+
 # Login shells on the debug UART and the USB serial gadget, respawned by
 # BusyBox init, which also makes each tty the shell's controlling terminal.
 cat > "$T/initramfs/etc/inittab" <<'EOF'
@@ -179,6 +196,29 @@ done
 # verified microphone routing (PGA +35 dB), output driver gains as on
 # Amazon's firmware, speaker volume -40 dB.
 alsaucm -c hw:amazonlidar set _boot ''
+# Speaker tuning (dsp): decided once, here, before any sound client starts.
+# The owner's own Fire OS tuning files are staged from system_a (read-only);
+# without them, or without snd-aloop, the speaker stays on the direct path.
+# lidar-dsp takes the volume from lidar-volume, so it needs the volume service.
+if lidar-feature enabled dsp && ! lidar-feature enabled volume; then
+	echo "lidar: speaker tuning needs the volume service, speaker untuned" > /dev/kmsg
+elif lidar-feature enabled dsp; then
+	d=/run/lidar-dsp
+	src=/mnt/fireos-dsp/system/vendor/etc/audio-algorithms
+	mkdir -p $d /mnt/fireos-dsp
+	if mount -o ro -t ext4 /dev/disk/by-partlabel/system_a /mnt/fireos-dsp; then
+		cp $src/AFE.cfg $src/EQ_*.cfg $src/ParametricEQ.cfg $src/MBCL*.cfg $d/ 2>/dev/null
+		umount /mnt/fireos-dsp
+	fi
+	if lidar-dsp -c $d -k 2>/dev/kmsg &&
+	   modprobe snd-aloop pcm_substreams=1 timer_source=amazonlidar.0.0; then
+		cp /usr/share/lidar/asound-dsp.conf /etc/asound.conf
+		touch $d/active
+		echo '::respawn:/usr/bin/lidar-dsp' >> /etc/inittab
+	else
+		echo "lidar: no Fire OS speaker tuning, speaker untuned" > /dev/kmsg
+	fi
+fi
 # USB gadget on the pogo-pin port: serial shell + NCM network (169.254.7.2)
 g=/sys/kernel/config/usb_gadget/lidar
 if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null)" ]; then

@@ -33,6 +33,7 @@ wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA)
+dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter (needs the volume service and Fire OS on system_a)
 '
 
 # feature key default allowed description

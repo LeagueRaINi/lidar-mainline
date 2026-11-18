@@ -128,6 +128,7 @@ decompression.
 | `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
 | `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if needed) and bridges EZSP to TCP port 6638 |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
+| `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
@@ -242,6 +243,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `usbaudio` | extra | off | USB speakerphone (below) |
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below) |
+| `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -315,6 +317,49 @@ amplifier hiss, as on stock.
 Without the `volume` service the speaker stays at the test image's base level
 (-40 dB), and the USB host gets no hardware volume, so it scales the audio
 itself.
+
+### Speaker tuning
+
+Fire OS does not play audio flat: its audio library (`libasp.so`) runs every
+speaker stream through a chain configured by
+`/system/vendor/etc/audio-algorithms/AFE.cfg`. The `dsp` service runs the
+same chain, reverse engineered from that library, on the owner's own copy of
+these files (staged from `system_a` at boot; nothing is redistributed):
+
+1. the volume, applied digitally before everything else, as on stock;
+2. a 2048-tap FIR equalizer chosen by the level (`EQ_50/90/100.cfg`): the
+   speaker's response correction plus loudness compensation, +10 dB of bass
+   up to -23.5 dB, +5 dB up to -4 dB, none above; a level change crosses
+   zones with a 400 ms crossfade;
+3. the parametric EQ (`ParametricEQ.cfg`: bass shelves +3 dB at 70 Hz and
+   +9 dB at 110 Hz, -3 dB at 160 Hz);
+4. the multiband compressor/limiter (`MBCL.cfg`): +6 dB in, four bands
+   (100/220/5000 Hz Linkwitz-Riley crossovers), a slow RMS compressor and a
+   2 ms look-ahead peak limiter per band, a full-band limiter, a hard clip;
+5. both channels mixed to mono for the single speaker.
+
+So with the service on, the same volume percentage is noticeably louder and
+fuller than without, as on stock, and the compressor only works hard near
+full volume. The limiters keep the output below digital full scale; the
+safety cap still applies, since the codec sits at the cap and the volume is
+taken off digitally. The line-out jack gets the same tuned mono signal
+(stock bypasses the chain for external outputs).
+
+How it runs: the mixed speaker stream (dmix) goes into `snd-aloop`, clocked
+by the codec, and `lidar-dsp` processes it in 8 ms frames into the codec
+(32 bit). `lidar-volume` writes the level to `/run/lidar-dsp/volume` and
+parks the codec at the cap only while `lidar-dsp` runs and reports that its
+output is live, so a stopped DSP can only make the speaker quieter. While
+it is stopped, sound clients wait; init restarts it. `lidar-dsp` holds the
+codec open all the time, so `volume keepalive off` makes no difference with
+it. It adds about 60 ms of latency and takes about 13% of one core at
+1.3 GHz. Without the `volume` service or the Fire OS files the speaker stays
+on the plain path. Toggling the service takes effect on the next boot.
+
+Verified: the impulse response at low level matches the stock FIR and EQ
+times the MBCL band gains (+11 dB below 100 Hz, +8 dB above 220 Hz), the
+limiter keeps full-scale noise below 1.0, and on the device the processed
+stream arrives at the codec as computed offline. Not yet judged by ear.
 
 ### Zigbee coordinator
 
