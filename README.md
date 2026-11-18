@@ -158,7 +158,12 @@ run patches             # -> out/patches/{linux,u-boot}-lidar.diff
 ```
 
 The kernel command line includes `clk_ignore_unused`. This is a bring-up
-workaround while not every clock consumer is described in the DT.
+workaround while not every clock consumer is described in the DT. A runtime
+test gated every clock that is on but unclaimed after boot (the NFI, SPI-NOR,
+BSI, AES, SEJ, RBIST, MSDC1 and debug gates, the APLL1 dividers,
+`memslp_dlyer` and `apxgpt`), as `clk_disable_unused` would, and nothing
+stopped working (eMMC, I2C, microphones, USB, speaker stream). Booting
+without the option is the remaining step.
 
 ## Installing
 
@@ -473,9 +478,10 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
   volume: the echo drops from -31 dBFS at the mics to about -72 dBFS, the
   noise floor, after 4-5 s of adaptation (AEC3: ERL 20 dB, ERLE 15 dB).
   It costs about a third of one core while the host records.
-- Two USB kernel fixes in `drivers/usb/musb/musb_gadget.c`:
-  - Isochronous transfers through MUSB's Inventra DMA failed (IN produced no
-    packets; root cause unknown), so isochronous endpoints use PIO.
+- Two USB kernel fixes in `drivers/usb/musb/`:
+  - Isochronous transfers through MUSB's Inventra DMA failed on MT8516 (IN
+    produced no packets; root cause unknown), so isochronous endpoints use
+    PIO there: a quirk (`MUSB_G_ISOC_NO_DMA`) set by the MediaTek glue only.
   - Isochronous packets that fail their CRC (`DATAERROR`) are dropped
     instead of being passed on with a garbage length. That had shifted the
     PC-to-Echo stream by single bytes, which played as static. Each drop
@@ -547,7 +553,9 @@ From the test system's shell:
 Start quiet: `amixer cset name='PCM Playback Volume' 47,47` (-40 dB), or
 `lidar-volume set 20` with the `volume` service. The test image sets the
 output drivers as Amazon does (line-out 0 dB, headphone +5 dB), so PCM
-volume 127 (0 dB) is the speaker's full stock loudness.
+volume 127 (0 dB) is the speaker's full stock loudness. The control goes
+up to 175 (+24 dB), and a desktop sound server using the UCM profile is not
+bound by `lidar-volume`'s cap.
 
 ## Status
 
@@ -670,6 +678,7 @@ series:
 | `lidar-linux/` | per file, as in the Linux kernel (mostly `GPL-2.0-only`; new bindings `GPL-2.0-only OR BSD-2-Clause`) |
 | `lidar-uboot/` | per file, as in U-Boot (`GPL-2.0+`; DTS `GPL-2.0 OR MIT`) |
 | `lidar-wifi/` | MediaTek dual licence, `GPL-2.0 OR BSD-3-Clause` |
+| `ucm2/` | `BSD-3-Clause`, as alsa-ucm-conf |
 | everything else | `GPL-2.0-only` (see `LICENSE`) |
 
 Licence texts are in `LICENSES/`.
