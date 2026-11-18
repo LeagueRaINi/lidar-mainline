@@ -389,6 +389,11 @@
 	};
 };
 
+/* No MT6392 PMIC behind the wrapper on this board, as on stock */
+&pwrap {
+	status = "disabled";
+};
+
 /* Debug console, TM58 test pad, 921600 8N1 at 1.8 V */
 &uart0 {
 	pinctrl-names = "default";
