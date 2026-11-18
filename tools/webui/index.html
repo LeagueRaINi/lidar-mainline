@@ -9,12 +9,12 @@
 :root {
   color-scheme: light dark;
   --bg: #f3f4f6; --card: #fff; --fg: #1b1f24; --muted: #667085; --line: #d8dce3;
-  --accent: #0b6bcb; --ok: #1a8f4c; --bad: #c62f2f; --track: #e4e7ec; --led-off: #20242b;
+  --accent: #0b6bcb; --ok: #1a8f4c; --bad: #c62f2f; --track: #e4e7ec;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14171c; --card: #1d2128; --fg: #e6e8eb; --muted: #8b93a1; --line: #313742;
-    --accent: #4aa8ff; --ok: #4cc27e; --bad: #f0685f; --track: #2b313b; --led-off: #0c0e11;
+    --accent: #4aa8ff; --ok: #4cc27e; --bad: #f0685f; --track: #2b313b;
   }
 }
 * { box-sizing: border-box; }
@@ -67,9 +67,11 @@ main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
 .temp .val { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* LED ring */
-#ring { display: block; width: 100%; max-width: 210px; margin: 0 auto; }
-#ring .body { fill: none; stroke: var(--line); }
-#ring .led { stroke: var(--line); stroke-width: 1; fill: var(--led-off); }
+#ring { display: block; width: 100%; max-width: 230px; margin: 0 auto; }
+#ring .top { fill: #16191d; stroke: #262b31; stroke-width: 1; }
+#ring .track { fill: none; stroke: #0b0d0f; stroke-width: 11; }
+#ring .seg { fill: none; stroke-width: 9; stroke-linecap: butt; transition: stroke .25s, opacity .25s; }
+#ring .glow { stroke-width: 15; filter: url(#ring-blur); }
 
 /* volume */
 .volume { display: flex; align-items: center; gap: .7rem; }
@@ -160,7 +162,11 @@ button[aria-pressed="true"], button[aria-pressed="true"]:hover:not(:disabled) {
   <div class="card">
     <h2>LED ring</h2>
     <svg id="ring" viewBox="-60 -60 120 120" role="img" aria-label="LED ring">
-      <circle class="body" r="56"/>
+      <defs><filter id="ring-blur" filterUnits="userSpaceOnUse" x="-60" y="-60" width="120" height="120"><feGaussianBlur stdDeviation="3.5"/></filter></defs>
+      <circle class="top" r="57"/>
+      <circle class="track" r="46"/>
+      <g id="ring-glow"></g>
+      <g id="ring-segs"></g>
     </svg>
   </div>
   <div class="card">
@@ -527,31 +533,41 @@ function renderStats(s) {
 /* ---------- LED ring ---------- */
 
 const RING_LEDS = 12;
-const leds = [];
+const RING_R = 46;
+const leds = [];   /* per LED: [segment, glow] */
+
+/* Arc of one LED's light: 30 degrees per LED with a small gap, LED 1 at the top, clockwise. */
+function ledArc(i) {
+  const step = 2 * Math.PI / RING_LEDS, half = step / 2 - 0.03;
+  const pt = (a) => (RING_R * Math.sin(a)).toFixed(2) + ' ' + (-RING_R * Math.cos(a)).toFixed(2);
+  return 'M ' + pt(i * step - half) + ' A ' + RING_R + ' ' + RING_R + ' 0 0 1 ' + pt(i * step + half);
+}
 
 function initRing() {
-  for (let i = 0; i < RING_LEDS; i++) {           /* LED 1 at the top, clockwise */
-    const a = i * 2 * Math.PI / RING_LEDS;
-    const led = svg('circle', { class: 'led', r: 7, cx: (44 * Math.sin(a)).toFixed(2), cy: (-44 * Math.cos(a)).toFixed(2) });
-    led.appendChild(svg('title', {}));
-    leds.push($('ring').appendChild(led));
+  for (let i = 0; i < RING_LEDS; i++) {
+    const glow = $('ring-glow').appendChild(svg('path', { class: 'seg glow', d: ledArc(i) }));
+    const seg = $('ring-segs').appendChild(svg('path', { class: 'seg', d: ledArc(i) }));
+    seg.appendChild(svg('title', {}));
+    leds.push([seg, glow]);
   }
 }
 
-/* LEDs are far brighter than a screen at low PWM values: lift them with a gamma curve. */
-function ledColour(rgb) {
-  return 'rgb(' + rgb.map((v) => Math.round(255 * Math.pow(Math.min(255, Math.max(0, v)) / 255, 0.45))).join(',') + ')';
-}
-
+/*
+ * The ring diffuses its LEDs, and they are far brighter than a screen at low
+ * PWM values: draw the hue at full value and the brightness as opacity, lifted
+ * with a gamma curve so dim states stay visible.
+ */
 function renderRing(ring) {
-  leds.forEach((led, i) => {
-    const rgb = ring[i] || [0, 0, 0];
-    const lit = rgb.some((v) => v > 0);
-    const colour = lit ? ledColour(rgb) : '';
-    led.style.fill = colour;
-    led.style.stroke = colour;
-    led.style.filter = lit ? 'drop-shadow(0 0 4px ' + colour + ')' : '';
-    led.firstChild.textContent = 'LED ' + (i + 1) + ': ' + rgb.join(', ');
+  leds.forEach(([seg, glow], i) => {
+    const rgb = (ring[i] || [0, 0, 0]).map((v) => Math.min(255, Math.max(0, v || 0)));
+    const peak = Math.max(0, ...rgb);
+    const hue = peak > 0 ? 'rgb(' + rgb.map((v) => Math.round(v * 255 / peak)).join(',') + ')' : 'transparent';
+    const alpha = peak ? Math.pow(peak / 255, 0.45) : 0;
+    seg.style.stroke = hue;
+    seg.style.opacity = alpha;
+    glow.style.stroke = hue;
+    glow.style.opacity = alpha * 0.8;
+    seg.firstChild.textContent = 'LED ' + (i + 1) + ': ' + rgb.join(', ');
   });
 }
 

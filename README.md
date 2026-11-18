@@ -312,9 +312,10 @@ safety cap. Everything that changes volume feeds the same state:
   the same commands later.
 
 With the `ring` service, every change shows as a white arc on the LED ring
-(the leading LED dims in between, so each step is visible; one dim red LED
-when the speaker is muted), which goes back to the ring's normal state 2 s
-after the last change.
+(the leading LED dims in between, so each step is visible; while the speaker
+is muted the same arc shows dimmed, so the level it comes back at stays
+visible), which goes back to the ring's normal state 2 s after the last
+change.
 
 The service also holds the speaker output open with a silent stream, as stock
 keeps its output open between sounds. Measured with the Echo's own mics:

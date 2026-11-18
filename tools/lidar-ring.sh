@@ -3,8 +3,8 @@
 # Owner of the LED ring after boot. Base state as on stock: solid red while
 # the microphones are muted by the privacy button, off otherwise. Other
 # programs send short overlays through /run/lidar-ring.fifo:
-#   volume <level> <muted 0|1> <max>   arc of white LEDs (one dim red LED
-#                                      when the speaker is muted), shown for
+#   volume <level> <muted 0|1> <max>   arc of white LEDs (dimmed to 15% while
+#                                      the speaker is muted), shown for
 #                                      HOLD seconds after the last change
 # A change of the privacy state ends any overlay at once.
 # Brightness follows the ambient light sensor, as on stock: full from a lit
@@ -77,18 +77,21 @@ base() {
 
 # The arc covers the level in brightness units: full LEDs, then one partly
 # lit LED, so every volume step changes the ring (12 LEDs, 21 button steps).
+# While the speaker is muted the same arc shows at 15%: muted, and the level
+# it comes back at.
 volume() { # level muted max
 	[ "$3" -gt 0 ] 2>/dev/null && [ "$1" -ge 0 ] 2>/dev/null || return
 	level
 	w=$(scaled $WHITE)
-	t=0
-	[ "$2" = 1 ] || t=$(( ($1 * N * w + $3 - 1) / $3 ))
+	t=$(( ($1 * N * w + $3 - 1) / $3 ))
+	[ "$2" = 1 ] && [ $t = 0 ] && t=1	# muted at level 0: still a mark
 	i=1
 	while [ $i -le $N ]; do
-		if [ "$2" = 1 ] && [ $i = 1 ]; then set_led $i $(scaled 24) 0 0
-		elif [ $t -ge $w ]; then set_led $i $w $w $w
-		else set_led $i $t $t $t
+		v=$t; [ $v -gt $w ] && v=$w
+		if [ "$2" = 1 ] && [ $v -gt 0 ]; then
+			v=$((v * 15 / 100)); [ $v -lt 1 ] && v=1
 		fi
+		set_led $i $v $v $v
 		t=$((t - w)); [ $t -lt 0 ] && t=0
 		i=$((i + 1))
 	done
