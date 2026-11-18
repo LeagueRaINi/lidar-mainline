@@ -32,8 +32,8 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | **Wireless** | | |
 | Wi-Fi (MT7668) | ✅ | 🧪 driver, firmware import and MAC from IDME done; the development unit's radio is faulty |
 | Bluetooth (MT7668) | ✅ | 🧪 loads after Wi-Fi; untested for the same reason |
-| Zigbee hub (EFR32) | ✅ Amazon firmware | 🛠️ chip alive in its bootloader; needs a Silicon Labs RCP/NCP image |
-| Thread border router (EFR32) | ✅ | 🛠️ same chip and firmware as Zigbee |
+| Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ EmberZNet NCP (the owner's copy of Fire OS's image), EZSP over TCP for Home Assistant (`zigbee` service) |
+| Thread border router (EFR32) | ✅ | 🛠️ Fire OS's Thread image speaks DSR's own multiplexing; needs an OpenThread RCP built for this board |
 | **Interface and sensors** | | |
 | LED ring (12 RGB) | ✅ | ✅ boot animation; red while the mics are muted, volume arc (`ring` service) |
 | Buttons, mic mute, privacy latch | ✅ | ✅ |
@@ -126,6 +126,8 @@ decompression.
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
 | `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes |
 | `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
+| `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if needed) and bridges EZSP to TCP port 6638 |
+| `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -238,6 +240,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `wireless` | core | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
 | `usbaudio` | extra | off | USB speakerphone (below) |
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
+| `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -263,6 +266,7 @@ lidar-feature unset wireless country      # back to the default
 | `ring min_brightness` | 15 | 5-100 | ring brightness in a dark room, in percent of full |
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
 | `usbaudio aec` | `on` | `on`, `off` | `on`: the microphone the host gets is cleaned by `lidar-aec` (echo cancellation, noise suppression); `off`: the plain six-mic mix |
+| `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 
 - The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
   (`tools/lidar-listen.c`), not a packet filter: the kernel only matches
@@ -310,6 +314,33 @@ amplifier hiss, as on stock.
 Without the `volume` service the speaker stays at the test image's base level
 (-40 dB), and the USB host gets no hardware volume, so it scales the audio
 itself.
+
+### Zigbee coordinator
+
+The `zigbee` service turns the EFR32 into a network Zigbee coordinator, the
+way Silicon Labs USB sticks are used with Home Assistant: the radio runs
+EmberZNet as an NCP, and its EZSP serial protocol is bridged to TCP port
+6638. In Home Assistant, add the ZHA integration with the radio type EZSP and
+the path `socket://169.254.7.2:6638` (verified with `bellows`, ZHA's EZSP
+library: `bellows -d socket://169.254.7.2:6638 info`). The port accepts one
+client at a time.
+
+- The firmware is the owner's own copy of Fire OS's EmberZNet 6.5.3 NCP
+  (`/system/vendor/firmware/silabs/xncp-fw.gbl` on `system_a`); nothing is
+  downloaded or redistributed. The service uploads it through the EFR32's
+  Gecko bootloader only when the application area holds nothing that starts,
+  so it normally runs once.
+- The bootloader starts the application only while `EFR32_SWCLK` (GPIO1) is
+  high; low keeps it in the bootloader. The board holds the line low at
+  power-on, so the EFR32 always comes up in the bootloader; the service then
+  raises the line (`gpioset`) and starts the application with the
+  bootloader's run command. After a reboot without a power cut the NCP keeps
+  running.
+- The EFR32 keeps its network settings in its own flash. A unit that ran a
+  Zigbee network under Fire OS reports that network (coordinator, joined)
+  until Home Assistant forms a new one.
+- zigbee2mqtt's current `ember` driver needs EmberZNet 7.4 or newer, which
+  this image is not; ZHA supports it.
 
 ### LED ring
 
@@ -512,15 +543,17 @@ volume 127 (0 dB) is the speaker's full stock loudness.
   and the button as `KEY_MICMUTE` (GPIO108). Software can force privacy on
   through GPIO107 (active low). This is left released, and the line is free
   for userspace.
-- **EFR32 (Zigbee + Thread):** needs no kernel driver. On `ttyS2` (115200)
-  the chip answers with its Silicon Labs Gecko Bootloader menu and holds no
-  application firmware. Fire OS ships its own image
-  (`/system/vendor/firmware/dsr/zb_mux_rcp.gbl`, DSR's multiprotocol Zigbee +
-  Thread RCP for Amazon's daemon) and presumably uploads it at runtime. For
-  Home Assistant, flash a Silicon Labs RCP or NCP image through the
-  bootloader instead. `EFR32_RESET_N` (GPIO13) and `EFR32_SWCLK` (GPIO1) are
-  named lines, driven to their run state by pinctrl and left unclaimed for
-  libgpiod.
+- **EFR32 (Zigbee + Thread):** needs no kernel driver. It talks to the SoC
+  on `ttyS2` (115200, no flow control), with a Silicon Labs Gecko Bootloader
+  (v1.0.0, XMODEM upload) in front of the application. Fire OS's
+  `zb_migration_manager` shows the control lines: `EFR32_SWCLK` (GPIO1,
+  rfkill `zigbee_swclk`) is the bootloader trigger (low = stay in the
+  bootloader) and `EFR32_RESET_N` (GPIO13, rfkill `zigbee_reset`) the reset.
+  Fire OS carries two images: `silabs/xncp-fw.gbl` (EmberZNet 6.5.3 NCP over
+  ASH/EZSP) and `dsr/zb_mux_rcp.gbl` (DSR's OpenThread "dualpan" RCP), both
+  unencrypted. On the development unit `EFR32_RESET_N` does not reset the
+  chip (the pin does not follow the GPIO), so the `zigbee` service does not
+  rely on it; still to be checked on a second unit.
 - **TSL2540 ambient light sensor:** new minimal IIO driver (`tsl2540`):
   visible and IR counts, gain and integration time. Verified on hardware:
   chip ID, configuration, and readings from 0 in the dark to about 7000

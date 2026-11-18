@@ -187,8 +187,8 @@
 	/*
 	 * Board-level line defaults. They are applied through the gpio-keys
 	 * and LED controller pinctrl states and the lines stay unclaimed, so
-	 * userspace can drive them (e.g. pulse EFR32_RESET_N low to reset the
-	 * Zigbee/Thread radio).
+	 * userspace can drive them (e.g. EFR32_SWCLK, the EFR32 bootloader
+	 * trigger: low keeps the radio in its bootloader after a reset).
 	 */
 
 	gpio-line-names =
@@ -396,14 +396,18 @@
 	status = "okay";
 };
 
-/* Silicon Labs EFR32 dual-PAN radio: Zigbee (EZSP/ASH) */
+/* Silicon Labs EFR32 radio: packet trace (PTI) output, as stock's zigbee_pti */
 &uart1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart1_pins>;
 	status = "okay";
 };
 
-/* Silicon Labs EFR32 dual-PAN radio: OpenThread Spinel, hardware flow control */
+/*
+ * Silicon Labs EFR32 radio: host interface for its Gecko bootloader and the
+ * NCP/RCP application. RTS/CTS are wired; Fire OS runs the EmberZNet NCP
+ * without flow control at 115200.
+ */
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart2_pins>;

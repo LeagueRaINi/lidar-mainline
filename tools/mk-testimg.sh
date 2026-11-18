@@ -23,7 +23,7 @@ ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
 [ -n "$ROOTFS" ] || { echo "could not resolve Alpine minirootfs" >&2; exit 1; }
 curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
-	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2
+	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod
 # fw_printenv/fw_setenv: U-Boot keeps its environment at the top of misc
 cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
@@ -58,6 +58,9 @@ clang++ --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-DWEBRTC_POSIX -DWEBRTC_LIBRARY_IMPL -s -o "$T/lidar-aec" /work/tools/lidar-aec.cc \
 	-lwebrtc-audio-processing-2 -lasound
 install -m755 "$T/lidar-aec" "$T/initramfs/usr/bin/lidar-aec"
+aarch64-linux-gnu-gcc -O2 -Wall -static -o "$T/lidar-xmodem" /work/tools/lidar-xmodem.c
+install -m755 "$T/lidar-xmodem" "$T/initramfs/usr/bin/lidar-xmodem"
+install -m755 /work/tools/lidar-zigbee.sh "$T/initramfs/usr/bin/lidar-zigbee"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
@@ -219,6 +222,10 @@ if lidar-feature enabled volume; then
 fi
 if lidar-feature enabled ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
 	echo '::respawn:/usr/bin/lidar-ring daemon' >> /etc/inittab
+fi
+# Zigbee coordinator: brings the EFR32 NCP up and bridges it to TCP
+if lidar-feature enabled zigbee; then
+	echo '::respawn:/usr/bin/lidar-zigbee daemon' >> /etc/inittab
 fi
 # Stage the owner's own Wi-Fi firmware from Fire OS (system_a, read-only),
 # then load WLAN before Bluetooth: btmtksdio must not start while the WLAN

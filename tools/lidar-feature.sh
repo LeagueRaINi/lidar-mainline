@@ -32,6 +32,7 @@ ring core 1 LED ring after boot: red while the mics are muted, volume changes
 wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
 telnet extra 0 root shell without authentication on port 23 of the USB network
+zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA)
 '
 
 # feature key default allowed description
@@ -41,6 +42,7 @@ SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
 wireless bluetooth on on|off off: do not load the Bluetooth driver
 wireless country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
+zigbee listen usb usb|any usb: accept the coordinator connection on usb0 only; any: on every interface, Wi-Fi included
 volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
 volume initial 30 0-100 volume at boot, percent of the range up to the cap
 volume ring on on|off on: show volume changes on the LED ring (needs the ring service), as stock does
