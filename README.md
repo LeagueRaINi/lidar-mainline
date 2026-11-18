@@ -129,6 +129,8 @@ decompression.
 | `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if needed) and bridges EZSP to TCP port 6638 |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
+| `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
+| `tools/lidar-player.c` | plays the web interface's song library on the speaker, with fades on pause, stop and skip |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
@@ -244,6 +246,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below) |
 | `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
+| `webui` | extra | off | web interface on port 80 of the USB network (below) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -270,6 +273,8 @@ lidar-feature unset wireless country      # back to the default
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
 | `usbaudio aec` | `on` | `on`, `off` | `on`: the microphone the host gets is cleaned by `lidar-aec` (echo cancellation, noise suppression); `off`: the plain six-mic mix |
 | `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
+| `webui listen` | `usb` | `usb`, `any` | `usb`: the web interface only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
+| `webui storage_mb` | 256 | 64-512 | RAM for uploaded songs, in MB (about 11 minutes of music per 128 MB), a RAM disk of its own; the library is cleared on reboot |
 
 - The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
   (`tools/lidar-listen.c`), not a packet filter: the kernel only matches
@@ -360,6 +365,38 @@ Verified: the impulse response at low level matches the stock FIR and EQ
 times the MBCL band gains (+11 dB below 100 Hz, +8 dB above 220 Hz), the
 limiter keeps full-scale noise below 1.0, and on the device the processed
 stream arrives at the codec as computed offline. Not yet judged by ear.
+
+### Web interface
+
+With the `webui` service, `http://169.254.7.2/` on the USB host shows the
+Echo's state and plays music on it, for units without working Wi-Fi or
+Bluetooth:
+
+- **Dashboard:** the three board temperature sensors, CPU load and clock,
+  memory, the light sensor, the supply rails, USB traffic, the privacy
+  switch, whether the speaker tuning runs, and the LED ring as it is lit.
+- **Volume:** the system volume and mute (`lidar-volume`).
+- **Music:** songs are dropped onto the page; the browser decodes them (any
+  format it can play), converts them to 48 kHz 16-bit stereo and uploads
+  them. `lidar-player` plays the library in order, with pause, seek and
+  skip. The library lives in RAM (`webui storage_mb`) and is gone after a
+  reboot.
+- **Services:** which services are on.
+
+There is no login: as with telnet, the server (BusyBox `httpd` behind
+`lidar-listen`) only accepts connections that arrive on `usb0` unless
+`webui listen any` is set. Unlike telnet, a web server can also be reached
+by other web pages open in the host's browser, so the API only takes
+commands as POST with `Content-Type: application/json` (uploads with
+`application/octet-stream`), which a foreign page cannot send without a
+CORS preflight that the server never answers, and only when the Echo is
+addressed by IP (no DNS rebinding). Everything on the page comes from
+`/cgi-bin/api` as JSON, so scripts can use it too:
+
+```sh
+curl 'http://169.254.7.2/cgi-bin/api?stats'
+curl -X POST -H 'Content-Type: application/json' -d '{}' 'http://169.254.7.2/cgi-bin/api?volume=40'
+```
 
 ### Zigbee coordinator
 

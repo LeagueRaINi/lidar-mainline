@@ -65,6 +65,12 @@ clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 install -m755 "$T/lidar-dsp" "$T/initramfs/usr/bin/lidar-dsp"
 aarch64-linux-gnu-gcc -O2 -Wall -static -o "$T/lidar-xmodem" /work/tools/lidar-xmodem.c
 install -m755 "$T/lidar-xmodem" "$T/initramfs/usr/bin/lidar-xmodem"
+clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness \
+	-s -o "$T/lidar-player" /work/tools/lidar-player.c -lasound
+install -m755 "$T/lidar-player" "$T/initramfs/usr/bin/lidar-player"
+install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
+install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
 install -m755 /work/tools/lidar-zigbee.sh "$T/initramfs/usr/bin/lidar-zigbee"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
@@ -257,6 +263,20 @@ fi
 # Zigbee coordinator: brings the EFR32 NCP up and bridges it to TCP
 if lidar-feature enabled zigbee; then
 	echo '::respawn:/usr/bin/lidar-zigbee daemon' >> /etc/inittab
+fi
+# Web interface: the player daemon, and httpd tied to usb0 unless the owner
+# asks for every interface (as for telnet)
+if lidar-feature enabled webui; then
+	# the song library gets its own RAM disk: a hard limit, not a check
+	mkdir -p /run/lidar-player
+	mount -t tmpfs -o size="$(lidar-feature get webui storage_mb)m",mode=0755 tmpfs /run/lidar-player
+	echo '::respawn:/usr/bin/lidar-player daemon' >> /etc/inittab
+	www='busybox-extras httpd -h /usr/share/lidar/www'
+	if [ "$(lidar-feature get webui listen)" = any ]; then
+		echo "::respawn:$www -f -p 80" >> /etc/inittab
+	elif [ -e /sys/class/net/usb0 ]; then
+		echo "::respawn:/usr/bin/lidar-listen usb0 80 $www -i" >> /etc/inittab
+	fi
 fi
 # Stage the owner's own Wi-Fi firmware from Fire OS (system_a, read-only),
 # then load WLAN before Bluetooth: btmtksdio must not start while the WLAN

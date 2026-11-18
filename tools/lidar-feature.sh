@@ -31,6 +31,7 @@ volume core 1 system volume for the speaker: USB host slider, volume buttons, li
 ring core 1 LED ring after boot: red while the mics are muted, volume changes
 wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
+webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, upload songs and play them on the speaker
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA)
 dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter (needs the volume service and Fire OS on system_a)
@@ -44,6 +45,8 @@ telnet listen usb usb|any usb: accept connections on usb0 only; any: on every in
 wireless bluetooth on on|off off: do not load the Bluetooth driver
 wireless country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
 zigbee listen usb usb|any usb: accept the coordinator connection on usb0 only; any: on every interface, Wi-Fi included
+webui listen usb usb|any usb: accept web connections on usb0 only; any: on every interface, Wi-Fi included
+webui storage_mb 256 64-512 RAM for uploaded songs in MB (about 11 minutes per 128 MB), cleared on reboot
 volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
 volume initial 30 0-100 volume at boot, percent of the range up to the cap
 volume ring on on|off on: show volume changes on the LED ring (needs the ring service), as stock does
