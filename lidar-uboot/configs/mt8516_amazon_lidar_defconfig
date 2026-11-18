@@ -21,13 +21,21 @@ CONFIG_DEBUG_UART_CLOCK=26000000
 CONFIG_IDENT_STRING=" lidar"
 CONFIG_DEBUG_UART=y
 CONFIG_FIT=y
-CONFIG_BOOTDELAY=1
-# The UART RX pad is not wired on most setups and may float; only an exact
-# string, never line noise, may stop autoboot.
+# No autoboot wait: Volume Up at power-on is the way into fastboot. A saved
+# environment keeps its own bootdelay (installed units: fw_setenv bootdelay 0).
+CONFIG_BOOTDELAY=0
+# Keyed, so a byte of noise on the usually unwired, floating UART RX pad can
+# never stop autoboot. With no delay the string cannot be typed in time
+# either; "setenv bootdelay 3" brings the window back for UART work.
 CONFIG_AUTOBOOT_KEYED=y
 CONFIG_AUTOBOOT_PROMPT="Autoboot in %d s, type 'lidar' to stop\n"
 CONFIG_AUTOBOOT_STOP_STR="lidar"
 CONFIG_CONSOLE_RECORD=y
+# Boot timing (counter since reset) handed to Linux in /bootstage of the DT;
+# bootm only adds it with CMD_FDT
+CONFIG_BOOTSTAGE=y
+CONFIG_BOOTSTAGE_FDT=y
+CONFIG_CMD_FDT=y
 CONFIG_USE_BOOTCOMMAND=y
 CONFIG_DEFAULT_FDT_FILE="mediatek/mt8516-amazon-lidar.dtb"
 # extlinux initrd is a plain gzip cpio, not a legacy uImage

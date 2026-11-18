@@ -37,6 +37,45 @@ KOBJ="$B" MOBJ="$B-wifi-mod" bash /work/lidar-wifi/build.sh modules >/dev/null
 KREL=$(cat "$B/include/config/kernel.release")
 install -D -m644 "$B-wifi-mod/wlan_mt76x8_sdio.ko" "$T/initramfs/lib/modules/$KREL/extra/wlan_mt76x8_sdio.ko"
 depmod -b "$T/initramfs" "$KREL"
+# Keep only the modules this board uses (tools/initramfs-modules.txt) and
+# what they depend on; then index again.
+python3 - "$T/initramfs/lib/modules/$KREL" /work/tools/initramfs-modules.txt <<'EOF'
+import os, re, sys
+mdir, listfile = sys.argv[1], sys.argv[2]
+norm = lambda n: os.path.basename(n).split(".ko")[0].replace("-", "_")
+deps, path = {}, {}
+for line in open(os.path.join(mdir, "modules.dep")):
+    mod, rest = line.split(":", 1)
+    path[norm(mod)] = mod
+    deps[norm(mod)] = [norm(d) for d in rest.split()]
+for line in open(os.path.join(mdir, "modules.softdep")):
+    m = re.match(r"softdep (\S+) (.*)", line)
+    if m:
+        deps.setdefault(norm(m[1]), []).extend(
+            norm(w) for w in m[2].split() if not w.endswith(":"))
+want = [norm(l.strip()) for l in open(listfile) if l.strip() and not l.strip().startswith("#")]
+missing = [w for w in want if w not in path]
+if missing:
+    sys.exit("initramfs-modules.txt: not built: " + " ".join(missing))
+whole = ("kernel/net/", "kernel/crypto/", "kernel/lib/", "kernel/arch/", "extra/")
+# the whole-kept modules need their dependencies too
+keep, todo = set(), list(want) + [m for m, p in path.items() if p.startswith(whole)]
+while todo:
+    m = todo.pop()
+    if m in path and m not in keep:
+        keep.add(m)
+        todo += deps.get(m, [])
+removed = 0
+for m, p in path.items():
+    if m not in keep and not p.startswith(whole):
+        os.remove(os.path.join(mdir, p))
+        removed += 1
+for root, dirs, files in os.walk(mdir, topdown=False):
+    if root != mdir and not os.listdir(root):
+        os.rmdir(root)
+print(f"modules: kept {len(path) - removed} of {len(path)}")
+EOF
+depmod -b "$T/initramfs" "$KREL"
 # static arm64 builds of tools/*.c (need libc6-dev-arm64-cross)
 aarch64-linux-gnu-gcc -O2 -static -o "$T/devmem" /work/tools/devmem.c
 install -m755 "$T/devmem" "$T/initramfs/usr/bin/devmem"

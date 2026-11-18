@@ -506,9 +506,10 @@ ear), and mics 1-6 summed to mono come back as the microphone, both at
   partitions are, so do not flash `lk_*`, `tee*`, `expdb`, `kb` or `dkb`.
 - **No UART input is needed.** In U-Boot fastboot,
   `fastboot oem run:<command>` runs any U-Boot command, and
-  `fastboot oem console` reads back its output over USB. Autoboot stops only
-  on the exact string `lidar`, so noise on a floating RX pin cannot strand
-  U-Boot at a prompt.
+  `fastboot oem console` reads back its output over USB. Autoboot has no
+  delay, and only the exact string `lidar` would stop it, so noise on a
+  floating RX pin cannot strand U-Boot at a prompt (`bootdelay 3` in the
+  environment opens a window for UART work).
 - The OS comes from `/boot/extlinux/extlinux.conf` on ext4 `system_${lidar_slot}`.
 - A/B fallback uses `bootcount`, `bootlimit=3` and `upgrade_available`
   (verified on hardware: after three unconfirmed boots U-Boot switched
@@ -560,6 +561,26 @@ bound by `lidar-volume`'s cap.
 
 ## Status
 
+- **Boot time:** U-Boot records its stages against the SoC counter, which
+  runs from reset, and hands them to Linux (`/proc/device-tree/bootstage`).
+  Measured with a PC on the USB port: U-Boot starts 12.1 s after reset,
+  Linux at 16.1 s, the boot finishes about 4 s later. The static blue ring
+  is LK's, as on stock, and stays until the kernel takes over the LEDs.
+  - Preloader (9.2 s in a stock UART log): 8 s of it wait for a flash tool
+    because a USB host is attached (`USB enum timeout (8000ms)`). With only
+    the power supply there is no such wait. A host with a driver bound to
+    the preloader port (VID `0e8d`, PID `2000`; Linux does this by itself)
+    cuts it to the 2.5 s handshake timeout.
+  - LK with Kaeru, about 3 s: a 1.7 s key check and 0.8 s reading boot_a.
+    These stages are not changed here (`lk_*` is never written).
+  - U-Boot, 4 s: init 1.1 s, loading kernel and initramfs 2.1 s (its eMMC
+    driver runs MT8516 in PIO mode, about 13 MB/s), unpacking 0.7 s. There
+    is no autoboot delay, and the initramfs only carries the modules in
+    `tools/initramfs-modules.txt` and their dependencies (111 of 801):
+    Linux now starts at 16.1 s instead of 17.5 s, and unpacking the
+    initramfs takes the kernel 0.95 s instead of 1.4 s. Installs from
+    before this keep the delay saved in their environment; remove it with
+    `fw_setenv bootdelay 0`.
 - **Vproc / cpufreq:** working. The RT5738 reads die ID 0 and vendor ID 0
   (RT5739-class path). VSEL (GPIO9) is an input pulled high on the board, so
   the active bank is NSEL1 (`richtek,vsel-active-high`), as on stock.
