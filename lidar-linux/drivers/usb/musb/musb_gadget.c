@@ -42,15 +42,16 @@ static inline void map_dma_buffer(struct musb_request *request,
 		return;
 
 	/*
-	 * Isochronous IN requests sent through the Inventra DMA engine are
-	 * accepted, but no packets appear on the bus. Observed on MediaTek
-	 * MT8516 with f_uac2 (requests shorter than wMaxPacketSize, i.e. DMA
-	 * mode 0); the root cause is not known. OUT was not retested through
-	 * DMA after the DATAERROR fix in musb_g_rx(), so PIO is used for both
+	 * Isochronous IN requests sent through the Inventra DMA engine of
+	 * MediaTek MT8516 are accepted, but no packets appear on the bus
+	 * (f_uac2, requests shorter than wMaxPacketSize, i.e. DMA mode 0);
+	 * the root cause is not known. OUT was not retested through DMA after
+	 * the DATAERROR fix in musb_g_rx(), so PIO is used for both
 	 * directions. It costs one FIFO access of at most wMaxPacketSize per
 	 * (micro)frame. musb_ep->type stays valid without the lock.
 	 */
-	if (musb_dma_inventra(musb) && musb_ep->type == USB_ENDPOINT_XFER_ISOC)
+	if ((musb->ops->quirks & MUSB_G_ISOC_NO_DMA) &&
+	    musb_ep->type == USB_ENDPOINT_XFER_ISOC)
 		return;
 
 	/* Check if DMA engine can handle this request.
