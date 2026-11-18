@@ -84,6 +84,12 @@ with wave.open(sys.argv[1], "wb") as w:
     w.writeframes(bytes(frames))
 EOF
 
+# The card's UCM profile (alsa-ucm-conf layout)
+U="$T/initramfs/usr/share/alsa/ucm2"
+install -D -m644 -t "$U/MediaTek/amazon-lidar" /work/ucm2/MediaTek/amazon-lidar/*.conf
+mkdir -p "$U/conf.d/amazon-lidar"
+ln -sf ../../MediaTek/amazon-lidar/amazon-lidar.conf "$U/conf.d/amazon-lidar/amazon-lidar.conf"
+
 # Named ALSA devices: the speaker, and mics 1-6 summed to mono at 0.5 each
 # (+9.5 dB for coherent speech). Mic 7 (capture channel 6) is left out: it
 # picks up interference tones on the development unit.
@@ -169,25 +175,10 @@ fi
 for m in snd-soc-mt8516-afe snd-soc-tlv320adc3xxx snd-soc-tlv320aic32x4-i2c mt8516-amazon-lidar; do
 	modprobe $m
 done
-# Base audio setup: the verified microphone routing (PGA +35 dB); output
-# driver gains as on Amazon's firmware (line-out 0 dB for the speaker amp,
-# headphone +5 dB for the jack), speaker volume -40 dB.
-A="amixer -q -c amazonlidar cset"
-for n in 1 2 3 4; do
-	$A name="ADC$n Left Input DIF_2L_3L Capture Switch" on
-	$A name="ADC$n Right Input DIF_2R_3R Capture Switch" on
-	$A name="ADC$n PGA Capture Switch" on,on
-	$A name="ADC$n PGA Capture Volume" 70,70
-done
-for s in 'LOL Output Mixer L_DAC' 'LOR Output Mixer R_DAC' \
-	 'HPL Output Mixer L_DAC' 'HPR Output Mixer R_DAC'; do
-	$A name="$s Switch" on
-done
-$A name='LO DAC Playback Switch' on,on
-$A name='HP DAC Playback Switch' on,on
-$A name='LO Driver Gain Volume' 6,6
-$A name='HP Driver Gain Volume' 11,11
-$A name='PCM Playback Volume' 47,47
+# Base audio setup from the card's UCM profile (ucm2/, BootSequence): the
+# verified microphone routing (PGA +35 dB), output driver gains as on
+# Amazon's firmware, speaker volume -40 dB.
+alsaucm -c hw:amazonlidar set _boot ''
 # USB gadget on the pogo-pin port: serial shell + NCM network (169.254.7.2)
 g=/sys/kernel/config/usb_gadget/lidar
 if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null)" ]; then
