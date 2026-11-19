@@ -72,7 +72,8 @@ The USB and supply pads form a 2x3 block next to the AMP flex cable:
 | TM45 | USB ID | SoC pin 41 (KPROW1, function `IDDIG`), 1.8 V logic; follows the pin's internal pull (1.8 V with pull-up, 0 V with pull-down). Pulled up by default (device role); leave unconnected |
 | TM35 | probably USB VBUS from the factory fixture (unused) | near 0 V. Not a SoC GPIO: no response to pull changes on any free GPIO, and not UART0 RX. Unpowered: open to GND with the pad positive (even on 2 MΩ), ~600 Ω and a 0.61 V diode drop with GND positive, i.e. only a diode to ground. 5 V through 10 kΩ changed nothing the SoC can see (GPIO inputs, USB PHY monitor, MUSB DEVCTL); the board has no MT6392 PMIC to sense VBUS. Leave unconnected |
 
-UART0 RX is not on any known test point.
+UART0 RX has not been found yet: none of the pads identified so far carries
+it (TM35 was checked). No UART input is needed, see "U-Boot behaviour" below.
 
 ## Boot chain
 
@@ -109,7 +110,7 @@ decompression.
 
 | Path | What |
 |---|---|
-| `lidar-uboot/` | U-Boot v2026.10 overlay: `mt8516_amazon_lidar_defconfig`, board DTS, `MTK_LK_CHAINLOAD` Kconfig, boot environment `board/mediatek/mt8516/amazon_lidar.env` |
+| `lidar-uboot/` | U-Boot v2026.10 overlay: `mt8516_amazon_lidar_defconfig`, board DTS, `MTK_LK_CHAINLOAD` Kconfig, boot environment `board/mediatek/mt8516/amazon_lidar.env`, `drivers/mmc/mtk-sd.c` (upstream copy with DMA for MT8516 and a bounce buffer for unaligned reads; check against upstream on version bumps) |
 | `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), bindings |
 | `lidar-wifi/` | MT7668 gen4 Wi-Fi driver ported from Amazon's GPL release, built out of tree |
 | `lidar.config` | kernel config fragment applied on top of arm64 `defconfig` |
@@ -564,7 +565,7 @@ bound by `lidar-volume`'s cap.
 - **Boot time:** U-Boot records its stages against the SoC counter, which
   runs from reset, and hands them to Linux (`/proc/device-tree/bootstage`).
   Measured with a PC on the USB port: U-Boot starts 12.1 s after reset,
-  Linux at 16.1 s, the boot finishes about 4 s later. The static blue ring
+  Linux at 14.5 s, the boot finishes about 4 s later. The static blue ring
   is LK's, as on stock, and stays until the kernel takes over the LEDs.
   - Preloader (9.2 s in a stock UART log): 8 s of it wait for a flash tool
     because a USB host is attached (`USB enum timeout (8000ms)`). With only
@@ -573,14 +574,19 @@ bound by `lidar-volume`'s cap.
     cuts it to the 2.5 s handshake timeout.
   - LK with Kaeru, about 3 s: a 1.7 s key check and 0.8 s reading boot_a.
     These stages are not changed here (`lk_*` is never written).
-  - U-Boot, 4 s: init 1.1 s, loading kernel and initramfs 2.1 s (its eMMC
-    driver runs MT8516 in PIO mode, about 13 MB/s), unpacking 0.7 s. There
-    is no autoboot delay, and the initramfs only carries the modules in
-    `tools/initramfs-modules.txt` and their dependencies (111 of 801):
-    Linux now starts at 16.1 s instead of 17.5 s, and unpacking the
-    initramfs takes the kernel 0.95 s instead of 1.4 s. Installs from
-    before this keep the delay saved in their environment; remove it with
-    `fw_setenv bootdelay 0`.
+  - U-Boot, 2.4 s: init 1 s, loading kernel and initramfs 0.7 s, unpacking
+    0.7 s. Three changes took Linux from 17.5 s to 14.5 s after reset:
+    - no autoboot delay;
+    - the initramfs only carries the modules in
+      `tools/initramfs-modules.txt` and their dependencies (111 of 801),
+      which also cut the kernel's unpacking from 1.4 s to 0.95 s;
+    - U-Boot's eMMC driver uses DMA on MT8516 (it ran PIO): about 40 MB/s
+      instead of 13 MB/s. Verified before switching it on: DMA reads of
+      kernel and initramfs were byte-identical to PIO reads, and a DMA
+      write to a free area of `misc` read back identically.
+
+    Installs from before this keep the autoboot delay saved in their
+    environment; remove it with `fw_setenv bootdelay 0`.
 - **Vproc / cpufreq:** working. The RT5738 reads die ID 0 and vendor ID 0
   (RT5739-class path). VSEL (GPIO9) is an input pulled high on the board, so
   the active bank is NSEL1 (`richtek,vsel-active-high`), as on stock.
