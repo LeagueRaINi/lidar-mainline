@@ -154,8 +154,8 @@
 		key-action {
 			label = "action";
 			gpios = <&pio 42 GPIO_ACTIVE_LOW>;
-			/* stock maps the action button to KEY_PROPS (130 = 0x8a) */
-			linux,code = <KEY_PROPS>;
+			/* as stock: KEY_HELP (0x8a) */
+			linux,code = <KEY_HELP>;
 			debounce-interval = <50>;
 			wakeup-source;
 		};
