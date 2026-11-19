@@ -35,6 +35,7 @@ webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, vo
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA)
 dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter (needs the volume service and Fire OS on system_a)
+libreecho extra 0 runs a LibreEcho release (installed with lidar-libreecho) in place of the ring, volume, dsp, usbaudio and webui services
 '
 
 # feature key default allowed description
@@ -47,6 +48,7 @@ wireless country - CC regulatory domain (ISO 3166 code), set with "iw reg set" a
 zigbee listen usb usb|any usb: accept the coordinator connection on usb0 only; any: on every interface, Wi-Fi included
 webui listen usb usb|any usb: accept web connections on usb0 only; any: on every interface, Wi-Fi included
 webui storage_mb 256 64-512 RAM for uploaded songs in MB (about 11 minutes per 128 MB), cleared on reboot
+libreecho speaker off on|off on: LibreEcho plays on the speaker; off: its output goes nowhere (silent testing)
 volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
 volume initial 30 0-100 volume at boot, percent of the range up to the cap
 volume ring on on|off on: show volume changes on the LED ring (needs the ring service), as stock does
@@ -175,7 +177,7 @@ settings)
 		[ -z "$2" ] || [ "$f" = "$2" ] || continue
 		[ "$d" != - ] || d=
 		v=$(setting_value "$f" "$k" "$d" "$a")
-		printf '%-8s %-15s %-5s (default %s, allowed %s)  %s\n' \
+		printf '%-9s %-15s %-5s (default %s, allowed %s)  %s\n' \
 			"$f" "$k" "${v:-unset}" "${d:-unset}" "$a" "$desc"
 	done
 	;;

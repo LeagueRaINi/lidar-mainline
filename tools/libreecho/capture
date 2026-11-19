@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# LibreEcho micd's capture program on lidar: le-adapter, outside the chroot,
+# delivers exactly the stream micd asks tinycap for (16 kHz, 9 x S24_3LE).
+exec cat /adapter/mic.fifo

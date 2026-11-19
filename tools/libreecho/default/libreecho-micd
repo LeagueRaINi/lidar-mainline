@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# lidar: microphones come from le-adapter (see /sbin/lidar-capture), the
+# vendor mixer controls are mapped by /sbin/lidar-mixer
+CAPTURE_BIN=/sbin/lidar-capture
+ARGS="--foreground --socket /run/libreecho/mic.sock --mixer-bin /sbin/lidar-mixer"

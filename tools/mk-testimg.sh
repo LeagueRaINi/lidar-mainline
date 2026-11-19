@@ -111,6 +111,26 @@ clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 install -m755 "$T/lidar-player" "$T/initramfs/usr/bin/lidar-player"
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
+# LibreEcho add-on (libreecho feature): adapter, sandbox, privacy-latch
+# module, scripts
+clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness \
+	-s -o "$T/le-adapter" /work/tools/libreecho/le-adapter.c -lasound -lpthread
+install -m755 "$T/le-adapter" "$T/initramfs/usr/bin/le-adapter"
+clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness -Wno-unused-result \
+	-s -o "$T/le-sandbox" /work/tools/libreecho/le-sandbox.c
+install -m755 "$T/le-sandbox" "$T/initramfs/usr/bin/le-sandbox"
+rm -rf "$T/amz_privacy" && cp -r /work/tools/libreecho/amz_privacy "$T/amz_privacy"
+make -s -C /src/linux O="$B" M="$T/amz_privacy" ARCH=arm64 \
+	CROSS_COMPILE=aarch64-linux-gnu- modules
+aarch64-linux-gnu-strip --strip-debug "$T/amz_privacy/amz_privacy.ko"
+LE=$T/initramfs/usr/share/lidar/libreecho
+install -D -m644 "$T/amz_privacy/amz_privacy.ko" "$LE/amz_privacy.ko"
+install -D -m644 /work/tools/libreecho/audio-profile "$LE/audio-profile"
+install -D -m644 -t "$LE/default" /work/tools/libreecho/default/*
+install -m755 /work/tools/libreecho/capture /work/tools/libreecho/mixer "$LE/"
+install -m755 /work/tools/libreecho/lidar-libreecho.sh "$T/initramfs/usr/bin/lidar-libreecho"
 install -m755 /work/tools/lidar-zigbee.sh "$T/initramfs/usr/bin/lidar-zigbee"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
@@ -242,13 +262,18 @@ done
 # verified microphone routing (PGA +35 dB), output driver gains as on
 # Amazon's firmware, speaker volume -40 dB.
 alsaucm -c hw:amazonlidar set _boot ''
+# The LibreEcho add-on owns speaker, microphones, LED ring and buttons while
+# it is enabled: lidar's own services for them stay off.
+LIBREECHO=
+lidar-feature enabled libreecho && LIBREECHO=1
+own() { [ -z "$LIBREECHO" ] && lidar-feature enabled "$1"; }
 # Speaker tuning (dsp): decided once, here, before any sound client starts.
 # The owner's own Fire OS tuning files are staged from system_a (read-only);
 # without them, or without snd-aloop, the speaker stays on the direct path.
 # lidar-dsp takes the volume from lidar-volume, so it needs the volume service.
-if lidar-feature enabled dsp && ! lidar-feature enabled volume; then
+if own dsp && ! own volume; then
 	echo "lidar: speaker tuning needs the volume service, speaker untuned" > /dev/kmsg
-elif lidar-feature enabled dsp; then
+elif own dsp; then
 	d=/run/lidar-dsp
 	src=/mnt/fireos-dsp/system/vendor/etc/audio-algorithms
 	mkdir -p $d /mnt/fireos-dsp
@@ -294,10 +319,10 @@ if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null
 	fi
 fi
 # System volume and LED ring: init owns the daemons and restarts them
-if lidar-feature enabled volume; then
+if own volume; then
 	echo '::respawn:/usr/bin/lidar-volume daemon' >> /etc/inittab
 fi
-if lidar-feature enabled ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
+if own ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
 	echo '::respawn:/usr/bin/lidar-ring daemon' >> /etc/inittab
 fi
 # Zigbee coordinator: brings the EFR32 NCP up and bridges it to TCP
@@ -306,7 +331,7 @@ if lidar-feature enabled zigbee; then
 fi
 # Web interface: the player daemon, and httpd tied to usb0 unless the owner
 # asks for every interface (as for telnet)
-if lidar-feature enabled webui; then
+if own webui; then
 	# the song library gets its own RAM disk: a hard limit, not a check
 	mkdir -p /run/lidar-player
 	mount -t tmpfs -o size="$(lidar-feature get webui storage_mb)m",mode=0755 tmpfs /run/lidar-player
@@ -348,10 +373,17 @@ fi
 		fi
 		umount /mnt/fireos 2>/dev/null
 	fi
-	if lidar-feature enabled usbaudio; then
+	if own usbaudio; then
 		lidar-usbaudio start > /dev/kmsg 2>&1
 	fi
 	touch /run/boot-done
+	# LibreEcho add-on, if a release is installed (lidar-libreecho install);
+	# its LED frames start once the boot animation has faded out
+	if [ -n "$LIBREECHO" ]; then
+		while pidof lidar-bootanim >/dev/null; do sleep 0.2; done
+		lidar-libreecho start > /dev/kmsg 2>&1 ||
+			echo "lidar: LibreEcho add-on not started" > /dev/kmsg
+	fi
 ) &
 # BusyBox init becomes PID 1: it runs the shells from /etc/inittab and reaps
 # orphaned processes (a plain shell as PID 1 leaves them as zombies).

@@ -132,6 +132,7 @@ decompression.
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
 | `tools/lidar-player.c` | plays the web interface's song library on the speaker, with fades on pause, stop and skip |
+| `tools/libreecho/` | LibreEcho add-on (`libreecho` service): `lidar-libreecho.sh` (install, start, stop), `le-sandbox.c` (namespaces that keep it off the eMMC), `le-adapter.c` (LEDs, mics, mixer placeholders), `amz_privacy/` (privacy-latch module); see its README |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
@@ -253,6 +254,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below) |
 | `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 | `webui` | extra | off | web interface on port 80 of the USB network (below) |
+| `libreecho` | extra | off | runs an owner-supplied [LibreEcho](https://github.com/aslater3/LibreEcho) release (a separate project) in place of ring, volume, dsp, usbaudio and webui; experimental, see `tools/libreecho/README.md` |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.

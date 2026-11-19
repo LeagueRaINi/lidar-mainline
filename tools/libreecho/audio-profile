@@ -1,0 +1,7 @@
+schema=1
+target_id=radar_puffin
+speaker_chain=biscuit
+codec_profile=Flat
+hp_driver_gain=11
+pre_gain_db=0.00
+bass_makeup_db=0.00

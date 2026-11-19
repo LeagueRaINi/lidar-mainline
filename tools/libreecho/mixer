@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# LibreEcho micd's mixer program on lidar ("tinymix set <control> <value>"),
+# for the vendor TLV320ADC3101 driver's control names. The input routing it
+# sets is already lidar's base setup (UCM BootSequence); only the gain is
+# mapped: vendor "ADC_A..D MICPGA Volume Ctrl" and mainline "ADC1..4 PGA
+# Capture Volume" share their scale (0-80, 0.5 dB steps).
+[ "$1" = set ] || exit 0
+case $2 in
+"ADC_"[ABCD]" MICPGA Volume Ctrl")
+	n=$(echo "$2" | cut -c5 | tr ABCD 1234)
+	exec /sbin/tinymix set "ADC$n PGA Capture Volume" "$3" "$3"
+	;;
+esac
+exit 0
