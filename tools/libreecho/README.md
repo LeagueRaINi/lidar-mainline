@@ -20,8 +20,8 @@ a release and installs it.
 | LED ring | ✅ LibreEcho's frames drive the ring (orientation not yet compared with LibreEcho's pixel 0) |
 | Privacy switch | ✅ `amz_privacy` module mirrors the latch where LibreEcho reads it |
 | Buttons | 🧪 volume and action keys reach buttond (action is KEY_HELP, as stock); mic button sends KEY_MICMUTE, which LibreEcho treats as a software mute toggle |
-| Web control centre | ✅ `http://169.254.7.2:8080/` (first-run setup) |
-| Wi-Fi, Bluetooth, Home Assistant | ❌ LibreEcho's networkd/btd drive MT8163 tools; esphomed needs a stable MAC; not tried on the development unit |
+| Web control centre | 🧪 serves `http://169.254.7.2:8080/`, but its first-run setup needs Wi-Fi, so it cannot be completed yet |
+| Wi-Fi, Bluetooth, Home Assistant | ❌ LibreEcho's networkd and btd drive MT8163 tools and are left out; bringing Wi-Fi to LibreEcho means adapting networkd to lidar's driver (not tried on the development unit); esphomed also needs a stable MAC |
 | Persistent storage | ❌ the release lives in RAM (`/run/libreecho-addon`) and is lost on reboot; where to keep 250 MB is open |
 
 ## Use
