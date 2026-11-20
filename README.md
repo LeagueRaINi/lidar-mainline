@@ -30,7 +30,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Echo-cancellation reference | ✅ | ✅ playback loopback capture, bit-exact; used by `lidar-aec` |
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
 | **Wireless** | | |
-| Wi-Fi (MT7668) | ✅ | ✅ 2.4 and 5 GHz, WPA2, 866 Mbit/s link; firmware from the unit's own Fire OS, MAC from IDME |
+| Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, MAC from IDME |
 | Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware |
 | Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ EmberZNet NCP (the owner's copy of Fire OS's image), EZSP over TCP for Home Assistant (`zigbee` service) |
 | Thread border router (EFR32) | ✅ | 🛠️ Fire OS's Thread image speaks DSR's own multiplexing; needs an OpenThread RCP built for this board |
@@ -111,7 +111,7 @@ decompression.
 | Path | What |
 |---|---|
 | `lidar-uboot/` | U-Boot v2026.10 overlay: `mt8516_amazon_lidar_defconfig`, board DTS, `MTK_LK_CHAINLOAD` Kconfig, boot environment `board/mediatek/mt8516/amazon_lidar.env`, `drivers/mmc/mtk-sd.c` (upstream copy with DMA for MT8516 and a bounce buffer for unaligned reads; check against upstream on version bumps) |
-| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), MT7668 Bluetooth LE fix in `btmtksdio.c`, bindings |
+| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), `drivers/bluetooth/btmtksdio.c` (upstream copy with an MT7668 LE fix; check against upstream on version bumps), bindings |
 | `lidar-wifi/` | MT7668 gen4 Wi-Fi driver ported from Amazon's GPL release, built out of tree |
 | `lidar.config` | kernel config fragment applied on top of arm64 `defconfig` |
 | `build.sh` | build entry point inside the container (targets listed in its header) |
@@ -377,8 +377,8 @@ stream arrives at the codec as computed offline. Not yet judged by ear.
 ### Web interface
 
 With the `webui` service, `http://169.254.7.2/` on the USB host shows the
-Echo's state and plays music on it, for units without working Wi-Fi or
-Bluetooth:
+Echo's state and plays music on it, also without Wi-Fi or Bluetooth set
+up:
 
 - **Dashboard:** the three board temperature sensors, CPU load and clock,
   memory, the light sensor, the supply rails, USB traffic, the privacy
@@ -610,9 +610,9 @@ bound by `lidar-volume`'s cap.
   The host setup matches Amazon's `mtk-sdio.c` in power sequence, clocks,
   divider, pins, pulls and drive. The test system stages the firmware and
   loads `wlan_mt76x8_sdio`, then `btmtksdio`, without manual steps. Verified
-  on hardware: Wi-Fi scans and connects on 2.4 and 5 GHz (WPA2, 866 Mbit/s
-  link, about 150 Mbit/s HTTPS download), Bluetooth finds classic and LE
-  devices, both at the same time.
+  on hardware: Wi-Fi scans on 2.4 and 5 GHz and connects (tested on 5 GHz:
+  866 Mbit/s link, about 150 Mbit/s HTTPS download), Bluetooth finds classic
+  and LE devices, both at the same time.
 - **Wi-Fi and Bluetooth firmware:** both functions share one ROM patch.
   Amazon's (`mt7668_patch_e2_hdr.bin`, a 2025 build) crashes the Bluetooth
   firmware under mainline `btmtksdio`: its first LE or vendor command ends in
@@ -622,11 +622,11 @@ bound by `lidar-volume`'s cap.
   code, calibration and settings stay owner-local: the test system copies
   them from the device's own Fire OS partition at boot. Never commit them.
   See `lidar-wifi/README.md`.
-- **Bluetooth LE:** that patch leaves octets 25-28 of Read Local Supported
-  Commands empty, i.e. all Bluetooth 4.0 LE commands, although it executes
-  them. The core then never enables the LE Advertising Report and Connection
-  Complete events, and LE scans find nothing. The `btmtksdio` overlay fills
-  these octets in for the MT7668 when they arrive empty.
+- **Bluetooth LE:** linux-firmware's patch leaves octets 25-28 of Read Local
+  Supported Commands empty, i.e. all Bluetooth 4.0 LE commands, although it
+  executes them. The core then never enables the LE Advertising Report and
+  Connection Complete events, and LE scans find nothing. The `btmtksdio`
+  overlay fills these octets in for the MT7668 when they arrive empty.
 - **Wi-Fi / Bluetooth load order:** load `wlan_mt76x8_sdio` before
   `btmtksdio` (`softdep btmtksdio pre: wlan_mt76x8_sdio`). Mainline btmtksdio
   reads "patch download in progress" as "done", so bringing up `hci0` during

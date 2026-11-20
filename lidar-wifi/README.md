@@ -8,9 +8,9 @@ same chip is handled by the in-tree `btmtksdio`.
 
 The source is dual licensed (GPL-2.0 or BSD) by MediaTek, see the file headers.
 
-**Status: works on hardware** (Linux v7.3): scans and connects on 2.4 and
-5 GHz with WPA2 (866 Mbit/s link, about 150 Mbit/s HTTPS download), next to
-Bluetooth on the same chip.
+**Status: works on hardware** (Linux v7.3): scans on 2.4 and 5 GHz and
+connects (tested on 5 GHz: 866 Mbit/s link, about 150 Mbit/s HTTPS
+download), next to Bluetooth on the same chip.
 
 ## Build
 
@@ -251,7 +251,6 @@ handshake of the vendor drivers is gone.
 
 ## Known limitations
 
-- Untested on hardware (see the status above).
 - Wireless extensions are unavailable (the kernel has `CONFIG_WEXT_CORE`
   off), so wext events are dropped and `iwpriv` does not work.
 - The wiphys are still registered at module load, before the card is probed,

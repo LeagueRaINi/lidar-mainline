@@ -35,9 +35,11 @@ EOF
 # Amazon's newer patch (2025 build) at its first LE or vendor command.
 LF=https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain
 mkdir -p "$T/initramfs/lib/firmware/mediatek"
-curl -fsSL "$LF/mediatek/mt7668pr2h.bin" -o "$T/initramfs/lib/firmware/mediatek/mt7668pr2h.bin"
+curl -fsSL "$LF/mediatek/mt7668pr2h.bin?h=20261019" -o "$T/initramfs/lib/firmware/mediatek/mt7668pr2h.bin"
 echo "465ed634c61b46b34bb21240736f33d3d347fefec7cbfbd1cb6e63334aec4cc9  $T/initramfs/lib/firmware/mediatek/mt7668pr2h.bin" |
 	sha256sum -c --quiet
+# the WLAN driver asks for the same patch under its own name
+ln -s mediatek/mt7668pr2h.bin "$T/initramfs/lib/firmware/mt7668_patch_e2_hdr.bin"
 
 make -C /src/linux O="$B" -s INSTALL_MOD_PATH="$T/initramfs" INSTALL_MOD_STRIP=1 modules_install
 # Out-of-tree MT7668 WLAN driver, built against this exact kernel
@@ -338,9 +340,8 @@ fi
 		fw=/mnt/fireos/system/vendor/firmware
 		mkdir -p /mnt/fireos
 		if [ -b "$dev" ] && mount -o ro -t ext4 "$dev" /mnt/fireos &&
-		   cp $fw/WIFI_RAM_CODE*MT7668.bin $fw/EEPROM_MT7668.bin \
+		   cp $fw/WIFI_RAM_CODE*MT7668.bin $fw/EEPROM_MT7668.bi[n] \
 		      $fw/TxPwrLimit_MT76x8.dat $fw/wifi.cfg /lib/firmware/ &&
-		   ln -sf mediatek/mt7668pr2h.bin /lib/firmware/mt7668_patch_e2_hdr.bin &&
 		   modprobe wlan_mt76x8_sdio; then
 			echo "lidar: Wi-Fi firmware staged, WLAN driver loaded" > /dev/kmsg
 			cc=$(lidar-feature get wireless country)

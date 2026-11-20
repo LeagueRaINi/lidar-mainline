@@ -427,7 +427,7 @@ out:
  * of Read Local Supported Commands empty, i.e. all Bluetooth 4.0 LE commands,
  * although it executes them. The core then never enables the LE Advertising
  * Report and LE Connection Complete events, so LE scans find nothing. Report
- * the Bluetooth 4.0 LE commands, which every LE controller must support.
+ * the Bluetooth 4.0 LE commands, which this controller executes.
  */
 static void btmtksdio_fixup_local_cmds(struct btmtksdio_dev *bdev,
 				       struct sk_buff *skb)
@@ -459,6 +459,9 @@ static int btmtksdio_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
 	u8 evt = hdr->evt;
 	int err;
 
+	/* before the clone below, which shares the data */
+	btmtksdio_fixup_local_cmds(bdev, skb);
+
 	/* When someone waits for the WMT event, the skb is being cloned
 	 * and being processed the events from there then.
 	 */
@@ -469,8 +472,6 @@ static int btmtksdio_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
 			goto err_out;
 		}
 	}
-
-	btmtksdio_fixup_local_cmds(bdev, skb);
 
 	err = hci_recv_frame(hdev, skb);
 	if (err < 0)
