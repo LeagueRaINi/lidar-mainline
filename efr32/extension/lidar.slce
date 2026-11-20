@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# SLC extension for lidar's EFR32MG12 radio: the board definition and the RCP
+# project built with ot-efr32 (see efr32/README.md).
+id: lidar
+version: 0.0.1
+description: "Amazon Echo Plus 2nd gen (lidar) EFR32MG12 radio"
+label: "lidar EFR32MG12"
+sdk:
+  id: gecko_sdk
+  version: 4.4.3
+component_path:
+  - path: component

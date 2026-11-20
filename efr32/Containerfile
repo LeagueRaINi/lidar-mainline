@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Tools for the EFR32MG12 radio firmware (OpenThread RCP, see efr32/README.md):
+# Arm GNU toolchain 12.2.rel1 as the Gecko SDK 4.4 expects, Silicon Labs'
+# project generator slc-cli, and what ot-efr32's scripts need. The sources
+# (ot-efr32, OpenThread, Gecko SDK) are fetched by efr32/build.sh into a volume.
+FROM docker.io/library/debian:trixie
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      python3 python3-jinja2 python3-yaml python3-git \
+      cmake ninja-build git git-lfs ca-certificates curl xz-utils libarchive-tools make \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL -o /tmp/gcc.tar.xz \
+      https://developer.arm.com/-/media/Files/downloads/gnu/12.2.rel1/binrel/arm-gnu-toolchain-12.2.rel1-x86_64-arm-none-eabi.tar.xz \
+    && echo "84be93d0f9e96a15addd490b6e237f588c641c8afdf90e7610a628007fc96867  /tmp/gcc.tar.xz" | sha256sum -c --quiet \
+    && mkdir -p /opt/gcc-arm && tar -xJf /tmp/gcc.tar.xz -C /opt/gcc-arm --strip-components=1 \
+    && rm /tmp/gcc.tar.xz
+# slc-cli, the Java runtime it runs on and the Python it runs the SDK's
+# template generators with (embedded through JEP), all from Silicon Labs'
+# update site (the download page blocks scripts). slc finds that Python
+# through STUDIO_PYTHON3_PATH.
+RUN U=https://updates.silabs.com/studio/v6/updates/update_site/archives \
+    && curl -fsSL -o /tmp/slc.zip $U/slc-cli/6.0.22/slc-cli.linux.gtk.x86_64.zip \
+    && curl -fsSL -o /tmp/python.zip $U/python/3.10.3/python.3.10.3.gtk.linux.x86_64.zip \
+    && curl -fsSL -o /tmp/jre.zip $U/java21/21.0.6/linux.x86_64_21.0.6.zip \
+    && printf '%s\n' \
+      "f05e078b369d7e7dbfa31bdd2ad8edf61f04a9291393deab4702137639ba7d19  /tmp/slc.zip" \
+      "26f56b1cfa05b2b3b7dafb2c2a5e3c19498389c34dfe68be800f71f476c86363  /tmp/python.zip" \
+      "5382fa98bcc66fc3aef48792a3e84328eca16afa9bf97517527e92812516ee50  /tmp/jre.zip" \
+      | sha256sum -c --quiet \
+    && mkdir -p /opt/silabs/slc-cli /opt/silabs/python /opt/silabs/java21 \
+    && bsdtar -xf /tmp/slc.zip --strip-components=1 -C /opt/silabs/slc-cli \
+    && bsdtar -xf /tmp/python.zip --strip-components=1 -C /opt/silabs/python \
+    && bsdtar -xf /tmp/jre.zip --strip-components=1 -C /opt/silabs/java21 \
+    && rm /tmp/slc.zip /tmp/python.zip /tmp/jre.zip
+ENV PATH=/opt/gcc-arm/bin:/opt/silabs/java21/jre/bin:/opt/silabs/slc-cli:$PATH \
+    STUDIO_PYTHON3_PATH=/opt/silabs/python \
+    ARM_GCC_DIR=/opt/gcc-arm \
+    HOME=/root
+WORKDIR /efr
