@@ -122,7 +122,7 @@ bootimg)
 	need_kernel "$o"
 	python3 /work/tools/lidarboot.py pack --kernel "$o/arch/arm64/boot/Image.gz" \
 		--dtb "$o/arch/arm64/boot/dts/mediatek/mt8516-amazon-lidar.dtb" \
-		--cmdline "console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000 clk_ignore_unused" \
+		--cmdline "console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000" \
 		-o "$OUT/lidar-linux-boot.img"
 	;;
 patches)
