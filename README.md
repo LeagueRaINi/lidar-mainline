@@ -26,12 +26,12 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Speaker | ✅ | ✅ |
 | 3.5 mm line-out | ✅ | ⚠️ works; start-of-stream crack not re-tested since the jack moved to the headphone drivers |
 | Speaker crossover (woofer + tweeter) | ✅ | ✅ Amazon's filters in the DAC, amplifier mute against pops |
-| Microphones (7) | ✅ | ⚠️ all 7 capture; mic 7 picks up interference tones on the development unit |
+| Microphones (7) | ✅ | ⚠️ all 7 capture; mic 7 picks up narrow interference tones |
 | Echo-cancellation reference | ✅ | ✅ playback loopback capture, bit-exact; used by `lidar-aec` |
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
 | **Wireless** | | |
-| Wi-Fi (MT7668) | ✅ | 🧪 driver, firmware import and MAC from IDME done; the development unit's radio is faulty |
-| Bluetooth (MT7668) | ✅ | 🧪 loads after Wi-Fi; untested for the same reason |
+| Wi-Fi (MT7668) | ✅ | ✅ 2.4 and 5 GHz, WPA2, 866 Mbit/s link; firmware from the unit's own Fire OS, MAC from IDME |
+| Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware |
 | Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ EmberZNet NCP (the owner's copy of Fire OS's image), EZSP over TCP for Home Assistant (`zigbee` service) |
 | Thread border router (EFR32) | ✅ | 🛠️ Fire OS's Thread image speaks DSR's own multiplexing; needs an OpenThread RCP built for this board |
 | **Interface and sensors** | | |
@@ -111,7 +111,7 @@ decompression.
 | Path | What |
 |---|---|
 | `lidar-uboot/` | U-Boot v2026.10 overlay: `mt8516_amazon_lidar_defconfig`, board DTS, `MTK_LK_CHAINLOAD` Kconfig, boot environment `board/mediatek/mt8516/amazon_lidar.env`, `drivers/mmc/mtk-sd.c` (upstream copy with DMA for MT8516 and a bounce buffer for unaligned reads; check against upstream on version bumps) |
-| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), bindings |
+| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), MT7668 Bluetooth LE fix in `btmtksdio.c`, bindings |
 | `lidar-wifi/` | MT7668 gen4 Wi-Fi driver ported from Amazon's GPL release, built out of tree |
 | `lidar.config` | kernel config fragment applied on top of arm64 `defconfig` |
 | `build.sh` | build entry point inside the container (targets listed in its header) |
@@ -159,12 +159,13 @@ run patches             # -> out/patches/{linux,u-boot}-lidar.diff
 ```
 
 The kernel command line includes `clk_ignore_unused`. This is a bring-up
-workaround while not every clock consumer is described in the DT. A runtime
-test gated every clock that is on but unclaimed after boot (the NFI, SPI-NOR,
-BSI, AES, SEJ, RBIST, MSDC1 and debug gates, the APLL1 dividers,
-`memslp_dlyer` and `apxgpt`), as `clk_disable_unused` would, and nothing
-stopped working (eMMC, I2C, microphones, USB, speaker stream). Booting
-without the option is the remaining step.
+workaround while not every clock consumer is described in the DT. Booting
+without it lets the kernel gate every clock that is on but unclaimed (the
+NFI, SPI-NOR, BSI, AES, SEJ, RBIST, MSDC1 and debug gates, the APLL1
+dividers, `memslp_dlyer` and `apxgpt`). Tested on hardware: eMMC, I2C,
+microphones, the speaker stream, USB, LEDs, Wi-Fi, Bluetooth and the EFR32
+UART keep working. The option stays until a listening test has confirmed
+the speaker itself.
 
 ## Installing
 
@@ -606,15 +607,26 @@ bound by `lidar-volume`'s cap.
      reset then spun forever.
   3. The infracfg reset bank (INFRA_RST0, bit 23 = MSDC2) was missing.
 
-  On the development unit the MT7668 does not answer CMD52/CMD5. This is a
-  hardware failure of that unit, unrelated to the software, so Wi-Fi and
-  Bluetooth are untested on hardware. The host setup matches Amazon's
-  `mtk-sdio.c` in power sequence, clocks, divider, pins, pulls and drive. The
-  test system stages the firmware and loads `wlan_mt76x8_sdio`, then
-  `btmtksdio`, without manual steps.
-- **Wi-Fi firmware and calibration** are owner-local: the test system copies
-  them from the device's own Fire OS partition at boot. Never commit them. See
-  `lidar-wifi/README.md`.
+  The host setup matches Amazon's `mtk-sdio.c` in power sequence, clocks,
+  divider, pins, pulls and drive. The test system stages the firmware and
+  loads `wlan_mt76x8_sdio`, then `btmtksdio`, without manual steps. Verified
+  on hardware: Wi-Fi scans and connects on 2.4 and 5 GHz (WPA2, 866 Mbit/s
+  link, about 150 Mbit/s HTTPS download), Bluetooth finds classic and LE
+  devices, both at the same time.
+- **Wi-Fi and Bluetooth firmware:** both functions share one ROM patch.
+  Amazon's (`mt7668_patch_e2_hdr.bin`, a 2025 build) crashes the Bluetooth
+  firmware under mainline `btmtksdio`: its first LE or vendor command ends in
+  a prefetch abort and a core dump streamed as packet type 0x80. The test
+  image therefore ships the redistributable `mediatek/mt7668pr2h.bin` from
+  linux-firmware (pinned by SHA-256) and uses it for Wi-Fi too. The Wi-Fi RAM
+  code, calibration and settings stay owner-local: the test system copies
+  them from the device's own Fire OS partition at boot. Never commit them.
+  See `lidar-wifi/README.md`.
+- **Bluetooth LE:** that patch leaves octets 25-28 of Read Local Supported
+  Commands empty, i.e. all Bluetooth 4.0 LE commands, although it executes
+  them. The core then never enables the LE Advertising Report and Connection
+  Complete events, and LE scans find nothing. The `btmtksdio` overlay fills
+  these octets in for the MT7668 when they arrive empty.
 - **Wi-Fi / Bluetooth load order:** load `wlan_mt76x8_sdio` before
   `btmtksdio` (`softdep btmtksdio pre: wlan_mt76x8_sdio`). Mainline btmtksdio
   reads "patch download in progress" as "done", so bringing up `hci0` during
@@ -632,10 +644,11 @@ bound by `lidar-volume`'s cap.
   whine through the speaker whenever LEDs were lit.
 - **Microphones:** all 7 mics capture with the `DIF_2L_3L`/`DIF_2R_3R`
   inputs and PGA 20 dB. Room noise is coherent between mic 7 (capture
-  channel 6) and mics 1-6. On the development unit, mic 7 also picks up
-  narrow interference tones at about 50 Hz, 130-144 Hz and 2.41 kHz that the
-  other mics do not, so it needs filtering. Capture channel 7 is the line-in,
-  which has not been tested with a real source.
+  channel 6) and mics 1-6. Mic 7 also picks up narrow interference tones the
+  other mics do not, so it needs filtering. Their frequencies differ between
+  units: about 50 Hz, 130-144 Hz and 2.41 kHz on one, about 65, 120, 152 and
+  316 Hz on another. Capture channel 7 is the line-in, which has not been
+  tested with a real source.
 - **Speaker:** a two-way system. The DAC's left channel drives the woofer
   and its right channel the tweeter, through the crossover Amazon's firmware
   loads into the DAC biquads:
@@ -670,9 +683,9 @@ bound by `lidar-volume`'s cap.
   bootloader) and `EFR32_RESET_N` (GPIO13, rfkill `zigbee_reset`) the reset.
   Fire OS carries two images: `silabs/xncp-fw.gbl` (EmberZNet 6.5.3 NCP over
   ASH/EZSP) and `dsr/zb_mux_rcp.gbl` (DSR's OpenThread "dualpan" RCP), both
-  unencrypted. On the development unit `EFR32_RESET_N` does not reset the
-  chip (the pin does not follow the GPIO), so the `zigbee` service does not
-  rely on it; still to be checked on a second unit.
+  unencrypted. Verified on hardware: with `EFR32_SWCLK` low, a pulse on
+  `EFR32_RESET_N` brings up the bootloader menu, and its `2. run` starts the
+  application again.
 - **TSL2540 ambient light sensor:** new minimal IIO driver (`tsl2540`):
   visible and IR counts, gain and integration time. Verified on hardware:
   chip ID, configuration, and readings from 0 in the dark to about 7000

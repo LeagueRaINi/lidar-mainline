@@ -8,9 +8,9 @@ same chip is handled by the in-tree `btmtksdio`.
 
 The source is dual licensed (GPL-2.0 or BSD) by MediaTek, see the file headers.
 
-**Status: builds and links cleanly against v7.3.** On the development unit the
-MT7668 does not answer CMD52/CMD5. This is a hardware failure of that unit,
-unrelated to the software, so Wi-Fi and Bluetooth are untested on hardware.
+**Status: works on hardware** (Linux v7.3): scans and connects on 2.4 and
+5 GHz with WPA2 (866 Mbit/s link, about 150 Mbit/s HTTPS download), next to
+Bluetooth on the same chip.
 
 ## Build
 
@@ -60,17 +60,19 @@ image of your own device (they are in `/system/vendor/firmware`).
 
 | File | Needed | Purpose |
 | --- | --- | --- |
-| `mt7668_patch_e2_hdr.bin` | yes | ROM patch. The name is `mt7668_patch_e<ROM version + 1>_hdr.bin`; an E1 chip asks for `..._e1_...`. Must exist even when Bluetooth already downloaded the patch. |
+| `mt7668_patch_e2_hdr.bin` | yes | ROM patch. The name is `mt7668_patch_e<ROM version + 1>_hdr.bin`; an E1 chip asks for `..._e1_...`. Must exist even when Bluetooth already downloaded the patch. Use linux-firmware's `mediatek/mt7668pr2h.bin` under this name (below), not Amazon's. |
 | `WIFI_RAM_CODE_MT7668.bin` | yes | N9 Wi-Fi firmware. Fallback names tried in order: `WIFI_RAM_CODE_MT7668`, `WIFI_RAM_CODE_MT7668_E<eco>.bin`, `WIFI_RAM_CODE_MT7668_E<eco>`. |
 | `WIFI_RAM_CODE2_SDIO_MT7668.bin` | yes | CR4 firmware. Fallbacks: same four patterns, then the same with the prefix `WIFI_RAM_CODE2_MT7668`. |
 | `wifi.cfg` | no | Text key/value configuration (at most 2048 bytes). Sets e.g. `EfuseBufferModeCal`, `MacOverride`/`MacAddr`, `Country`, `Wow`. |
 | `EEPROM_MT7668.bin` | only if `wifi.cfg` has `EfuseBufferModeCal 1` | Per-design RF calibration ("buffer mode"), at most 1200 bytes. Without it the calibration in the chip eFuse is used. |
 | `TxPwrLimit_MT76x8.dat` | recommended | Per-country TX power limits. Without it the firmware defaults apply. |
 
-Bluetooth (`btmtksdio`, in-tree) needs `mediatek/mt7668pr2h.bin`. That is the
-same ROM patch under the name used by linux-firmware; install the stock
-`mt7668_patch_e2_hdr.bin` under both names so that both functions agree on
-the patch version.
+Bluetooth (`btmtksdio`, in-tree) needs `mediatek/mt7668pr2h.bin`, the same
+ROM patch under the name used by linux-firmware, and both functions must
+agree on one patch. Amazon's own (a 2025 build) crashes the Bluetooth
+firmware under mainline `btmtksdio` at its first LE or vendor command, so the
+test image installs linux-firmware's `mt7668pr2h.bin` (redistributable) and
+links `mt7668_patch_e2_hdr.bin` to it. This WLAN driver runs on it unchanged.
 
 `/data/nvram/APCFG/APRDEB/WIFI` (MediaTek phone NVRAM) is probed as well and is
 simply skipped when absent.

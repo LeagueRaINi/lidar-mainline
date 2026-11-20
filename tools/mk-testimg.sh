@@ -30,6 +30,14 @@ cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
 /dev/disk/by-partlabel/misc 0x60000 0x10000
 EOF
+# MT7668 ROM patch from linux-firmware (redistributable), for Bluetooth and
+# Wi-Fi alike: under mainline btmtksdio the Bluetooth firmware crashes on
+# Amazon's newer patch (2025 build) at its first LE or vendor command.
+LF=https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain
+mkdir -p "$T/initramfs/lib/firmware/mediatek"
+curl -fsSL "$LF/mediatek/mt7668pr2h.bin" -o "$T/initramfs/lib/firmware/mediatek/mt7668pr2h.bin"
+echo "465ed634c61b46b34bb21240736f33d3d347fefec7cbfbd1cb6e63334aec4cc9  $T/initramfs/lib/firmware/mediatek/mt7668pr2h.bin" |
+	sha256sum -c --quiet
 
 make -C /src/linux O="$B" -s INSTALL_MOD_PATH="$T/initramfs" INSTALL_MOD_STRIP=1 modules_install
 # Out-of-tree MT7668 WLAN driver, built against this exact kernel
@@ -143,7 +151,7 @@ ln -sf ../../MediaTek/amazon-lidar/amazon-lidar.conf "$U/conf.d/amazon-lidar/ama
 
 # Named ALSA devices: the speaker, and mics 1-6 summed to mono at 0.5 each
 # (+9.5 dB for coherent speech). Mic 7 (capture channel 6) is left out: it
-# picks up interference tones on the development unit.
+# picks up narrow interference tones.
 cat > "$T/initramfs/etc/asound.conf" <<'EOF'
 # The speaker goes through dmix so lidar-volume's silent keep-alive stream,
 # its feedback tone and the USB bridge can share it.
@@ -318,19 +326,21 @@ if lidar-feature enabled webui; then
 		echo "::respawn:/usr/bin/lidar-listen usb0 80 $www -i" >> /etc/inittab
 	fi
 fi
-# Stage the owner's own Wi-Fi firmware from Fire OS (system_a, read-only),
-# then load WLAN before Bluetooth: btmtksdio must not start while the WLAN
-# driver downloads the MT7668 patch. The regulatory domain is a cfg80211
-# user hint, so it can be set as soon as the driver has pulled cfg80211 in.
-# Backgrounded so the shell never waits.
+# Stage the owner's own Wi-Fi firmware and calibration from Fire OS
+# (system_a, read-only); the ROM patch both functions share is the image's
+# linux-firmware one. Then load WLAN before Bluetooth: btmtksdio must not
+# start while the WLAN driver downloads the patch. The regulatory domain is a
+# cfg80211 user hint, so it can be set as soon as the driver has pulled
+# cfg80211 in. Backgrounded so the shell never waits.
 (
 	if lidar-feature enabled wireless; then
 		dev=/dev/disk/by-partlabel/system_a
 		fw=/mnt/fireos/system/vendor/firmware
-		mkdir -p /mnt/fireos /lib/firmware/mediatek
+		mkdir -p /mnt/fireos
 		if [ -b "$dev" ] && mount -o ro -t ext4 "$dev" /mnt/fireos &&
-		   cp $fw/*7668* $fw/TxPwrLimit_MT76x8.dat $fw/wifi.cfg /lib/firmware/ &&
-		   cp /lib/firmware/mt7668_patch_e2_hdr.bin /lib/firmware/mediatek/mt7668pr2h.bin &&
+		   cp $fw/WIFI_RAM_CODE*MT7668.bin $fw/EEPROM_MT7668.bin \
+		      $fw/TxPwrLimit_MT76x8.dat $fw/wifi.cfg /lib/firmware/ &&
+		   ln -sf mediatek/mt7668pr2h.bin /lib/firmware/mt7668_patch_e2_hdr.bin &&
 		   modprobe wlan_mt76x8_sdio; then
 			echo "lidar: Wi-Fi firmware staged, WLAN driver loaded" > /dev/kmsg
 			cc=$(lidar-feature get wireless country)
