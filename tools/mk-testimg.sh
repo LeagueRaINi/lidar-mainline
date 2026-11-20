@@ -383,7 +383,7 @@ label lidar-test
 	kernel /boot/Image.gz
 	fdtdir /boot/dtbs
 	initrd /boot/initramfs.gz
-	append console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000 loglevel=7 clk_ignore_unused lidar.slot=${lidar_slot}
+	append console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000 loglevel=7 lidar.slot=${lidar_slot}
 EOF
 
 # The core services are on by default; this bring-up image also opts in to

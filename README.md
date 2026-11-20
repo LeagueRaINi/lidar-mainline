@@ -160,14 +160,12 @@ run bootimg lidar       # -> out/lidar-linux-boot.img (kernel booted straight fr
 run patches             # -> out/patches/{linux,u-boot}-lidar.diff
 ```
 
-The kernel command line includes `clk_ignore_unused`. This is a bring-up
-workaround while not every clock consumer is described in the DT. Booting
-without it lets the kernel gate every clock that is on but unclaimed (the
-NFI, SPI-NOR, BSI, AES, SEJ, RBIST, MSDC1 and debug gates, the APLL1
-dividers, `memslp_dlyer` and `apxgpt`). Tested on hardware: eMMC, I2C,
-microphones, the speaker stream, USB, LEDs, Wi-Fi, Bluetooth and the EFR32
-UART keep working. The option stays until a listening test has confirmed
-the speaker itself.
+The kernel boots without `clk_ignore_unused`: it gates every clock that is
+on but unclaimed at the end of boot (the NFI, SPI-NOR, BSI, AES, SEJ, RBIST,
+MSDC1 and debug gates, the APLL1 dividers, `memslp_dlyer` and `apxgpt`).
+Tested on hardware with these gated: eMMC, I2C, microphones, the speaker (by
+ear, with and without the speaker tuning), USB, LEDs, the light sensor,
+Wi-Fi, Bluetooth and the EFR32 UART.
 
 ## Installing
 
@@ -374,7 +372,9 @@ on the plain path. Toggling the service takes effect on the next boot.
 Verified: the impulse response at low level matches the stock FIR and EQ
 times the MBCL band gains (+11 dB below 100 Hz, +8 dB above 220 Hz), the
 limiter keeps full-scale noise below 1.0, and on the device the processed
-stream arrives at the codec as computed offline. Not yet judged by ear.
+stream arrives at the codec as computed offline. By ear, against the plain
+path at the same volume: clearly fuller, closer to stock, without
+distortion, clicks or dropouts.
 
 ### Web interface
 
