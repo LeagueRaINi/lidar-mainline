@@ -53,7 +53,8 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 - `fastboot` (Android platform-tools) and `podman` on the host.
 - Network access while building: the test image downloads Alpine packages.
 - Access to the USB test points (TM4, TM5 and TM37 below), for example with
-  pogo pins. All flashing, the shell and the network go over this USB link.
+  pogo pins; `pogo-jig/` is a printable jig for that. All flashing, the
+  shell and the network go over this USB link.
 - Optional: a 1.8 V UART adapter on TM58 (UART0 TX, 921600 8N1), output only.
 
 ### Test points
@@ -133,6 +134,7 @@ decompression.
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
 | `tools/lidar-player.c` | plays the web interface's song library on the speaker, with fades on pause, stop and skip |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
+| `pogo-jig/` | 3D-printable pogo-pin jig for the USB test points, held by one M4 screw in the bottom insert: OpenSCAD source, STLs, assembly notes and a test-fit checklist |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -720,6 +722,7 @@ series:
 | `lidar-uboot/` | per file, as in U-Boot (`GPL-2.0+`; DTS `GPL-2.0 OR MIT`) |
 | `lidar-wifi/` | MediaTek dual licence, `GPL-2.0 OR BSD-3-Clause` |
 | `ucm2/` | `BSD-3-Clause`, as alsa-ucm-conf |
+| `pogo-jig/` | `CERN-OHL-S-2.0` |
 | everything else | `GPL-2.0-only` (see `LICENSE`) |
 
 Licence texts are in `LICENSES/`.
