@@ -3,373 +3,618 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Echo Plus</title>
+<script>
+/* Theme before the first paint: the stored choice, else the system's. */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('theme'); } catch (e) {}
+  if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+})();
+</script>
 <style>
 :root {
-  color-scheme: light dark;
-  --bg: #f3f4f6; --card: #fff; --fg: #1b1f24; --muted: #667085; --line: #d8dce3;
-  --accent: #0b6bcb; --ok: #1a8f4c; --bad: #c62f2f; --track: #e4e7ec;
+  color-scheme: light;
+  --bg: #f4f5f7; --surface: #fff; --fg: #161a20; --muted: #5d6673; --line: #e4e7ec;
+  --track: #e3e6eb; --knob-off: #8b94a1; --btn: #eef0f3; --btn-h: #e2e5ea; --raise: #fff;
+  --field: #fff; --field-line: #8d96a3; --code: #f7f8fa;
+  --accent: #2563eb; --accent-h: #1d4fd0; --on-accent: #fff; --accent-soft: #e8effd; --accent-ink: #1d4ed8;
+  --ok: #17794a; --ok-soft: #e2f4ea; --bad: #b42323; --bad-soft: #fbe7e5; --bad-solid: #c0392b;
+  --warn: #8a5300; --warn-soft: #fdf1d8;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14171c; --card: #1d2128; --fg: #e6e8eb; --muted: #8b93a1; --line: #313742;
-    --accent: #4aa8ff; --ok: #4cc27e; --bad: #f0685f; --track: #2b313b;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1216; --surface: #171b21; --fg: #e8ebef; --muted: #9aa4b2; --line: #272d36;
+  --track: #2a313b; --knob-off: #6b7686; --btn: #222831; --btn-h: #2c333e; --raise: #343c48;
+  --field: #11151a; --field-line: #6b7686; --code: #11151a;
+  --accent: #78a9ff; --accent-h: #93baff; --on-accent: #0b1524; --accent-soft: #1b2a45; --accent-ink: #8fb8ff;
+  --ok: #5fd08f; --ok-soft: #15301f; --bad: #ff8a80; --bad-soft: #3b1d1b;
+  --warn: #f2c063; --warn-soft: #33270f;
 }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg);
-  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+*, ::before, ::after { box-sizing: border-box; }
+html { scrollbar-gutter: stable; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); -webkit-tap-highlight-color: transparent;
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
 [hidden] { display: none !important; }
-h2 { margin: 0 0 .6rem; font-size: .8rem; font-weight: 600; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--muted); }
-button { font: inherit; color: inherit; background: none; border: 1px solid var(--line);
-  border-radius: 6px; padding: .3rem .7rem; cursor: pointer; }
-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-button:disabled { opacity: .45; cursor: default; }
+h1, h2, h3, p, ul, dl, dd { margin: 0; }
+ul { padding: 0; list-style: none; }
+a { color: var(--accent-ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, ::before, ::after { transition: none !important; } }
 
-/* layout */
-header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center;
-  gap: .4rem 1.2rem; padding: .6rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
-header h1 { margin: 0; font-size: 1.05rem; }
-nav { display: flex; flex-wrap: wrap; gap: .3rem; }
-nav button { border-color: transparent; }
-nav button[aria-current="page"], nav button[aria-current="page"]:hover {
-  background: var(--accent); border-color: var(--accent); color: #fff; }
-#banner { margin: 0; padding: .4rem 1rem; background: var(--bad); color: #fff; font-size: .9rem; }
-main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
-.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem;
-  min-width: 0; }
-.wide { grid-column: 1 / -1; }
-#toast { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%); max-width: 90vw;
-  padding: .5rem .9rem; border-radius: 8px; background: var(--bad); color: #fff; z-index: 3; }
-#toast.ok { background: var(--ok); }
+/* icons */
+.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; }
 
-/* key/value rows, meters */
-.kv { display: grid; grid-template-columns: auto 1fr; gap: .15rem 1rem; margin: 0; }
+/* buttons */
+button, .btn { font: inherit; font-size: .9rem; font-weight: 550; color: var(--fg); background: var(--btn);
+  border: 0; border-radius: 9px; min-height: 36px; padding: 0 14px; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+  transition: background .12s, color .12s; }
+button:hover:not(:disabled), .btn:hover { background: var(--btn-h); }
+button:disabled { opacity: .45; cursor: default; }
+.pri { background: var(--accent); color: var(--on-accent); }
+.pri:hover:not(:disabled) { background: var(--accent-h); }
+.ghost { background: transparent; }
+.danger { color: var(--bad); }
+.ib { width: 36px; padding: 0; flex: none; }
+.round { border-radius: 50%; }
+.armed, .armed:hover:not(:disabled) { width: auto; padding: 0 12px; background: var(--bad-solid); color: #fff; }
+button.link { min-height: 0; padding: 0; border-radius: 4px; background: none; color: var(--accent-ink);
+  font-size: inherit; font-weight: 500; justify-content: flex-start; text-align: left; white-space: normal;
+  overflow-wrap: anywhere; }
+button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+button.link:disabled { color: var(--muted); opacity: 1; }
+
+/* switch */
+.sw { width: 42px; min-height: 24px; height: 24px; padding: 0; flex: none; border-radius: 12px;
+  background: var(--knob-off); position: relative; }
+.sw:hover:not(:disabled) { background: var(--knob-off); }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); transition: transform .15s; }
+.sw[aria-checked="true"], .sw[aria-checked="true"]:hover:not(:disabled) { background: var(--accent); }
+.sw[aria-checked="true"]::after { transform: translateX(18px); }
+
+/* fields */
+input[type=text], input[type=password], input[type=search], input[type=number], select {
+  font: inherit; color: inherit; background: var(--field); border: 1px solid var(--field-line); border-radius: 9px;
+  min-height: 36px; padding: 0 10px; min-width: 0; }
+input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+input[type=range] { -webkit-appearance: none; appearance: none; height: 24px; margin: 0; background: transparent;
+  cursor: pointer; min-width: 0; --p: 0%; }
+input[type=range]:disabled { opacity: .45; cursor: default; }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px;
+  background: linear-gradient(to right, var(--accent) var(--p), var(--track) var(--p)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -6px;
+  border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, .18); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--track); }
+input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+input[type=range]::-moz-range-thumb { width: 17px; height: 17px; border-radius: 50%; background: #fff;
+  border: 1px solid rgba(0, 0, 0, .18); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+progress { -webkit-appearance: none; appearance: none; width: 6rem; height: 6px; border: 0; border-radius: 3px;
+  background: var(--track); overflow: hidden; flex: none; }
+progress::-webkit-progress-bar { background: var(--track); }
+progress::-webkit-progress-value { background: var(--accent); }
+progress::-moz-progress-bar { background: var(--accent); }
+
+/* shell: side bar on wide screens, top bar and tab bar on phones */
+body { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+#side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 4px;
+  padding: 20px 12px 14px; background: var(--surface); border-right: 1px solid var(--line); overflow-y: auto; }
+.brand { display: flex; align-items: center; gap: 11px; padding: 2px 10px 18px; }
+.brand .logo { width: 30px; height: 30px; flex: none; }
+.logo circle { fill: none; stroke: var(--track); stroke-width: 3; }
+.logo .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dasharray .25s, stroke .25s; }
+.logo.muted .arc { stroke: var(--muted); }
+.logo.off .arc, .logo.zero .arc { opacity: 0; }
+.brand > div { min-width: 0; }
+h1 { font-size: .93rem; font-weight: 650; line-height: 1.3; }
+#conn { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; }
+#conn::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--knob-off); }
+#conn[data-state="ok"]::before { background: var(--ok); }
+#conn[data-state="bad"]::before { background: var(--bad); }
+nav { display: grid; gap: 2px; }
+nav a { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 9px;
+  color: var(--muted); font-weight: 550; font-size: .93rem; text-decoration: none; }
+nav a:hover { background: var(--btn); color: var(--fg); }
+nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); }
+.side-foot { margin-top: auto; }
+#theme { width: 100%; justify-content: flex-start; gap: 11px; padding: 0 10px; color: var(--muted); }
+main { width: 100%; max-width: 1140px; margin: 0 auto; padding: 28px 32px 56px; }
+.vh { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 18px; }
+h2 { font-size: 1.45rem; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; }
+#banner, .callout { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
+  padding: 10px 16px; border-radius: 12px; font-weight: 500; }
+#banner { background: var(--bad-soft); color: var(--bad); }
+.callout { background: var(--warn-soft); color: var(--warn); justify-content: space-between; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 9; max-width: min(90vw, 480px);
+  padding: 10px 16px; border-radius: 10px; background: var(--bad-solid); color: #fff; font-weight: 500;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .25); }
+#toast.ok { background: var(--fg); color: var(--bg); }
+
+/* cards and grids */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; min-width: 0; }
+h3 { font-size: .95rem; font-weight: 650; }
+.card > h3 { margin-bottom: 12px; }
+.ch { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap;
+  margin-bottom: 12px; }
+h4 { margin: 0; font-size: .74rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); }
+.ch.sub { margin: 20px 0 2px; }
+.ch.flat { margin: 0; flex-wrap: nowrap; }
+.grid, .col, .cols, .music { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.cols, .music { align-items: start; }
+@media (min-width: 640px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .s2 { grid-column: span 2; }
+}
+@media (min-width: 1000px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 999px) {       /* one column: Wi-Fi, Bluetooth, then the rest */
+  .cols > .col { display: contents; }
+  .cols .last { order: 1; }
+}
+@media (min-width: 1100px) {
+  .music { grid-template-columns: 340px minmax(0, 1fr); }
+  #player { position: sticky; top: 28px; }
+}
+@media (min-width: 1180px) {
+  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .s2w { grid-column: span 2; }
+}
+
+/* key/value rows, meters, pills */
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 16px; }
 .kv dt { color: var(--muted); }
-.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.meter { height: 8px; margin: .35rem 0 .7rem; border-radius: 4px; background: var(--track); overflow: hidden; }
-.meter > div { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
-.big { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kv dd { text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#rails { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 7px 40px; }
+#rails div { display: flex; justify-content: space-between; gap: 16px; }
+.meter { height: 6px; margin: 8px 0 14px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.meter > div { height: 100%; width: 0; border-radius: 3px; background: var(--accent); transition: width .3s; }
+.big { font-size: 1.9rem; font-weight: 650; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
-.pill { display: inline-block; padding: 0 .5rem; border-radius: 99px; font-size: .85rem;
-  border: 1px solid var(--line); color: var(--muted); }
-.pill.on { border-color: var(--ok); color: var(--ok); }
-.pill.warn { border-color: var(--bad); color: var(--bad); }
+.note { margin-top: 12px; color: var(--muted); font-size: .85rem; }
+.pill { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: .78rem; font-weight: 550;
+  background: var(--btn); color: var(--muted); white-space: nowrap; }
+.pill.on { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--bad-soft); color: var(--bad); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
 
-/* temperatures */
-.temp { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(3rem, 1fr) 4.2rem; align-items: center; gap: .6rem;
-  padding: .15rem 0; }
-.temp svg { width: 100%; height: 24px; }
-.temp polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.temp .val { text-align: right; font-variant-numeric: tabular-nums; }
-
-/* LED ring */
-#ring { display: block; width: 100%; max-width: 230px; margin: 0 auto; }
+/* overview: speaker card */
+.hero { display: flex; align-items: center; gap: 26px; }
+.hero-main { flex: 1; min-width: 0; }
+#ring { display: block; width: 150px; flex: none; }
 #ring .top { fill: #16191d; stroke: #262b31; stroke-width: 1; }
 #ring .track { fill: none; stroke: #0b0d0f; stroke-width: 11; }
 #ring .seg { fill: none; stroke-width: 9; stroke-linecap: butt; transition: stroke .25s, opacity .25s; }
 #ring .glow { stroke-width: 15; filter: url(#ring-blur); }
-
-/* volume */
-.volume { display: flex; align-items: center; gap: .7rem; }
-.volume input { flex: 1; min-width: 0; accent-color: var(--accent); }
-button[aria-pressed="true"], button[aria-pressed="true"]:hover:not(:disabled) {
-  background: var(--bad); border-color: var(--bad); color: #fff; }
-
-/* music */
-#player { display: grid; gap: .5rem; }
-#p-title { font-size: 1.1rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#p-bar { height: 12px; border-radius: 6px; background: var(--track); overflow: hidden; cursor: pointer; }
-#p-bar.idle { cursor: default; }
-#p-fill { height: 100%; width: 0; background: var(--accent); }
-.p-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap; }
-.p-ctl { display: flex; gap: .4rem; }
-.p-ctl button { width: 2.6rem; height: 2.2rem; padding: 0; display: grid; place-items: center; }
-.p-ctl svg { width: 16px; height: 16px; fill: currentColor; }
-#drop { display: block; padding: 1.4rem 1rem; text-align: center; border: 2px dashed var(--line);
-  border-radius: 10px; color: var(--muted); cursor: pointer; }
-#drop.over, #drop:hover { border-color: var(--accent); color: var(--accent); }
-#drop:focus-within { outline: 2px solid var(--accent); }
-#drop input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.rows { list-style: none; margin: 0; padding: 0; }
-.rows li { display: flex; align-items: center; gap: .6rem; padding: .4rem 0; border-top: 1px solid var(--line); }
-.rows li:first-child { border-top: 0; }
-.rows .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rows .current .name { color: var(--accent); font-weight: 600; }
-.rows .num { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.rows .err { color: var(--bad); }
-.rows progress { width: 6rem; accent-color: var(--accent); }
-#uploads:empty { display: none; }
-#uploads { margin-top: .7rem; }
-
-/* services and settings */
-#services .name { flex: 0 0 9rem; font-weight: 600; }
-#services .desc, #settings .desc { flex: 1; min-width: 0; color: var(--muted); }
-#settings li { flex-wrap: wrap; }
-#settings .name { flex: 0 0 13rem; font-weight: 600; }
-#settings .desc { flex-basis: 100%; order: 9; font-size: .85rem; }
-#settings .val { flex: 1; min-width: 8rem; }
-#pending { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
-@media (max-width: 560px) {
-  #services li { flex-wrap: wrap; }
-  #services .desc { flex-basis: 100%; }
+.volrow { display: flex; align-items: center; gap: 12px; }
+.volrow input { flex: 1; }
+.vol-pct { min-width: 3.1rem; text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+.mute[aria-pressed="true"], .mute[aria-pressed="true"]:hover:not(:disabled) { background: var(--bad-soft); color: var(--bad); }
+.hero .vol-info { margin: 2px 0 0 48px; }
+.np { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+@media (max-width: 520px) {
+  .hero { flex-direction: column; align-items: stretch; gap: 16px; }
+  #ring { width: 136px; margin: 0 auto; }
 }
 
-/* forms, tool bars, text panes */
-.bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .7rem 0; }
-input[type=text], input[type=password], input[type=search], input[type=number], select {
-  font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-  padding: .25rem .5rem; min-width: 0; }
-pre.text { margin: 0; max-height: 60vh; overflow: auto; padding: .6rem; background: var(--bg);
-  border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere;
-  font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
-.rows .sig { flex: 0 0 4.5rem; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-.rows button.link { border: 0; padding: 0; text-align: left; color: var(--accent); }
-/* Scan results: the name over a line of details, so narrow screens keep it */
-.rows .stack { flex: 1; min-width: 0; }
-.rows .stack .name { display: block; white-space: normal; overflow-wrap: anywhere; }
-.rows .meta { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .15rem; font-size: .85rem; }
-#fb-crumbs button { padding: .1rem .45rem; }
+/* temperatures */
+.temp { display: grid; grid-template-columns: auto minmax(2.5rem, 1fr) 4.2rem; align-items: center;
+  gap: 10px; padding: 4px 0; }
+.temp span:first-child { color: var(--muted); }
+.temp svg { width: 100%; height: 24px; }
+.temp polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.temp .val { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* lists */
+.rows li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.rows li:first-child { border-top: 0; }
+.rows li.empty { color: var(--muted); }
+.rows li.grp { padding: 16px 0 2px; border: 0; font-size: .74rem; font-weight: 650; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); }
+.rows li.grp + li { border-top: 0; }
+.rows li.grp:first-child { padding-top: 0; }
+.stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wrap .name { white-space: normal; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; color: var(--muted); font-size: .85rem; }
+.num { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.err { color: var(--bad); }
+.current .name { color: var(--accent-ink); }
+.bars { width: 20px; height: 16px; flex: none; fill: var(--track); }
+.bars .on { fill: var(--fg); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0 4px; }
+.bar label { display: inline-flex; align-items: center; gap: 6px; }
+.grow { flex: 1 1 9rem; }
+
+/* music */
+.now { display: flex; align-items: center; gap: 14px; }
+.art { width: 56px; height: 56px; flex: none; display: grid; place-items: center; border-radius: 12px;
+  background: var(--accent-soft); color: var(--accent-ink); }
+.art .i { width: 26px; height: 26px; }
+#p-title { font-size: 1.08rem; font-weight: 650; }
+#p-bar { margin-top: 14px; padding: 9px 0; cursor: pointer; border-radius: 6px; }
+#p-bar.idle { cursor: default; }
+.trk { height: 6px; border-radius: 3px; background: var(--track); }
+#p-fill { position: relative; height: 100%; width: 0; border-radius: 3px; background: var(--accent); }
+#p-fill::after { content: ""; position: absolute; right: -7px; top: -4px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); }
+.idle #p-fill::after { display: none; }
+.times { display: flex; justify-content: space-between; color: var(--muted); font-size: .82rem;
+  font-variant-numeric: tabular-nums; }
+.p-ctl { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin: 6px 0 14px; }
+.p-ctl > div { display: flex; align-items: center; gap: 10px; }
+.p-ctl > :last-child { justify-self: end; }
+#p-toggle { width: 52px; min-height: 52px; }
+#p-toggle .i { width: 24px; height: 24px; }
+#player .volrow { padding-top: 14px; border-top: 1px solid var(--line); }
+#drop { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 6px;
+  padding: 16px; text-align: center; border: 1.5px dashed var(--field-line); border-radius: 12px;
+  color: var(--muted); cursor: pointer; transition: border-color .12s, background .12s; }
+#drop b { color: var(--accent-ink); font-weight: 550; }
+#drop.over, #drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+#drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+#drop input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+#uploads:empty { display: none; }
+#songs-empty { padding: 22px 0 8px; text-align: center; color: var(--muted); }
+
+/* network */
+.sum { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.sum .bars { width: 26px; height: 21px; }
+#wifi-ssid { font-size: 1.08rem; font-weight: 650; overflow-wrap: anywhere; }
+#wifi-form { display: grid; gap: 8px; margin: 12px 0 4px; padding: 14px; border-radius: 12px; background: var(--bg); }
+#wifi-form div { display: flex; gap: 8px; }
+
+/* system */
+.set { flex-wrap: wrap; }
+.set .stack { flex: 1 1 280px; }
+.ctl { display: flex; align-items: center; gap: 8px; }
+.ctl .val { width: 150px; }
+.set .meta, .svc .meta { display: block; }
+@media (max-width: 560px) {
+  .ctl { flex: 1 1 100%; }
+  .ctl .val { flex: 1; width: auto; }
+}
+
+/* debug and files */
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--btn); max-width: 100%; }
+.seg button { min-height: 30px; padding: 0 12px; background: transparent; color: var(--muted); border-radius: 8px; }
+.seg button[aria-selected="true"] { background: var(--raise); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, .14); }
+pre.text { margin: 0; max-height: max(320px, calc(100vh - 250px)); overflow: auto; padding: 12px 14px;
+  background: var(--code); border: 1px solid var(--line); border-radius: 10px; white-space: pre-wrap;
+  overflow-wrap: anywhere; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.tools label { display: inline-flex; align-items: center; gap: 6px; }
+#fb-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 6px; }
+#fb-crumbs button { min-height: 30px; padding: 0 9px; }
+#fb-crumbs span { color: var(--muted); }
+#fb-list .i { color: var(--muted); }
+#fb-name { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; }
+@media (max-width: 560px) { .when { display: none; } }
+
+@media (max-width: 899px) {
+  body { display: block; }
+  #side { display: contents; }
+  .brand { position: sticky; top: 0; z-index: 5; padding: calc(9px + env(safe-area-inset-top)) 60px 9px 14px;
+    background: var(--surface); border-bottom: 1px solid var(--line); }
+  h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-foot { position: fixed; z-index: 6; top: calc(9px + env(safe-area-inset-top)); right: 10px; margin: 0; }
+  #theme { width: 36px; padding: 0; justify-content: center; }
+  #theme span { display: none; }
+  nav { position: fixed; z-index: 5; left: 0; right: 0; bottom: 0; grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); background: var(--surface);
+    border-top: 1px solid var(--line); }
+  nav a { flex-direction: column; gap: 2px; padding: 6px 0 4px; font-size: .7rem; }
+  nav a:hover { background: none; }
+  nav a[aria-current="page"] { background: none; }
+  nav a[aria-current="page"] .i { background: var(--accent-soft); box-shadow: 0 0 0 4px var(--accent-soft), 12px 0 0 4px var(--accent-soft), -12px 0 0 4px var(--accent-soft); border-radius: 8px; }
+  main { padding: 18px 14px calc(88px + env(safe-area-inset-bottom)); }
+  h2 { font-size: 1.25rem; }
+  .vh { margin-bottom: 14px; }
+  .card { padding: 16px; }
+  .grid, .col, .cols, .music { gap: 12px; }
+  #toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  pre.text { max-height: 62vh; }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1 id="model">Echo Plus</h1>
-  <nav>
-    <button data-view="dashboard">Dashboard</button>
-    <button data-view="music">Music</button>
-    <button data-view="network">Network</button>
-    <button data-view="services">Services</button>
-    <button data-view="debug">Debug</button>
-    <button data-view="files">Files</button>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9.5a13.5 13.5 0 0 1 19 0M5.8 13a9 9 0 0 1 12.4 0M9 16.4a4.5 4.5 0 0 1 6 0"/><circle cx="12" cy="19.6" r="1.1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M19 7h1M4 17h1M11 17h9"/><circle cx="16" cy="7" r="2.6"/><circle cx="8" cy="17" r="2.6"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7.5 9.5l3 2.5-3 2.5M13 15h3.5"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5a2 2 0 0 1 2-2h4.2l2 2.5H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6.5 3.5h7.5l4 4v13h-11.5zM14 3.5v4h4"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6L19 12z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7.5 5.5h2.6v13H7.5zM13.9 5.5h2.6v13h-2.6z" fill="currentColor"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.2" fill="currentColor"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M18.5 6v12L9.5 12z" fill="currentColor"/><path d="M6 6v12"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M5.5 6v12l9-6z" fill="currentColor"/><path d="M18 6v12"/></symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M3.5 9.5h3.2l5-4v13l-5-4H3.5zM15.5 9a4.2 4.2 0 0 1 0 6M18.2 6.3a8 8 0 0 1 0 11.4"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24"><path d="M3.5 9.5h3.2l5-4v13l-5-4H3.5zM16 9.5l5 5M21 9.5l-5 5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.9 12.5h9.2L17.5 7M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 15.5V4M7.5 8.5L12 4l4.5 4.5M4 15.5V19a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11.5M7.5 11l4.5 4.5 4.5-4.5M5 20h14"/></symbol>
+  <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></symbol>
+</svg>
+
+<aside id="side">
+  <div class="brand">
+    <svg class="logo off" id="logo" viewBox="0 0 30 30" role="img" aria-labelledby="logo-title"><title id="logo-title">Volume</title><circle cx="15" cy="15" r="11.5"/><circle class="arc" id="logo-arc" cx="15" cy="15" r="11.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 15 15)"/></svg>
+    <div>
+      <h1 id="model">Echo Plus</h1>
+      <div id="conn" role="status">Connecting…</div>
+    </div>
+  </div>
+  <nav aria-label="Views">
+    <a href="#dashboard" data-view="dashboard"><svg class="i" aria-hidden="true"><use href="#i-home"/></svg>Overview</a>
+    <a href="#music" data-view="music"><svg class="i" aria-hidden="true"><use href="#i-music"/></svg>Music</a>
+    <a href="#network" data-view="network"><svg class="i" aria-hidden="true"><use href="#i-wifi"/></svg>Network</a>
+    <a href="#services" data-view="services"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg>System</a>
+    <a href="#debug" data-view="debug"><svg class="i" aria-hidden="true"><use href="#i-term"/></svg>Debug</a>
+    <a href="#files" data-view="files"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg>Files</a>
   </nav>
-</header>
-<p id="banner" role="alert" hidden></p>
+  <div class="side-foot">
+    <button id="theme" class="ghost"><svg class="i" aria-hidden="true"><use href="#i-theme"/></svg><span id="theme-label">Theme</span></button>
+  </div>
+</aside>
 
 <main>
-<section id="view-dashboard" class="grid">
-  <div class="card">
-    <h2>System</h2>
-    <dl class="kv">
-      <dt>Kernel</dt><dd id="kernel">–</dd>
-      <dt>Uptime</dt><dd id="uptime">–</dd>
-      <dt>Load</dt><dd id="load">–</dd>
-      <dt>Device clock</dt><dd id="clock">–</dd>
-    </dl>
-  </div>
-  <div class="card">
-    <h2>CPU</h2>
-    <div class="big" id="cpu-pct">–</div>
-    <div class="meter"><div id="cpu-bar"></div></div>
-    <dl class="kv">
-      <dt>Frequency</dt><dd id="cpu-freq">–</dd>
-      <dt>Maximum</dt><dd id="cpu-max">–</dd>
-      <dt>Governor</dt><dd id="cpu-gov">–</dd>
-    </dl>
-  </div>
-  <div class="card">
-    <h2>Memory</h2>
-    <div class="big" id="mem-pct">–</div>
-    <div class="meter"><div id="mem-bar"></div></div>
-    <dl class="kv">
-      <dt>Used</dt><dd id="mem-used">–</dd>
-      <dt>Total</dt><dd id="mem-total">–</dd>
-    </dl>
-  </div>
-  <div class="card">
-    <h2>Temperatures</h2>
-    <div id="temps"></div>
-  </div>
-  <div class="card">
-    <h2>LED ring</h2>
-    <svg id="ring" viewBox="-60 -60 120 120" role="img" aria-label="LED ring">
-      <defs><filter id="ring-blur" filterUnits="userSpaceOnUse" x="-60" y="-60" width="120" height="120"><feGaussianBlur stdDeviation="3.5"/></filter></defs>
-      <circle class="top" r="57"/>
-      <circle class="track" r="46"/>
-      <g id="ring-glow"></g>
-      <g id="ring-segs"></g>
-    </svg>
-  </div>
-  <div class="card">
-    <h2>Volume</h2>
-    <div class="volume">
-      <input id="vol" type="range" min="0" max="100" step="1" aria-label="Volume" disabled>
-      <button id="mute" aria-pressed="false" disabled>Mute</button>
-    </div>
-    <div class="muted" id="vol-info">–</div>
-  </div>
-  <div class="card">
-    <h2>Sensors &amp; state</h2>
-    <dl class="kv">
-      <dt>Light (visible)</dt><dd id="light-vis">–</dd>
-      <dt>Light (IR)</dt><dd id="light-ir">–</dd>
-      <dt>Microphones</dt><dd><span class="pill" id="mic">–</span></dd>
-      <dt>Speaker tuning (DSP)</dt><dd><span class="pill" id="dsp">–</span></dd>
-    </dl>
-  </div>
-  <div class="card">
-    <h2>USB network</h2>
-    <dl class="kv">
-      <dt>Receive</dt><dd id="net-rx">–</dd>
-      <dt>Transmit</dt><dd id="net-tx">–</dd>
-      <dt>Total received</dt><dd id="net-rx-total">–</dd>
-      <dt>Total sent</dt><dd id="net-tx-total">–</dd>
-    </dl>
-  </div>
-  <div class="card">
-    <h2>Power rails</h2>
-    <dl class="kv" id="rails"></dl>
-  </div>
-</section>
+<p id="banner" role="alert" hidden></p>
 
-<section id="view-music" class="grid" hidden>
-  <div class="card wide" id="player">
-    <div id="p-title" class="muted">Nothing playing</div>
-    <div id="p-bar" class="idle" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0"
-         aria-valuemax="0" aria-valuenow="0"><div id="p-fill"></div></div>
-    <div class="p-row">
-      <span class="muted" id="p-time">0:00 / 0:00</span>
-      <div class="p-ctl">
-        <button id="p-prev" title="Previous" aria-label="Previous">
-          <svg viewBox="0 0 16 16"><path d="M2 2h2v12H2zM14 2v12L5 8z"/></svg></button>
-        <button id="p-toggle" title="Play" aria-label="Play">
-          <svg id="ico-play" viewBox="0 0 16 16"><path d="M3 1.5v13L14 8z"/></svg>
-          <svg id="ico-pause" viewBox="0 0 16 16" hidden><path d="M3 2h4v12H3zM9 2h4v12H9z"/></svg></button>
-        <button id="p-stop" title="Stop" aria-label="Stop">
-          <svg viewBox="0 0 16 16"><path d="M2.5 2.5h11v11h-11z"/></svg></button>
-        <button id="p-next" title="Next" aria-label="Next">
-          <svg viewBox="0 0 16 16"><path d="M12 2h2v12h-2zM2 2v12l9-6z"/></svg></button>
+<section id="view-dashboard">
+  <div class="vh"><h2>Overview</h2></div>
+  <div class="grid">
+    <div class="card s2 hero">
+      <svg id="ring" viewBox="-60 -60 120 120" role="img" aria-label="LED ring">
+        <defs><filter id="ring-blur" filterUnits="userSpaceOnUse" x="-60" y="-60" width="120" height="120"><feGaussianBlur stdDeviation="3.5"/></filter></defs>
+        <circle class="top" r="57"/>
+        <circle class="track" r="46"/>
+        <g id="ring-glow"></g>
+        <g id="ring-segs"></g>
+      </svg>
+      <div class="hero-main">
+        <div class="ch">
+          <h3>Speaker</h3>
+          <span class="chips"><span class="pill" id="mic">–</span><span class="pill" id="dsp">–</span></span>
+        </div>
+        <div class="volrow">
+          <button class="ib mute" aria-pressed="false" aria-label="Mute" title="Mute" disabled><svg class="i" aria-hidden="true"><use href="#i-vol"/></svg></button>
+          <input class="vol" type="range" min="0" max="100" step="1" aria-label="Volume" disabled>
+          <span class="vol-pct">–</span>
+        </div>
+        <div class="note vol-info">–</div>
+        <div class="np">
+          <button id="np-toggle" class="ib round pri" title="Play" aria-label="Play"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg></button>
+          <div class="stack">
+            <span class="name muted" id="np-title">Nothing playing</span>
+            <span class="meta" id="np-sub">–</span>
+          </div>
+          <a class="btn ghost" href="#music">Library</a>
+        </div>
       </div>
     </div>
-  </div>
-  <div class="card wide">
-    <h2>Upload</h2>
-    <label id="drop">
-      <input id="files" type="file" accept="audio/*" multiple>
-      Drop audio files here or click to choose
-    </label>
-    <ul class="rows" id="uploads"></ul>
-  </div>
-  <div class="card wide">
-    <h2>Library</h2>
-    <div class="muted" id="storage">–</div>
-    <div class="meter"><div id="storage-bar"></div></div>
-    <ul class="rows" id="songs"></ul>
-    <div class="muted" id="songs-empty" hidden>No songs yet.</div>
+    <div class="card">
+      <h3>System</h3>
+      <dl class="kv">
+        <dt>Kernel</dt><dd id="kernel">–</dd>
+        <dt>Uptime</dt><dd id="uptime">–</dd>
+        <dt>Load</dt><dd id="load">–</dd>
+        <dt>Clock (UTC)</dt><dd id="clock">–</dd>
+        <dt>Light (visible)</dt><dd id="light-vis">–</dd>
+        <dt>Light (IR)</dt><dd id="light-ir">–</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h3>CPU</h3>
+      <div class="big" id="cpu-pct">–</div>
+      <div class="meter"><div id="cpu-bar"></div></div>
+      <dl class="kv">
+        <dt>Cores, MHz</dt><dd id="cpu-freq">–</dd>
+        <dt>Maximum</dt><dd id="cpu-max">–</dd>
+        <dt>Governor</dt><dd id="cpu-gov">–</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h3>Memory</h3>
+      <div class="big" id="mem-pct">–</div>
+      <div class="meter"><div id="mem-bar"></div></div>
+      <dl class="kv">
+        <dt>Used</dt><dd id="mem-used">–</dd>
+        <dt>Total</dt><dd id="mem-total">–</dd>
+      </dl>
+    </div>
+    <div class="card">
+      <h3>Temperatures</h3>
+      <div id="temps"></div>
+    </div>
+    <div class="card">
+      <h3>USB network</h3>
+      <dl class="kv">
+        <dt>Receive</dt><dd id="net-rx">–</dd>
+        <dt>Transmit</dt><dd id="net-tx">–</dd>
+        <dt>Total received</dt><dd id="net-rx-total">–</dd>
+        <dt>Total sent</dt><dd id="net-tx-total">–</dd>
+      </dl>
+    </div>
+    <div class="card s2w">
+      <h3>Power rails</h3>
+      <dl class="kv" id="rails"></dl>
+    </div>
   </div>
 </section>
 
-<section id="view-network" class="grid" hidden>
-  <div class="card">
-    <h2>Wi-Fi</h2>
-    <dl class="kv">
-      <dt>State</dt><dd id="wifi-state">–</dd>
-      <dt>Network</dt><dd id="wifi-ssid">–</dd>
-      <dt>Signal</dt><dd id="wifi-signal">–</dd>
-      <dt>Band</dt><dd id="wifi-band">–</dd>
-      <dt>Bit rate</dt><dd id="wifi-rate">–</dd>
-      <dt>IPv4</dt><dd id="wifi-ipv4">–</dd>
-      <dt>IPv6</dt><dd id="wifi-ipv6">–</dd>
-      <dt>Saved network</dt><dd id="wifi-saved">–</dd>
-    </dl>
-    <div class="bar">
-      <button id="wifi-scan">Scan</button>
-      <button id="wifi-forget">Forget saved network</button>
+<section id="view-music" hidden>
+  <div class="vh"><h2>Music</h2></div>
+  <div class="music">
+    <div class="card" id="player">
+      <div class="now">
+        <div class="art"><svg class="i" aria-hidden="true"><use href="#i-music"/></svg></div>
+        <div class="stack">
+          <span class="name muted" id="p-title">Nothing playing</span>
+          <span class="meta" id="p-state">–</span>
+        </div>
+      </div>
+      <div id="p-bar" class="idle" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0"
+           aria-valuemax="0" aria-valuenow="0"><div class="trk"><div id="p-fill"></div></div></div>
+      <div class="times"><span id="p-el">0:00</span><span id="p-dur">0:00</span></div>
+      <div class="p-ctl">
+        <span></span>
+        <div>
+          <button id="p-prev" class="ib round ghost" title="Previous" aria-label="Previous"><svg class="i" aria-hidden="true"><use href="#i-prev"/></svg></button>
+          <button id="p-toggle" class="ib round pri" title="Play" aria-label="Play"><svg class="i" aria-hidden="true"><use href="#i-play"/></svg></button>
+          <button id="p-next" class="ib round ghost" title="Next" aria-label="Next"><svg class="i" aria-hidden="true"><use href="#i-next"/></svg></button>
+        </div>
+        <button id="p-stop" class="ib round ghost" title="Stop" aria-label="Stop"><svg class="i" aria-hidden="true"><use href="#i-stop"/></svg></button>
+      </div>
+      <div class="volrow">
+        <button class="ib mute" aria-pressed="false" aria-label="Mute" title="Mute" disabled><svg class="i" aria-hidden="true"><use href="#i-vol"/></svg></button>
+        <input class="vol" type="range" min="0" max="100" step="1" aria-label="Volume" disabled>
+        <span class="vol-pct">–</span>
+      </div>
     </div>
-    <form id="wifi-form" class="bar" hidden>
-      <input id="wifi-ssid-in" type="text" placeholder="Network name" maxlength="32" required aria-label="Network name">
-      <input id="wifi-pass-in" type="password" placeholder="Passphrase" minlength="8" maxlength="63" required
-             autocomplete="off" aria-label="Passphrase">
-      <button type="submit">Connect</button>
-      <button type="button" id="wifi-cancel">Cancel</button>
-    </form>
-    <ul class="rows" id="wifi-list"></ul>
-    <p class="muted">WPA2-Personal. The network is saved on the booted slot and joined at every boot.</p>
-  </div>
-  <div class="card">
-    <h2>Bluetooth</h2>
-    <dl class="kv">
-      <dt>Controller</dt><dd id="bt-state">–</dd>
-      <dt>Name</dt><dd id="bt-name">–</dd>
-      <dt>Address</dt><dd id="bt-addr">–</dd>
-      <dt>Speaker</dt><dd id="bt-speaker">–</dd>
-    </dl>
-    <div class="bar">
-      <button id="bt-power" disabled>Turn on</button>
-      <button id="bt-scan" disabled>Scan</button>
-      <button id="bt-pair" disabled>Pairing mode</button>
+    <div class="card">
+      <div class="ch"><h3>Library</h3><span class="muted" id="storage">–</span></div>
+      <div class="meter"><div id="storage-bar"></div></div>
+      <label id="drop">
+        <input id="files" type="file" accept="audio/*" multiple>
+        <svg class="i" aria-hidden="true"><use href="#i-up"/></svg>
+        <span>Drop audio files here or <b>choose files</b></span>
+      </label>
+      <ul class="rows" id="uploads"></ul>
+      <ul class="rows" id="songs"></ul>
+      <div id="songs-empty" hidden>No songs yet.</div>
+      <p class="note">Songs are converted in the browser and kept in the Echo's memory until it reboots.</p>
     </div>
-    <ul class="rows" id="bt-paired"></ul>
-    <ul class="rows" id="bt-list"></ul>
-    <p class="muted">Pairing mode: also by holding the action button 3 s. Paired phones connect by themselves; the Echo never connects to them.</p>
-  </div>
-  <div class="card">
-    <h2>Thread and Zigbee</h2>
-    <dl class="kv" id="radio"></dl>
   </div>
 </section>
 
-<section id="view-services" class="grid" hidden>
-  <div class="card wide" id="pending" hidden>
+<section id="view-network" hidden>
+  <div class="vh"><h2>Network</h2></div>
+  <div class="cols">
+    <div class="col">
+      <div class="card">
+        <div class="ch"><h3>Wi-Fi</h3><span class="pill" id="wifi-state">–</span></div>
+        <div class="sum"><span id="wifi-bars"></span><span id="wifi-ssid">–</span></div>
+        <dl class="kv">
+          <dt>Signal</dt><dd id="wifi-signal">–</dd>
+          <dt>Band</dt><dd id="wifi-band">–</dd>
+          <dt>Bit rate</dt><dd id="wifi-rate">–</dd>
+          <dt>IPv4</dt><dd id="wifi-ipv4">–</dd>
+          <dt>IPv6</dt><dd id="wifi-ipv6">–</dd>
+          <dt>Saved network</dt><dd id="wifi-saved">–</dd>
+        </dl>
+        <div class="bar">
+          <button id="wifi-scan">Scan</button>
+          <button id="wifi-other">Other…</button>
+          <button id="wifi-forget" class="ghost danger">Forget network</button>
+        </div>
+        <form id="wifi-form" hidden>
+          <input id="wifi-ssid-in" type="text" placeholder="Network name" maxlength="32" required aria-label="Network name">
+          <input id="wifi-pass-in" type="password" placeholder="Passphrase" minlength="8" maxlength="63" required
+                 autocomplete="off" aria-label="Passphrase">
+          <div><button type="submit" class="pri">Connect</button><button type="button" id="wifi-cancel" class="ghost">Cancel</button></div>
+        </form>
+        <ul class="rows wrap" id="wifi-list"></ul>
+        <p class="note">WPA2-Personal. The network is saved on the booted slot and joined at every boot.</p>
+      </div>
+      <div class="card last">
+        <h3>Thread and Zigbee</h3>
+        <dl class="kv" id="radio"></dl>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch"><h3>Bluetooth</h3>
+        <button id="bt-power" class="sw" role="switch" aria-checked="false" aria-label="Bluetooth power" disabled></button></div>
+      <dl class="kv">
+        <dt>Controller</dt><dd id="bt-state">–</dd>
+        <dt>Name</dt><dd id="bt-name">–</dd>
+        <dt>Address</dt><dd id="bt-addr">–</dd>
+        <dt>Speaker</dt><dd id="bt-speaker">–</dd>
+      </dl>
+      <div class="ch sub"><h4>Paired phones</h4><button id="bt-pair" disabled>Pairing mode</button></div>
+      <ul class="rows wrap" id="bt-paired"></ul>
+      <p class="note">Pairing mode: also by holding the action button 3 s. Paired phones connect by themselves; the Echo never connects to them.</p>
+      <div class="ch sub"><h4>Nearby devices</h4><button id="bt-scan" disabled>Scan</button></div>
+      <ul class="rows wrap" id="bt-list"></ul>
+    </div>
+  </div>
+</section>
+
+<section id="view-services" hidden>
+  <div class="vh"><h2>System</h2></div>
+  <div class="callout" id="pending" role="status" hidden>
     <span>Changes take effect after a reboot.</span>
     <button id="pending-reboot">Reboot now</button>
   </div>
-  <div class="card wide">
-    <h2>Services</h2>
-    <ul class="rows" id="services"></ul>
-  </div>
-  <div class="card wide">
-    <h2>Settings</h2>
-    <ul class="rows" id="settings"></ul>
-    <p class="muted" id="settings-msg" hidden></p>
+  <div class="col">
+    <div class="card">
+      <h3>Services</h3>
+      <ul class="rows" id="services"></ul>
+    </div>
+    <div class="card">
+      <h3>Settings</h3>
+      <ul class="rows" id="settings"></ul>
+      <p class="muted" id="settings-msg" hidden></p>
+    </div>
+    <div class="card">
+      <div class="ch flat">
+        <div class="stack"><h3>Restart</h3><span class="meta">The page reconnects by itself once the Echo is back.</span></div>
+        <button id="reboot">Reboot</button>
+      </div>
+    </div>
   </div>
 </section>
 
-<section id="view-debug" class="grid" hidden>
-  <div class="card wide">
-    <h2>Kernel log</h2>
-    <div class="bar">
-      <select id="log-src" aria-label="Log">
+<section id="view-debug" hidden>
+  <div class="vh">
+    <h2>Debug</h2>
+    <div class="seg" id="debug-tabs" role="tablist">
+      <button role="tab" data-tab="log" aria-selected="true">Kernel log</button>
+      <button role="tab" data-tab="procs" aria-selected="false">Processes</button>
+      <button role="tab" data-tab="sysinfo" aria-selected="false">Storage</button>
+    </div>
+  </div>
+  <div class="card" id="tab-log" role="tabpanel">
+    <div class="tools">
+      <select id="log-src" class="grow" aria-label="Log">
         <option value="current">This boot</option>
         <option value="previous">Previous boot (pstore)</option>
       </select>
-      <input id="log-filter" type="search" placeholder="Filter" aria-label="Filter">
+      <input id="log-filter" class="grow" type="search" placeholder="Filter" aria-label="Filter">
       <label><input id="log-follow" type="checkbox" checked> Follow</label>
       <button id="log-refresh">Refresh</button>
-      <button id="log-save">Download</button>
+      <button id="log-save"><svg class="i" aria-hidden="true"><use href="#i-down"/></svg>Download</button>
     </div>
     <pre class="text" id="log"></pre>
   </div>
-  <div class="card wide">
-    <h2>Processes</h2>
-    <div class="bar"><button id="procs-refresh">Refresh</button></div>
+  <div class="card" id="tab-procs" role="tabpanel" hidden>
+    <div class="ch"><h3>Processes</h3><button id="procs-refresh">Refresh</button></div>
     <pre class="text" id="procs"></pre>
   </div>
-  <div class="card wide">
-    <h2>Storage, mounts and modules</h2>
+  <div class="card" id="tab-sysinfo" role="tabpanel" hidden>
+    <div class="ch"><h3>Storage, mounts and modules</h3><button id="sysinfo-refresh">Refresh</button></div>
     <pre class="text" id="sysinfo"></pre>
-  </div>
-  <div class="card">
-    <h2>Device</h2>
-    <div class="bar"><button id="reboot">Reboot</button></div>
-    <p class="muted">The page reconnects by itself once the Echo is back.</p>
   </div>
 </section>
 
-<section id="view-files" class="grid" hidden>
-  <div class="card wide">
-    <h2>Files</h2>
-    <div class="bar" id="fb-crumbs"></div>
-    <ul class="rows" id="fb-list"></ul>
-    <p class="muted">Read-only. Device nodes, the kernel message stream, process memory and debugfs are not offered.</p>
-  </div>
-  <div class="card wide" id="fb-view" hidden>
-    <h2 id="fb-name"></h2>
-    <pre class="text" id="fb-text"></pre>
+<section id="view-files" hidden>
+  <div class="vh"><h2>Files</h2></div>
+  <div class="col">
+    <div class="card">
+      <div id="fb-crumbs"></div>
+      <ul class="rows wrap" id="fb-list"></ul>
+      <p class="note">Read-only. Device nodes, the kernel message stream, process memory and debugfs are not offered.</p>
+    </div>
+    <div class="card" id="fb-view" hidden>
+      <div class="ch"><h3 id="fb-name"></h3><button id="fb-close">Close</button></div>
+      <pre class="text" id="fb-text"></pre>
+    </div>
   </div>
 </section>
 </main>
@@ -395,6 +640,41 @@ function svg(tag, attrs) {
   const e = document.createElementNS(SVG_NS, tag);
   for (const k in attrs) e.setAttribute(k, attrs[k]);
   return e;
+}
+
+/* One of the <symbol> icons at the top of the page. */
+function icon(name) {
+  const s = svg('svg', { class: 'i', 'aria-hidden': 'true' });
+  s.appendChild(svg('use', { href: '#i-' + name }));
+  return s;
+}
+
+function setIcon(btn, name) { btn.querySelector('use').setAttribute('href', '#i-' + name); }
+
+function iconButton(name, label, cls) {
+  const b = el('button', 'ib ' + cls);
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  b.append(icon(name));
+  return b;
+}
+
+/* A name over a line of details, so narrow screens keep both. */
+function stack(name, ...meta) {
+  const s = el('span', 'stack'), m = el('span', 'meta');
+  m.append(...meta);
+  s.append(el('span', 'name', name), m);
+  return s;
+}
+
+/* Four signal bars for a level in dBm. */
+function bars(dbm) {
+  const lit = dbm == null ? 0 : dbm >= -55 ? 4 : dbm >= -67 ? 3 : dbm >= -78 ? 2 : 1;
+  const s = svg('svg', { class: 'bars', viewBox: '0 0 20 16', 'aria-hidden': 'true' });
+  for (let i = 0; i < 4; i++) {
+    s.appendChild(svg('rect', { x: i * 5.4, y: 12 - i * 4, width: 3.8, height: 4 + i * 4, rx: 1, class: i < lit ? 'on' : '' }));
+  }
+  return s;
 }
 
 function setText(id, text) { $(id).textContent = text; }
@@ -456,9 +736,12 @@ async function api(query, post, timeoutMs) {
 /* Body for commands that carry data: a type the browser will not send cross-site without a preflight. */
 const OCTET = (body) => ({ type: 'application/octet-stream', body });
 
-function showBanner(text) {
+/* The banner for a failed poll, and the state under the device name. */
+function showBanner(text, state) {
   $('banner').textContent = text || '';
   $('banner').hidden = !text;
+  $('conn').dataset.state = text ? 'bad' : 'ok';
+  $('conn').textContent = state || 'Online';
 }
 
 let toastTimer;
@@ -482,7 +765,8 @@ async function poll(query, render) {
     data = await api(query);
     showBanner('');
   } catch (err) {
-    showBanner(err instanceof ApiError ? 'Device error: ' + err.message : 'Device unreachable, retrying…');
+    if (err instanceof ApiError) showBanner('Device error: ' + err.message, 'Error');
+    else showBanner('Device unreachable, retrying…', 'Offline');
     return;
   }
   try {
@@ -512,6 +796,73 @@ function every(ms, active, fn) {
   tick();
 }
 
+/* A button that asks for a second click within 3 s instead of a modal dialog. */
+function confirmClick(btn, ask, action) {
+  let armed, content;
+  const disarm = () => {
+    clearTimeout(armed);
+    armed = null;
+    btn.classList.remove('armed');
+    btn.replaceChildren(...content);
+  };
+  btn.addEventListener('click', async () => {
+    if (!armed) {
+      content = [...btn.childNodes];
+      btn.textContent = ask;
+      btn.classList.add('armed');
+      armed = setTimeout(disarm, 3000);
+      return;
+    }
+    disarm();
+    btn.disabled = true;
+    try { await action(); } finally { btn.disabled = false; }
+  });
+}
+
+function kvRows(id, rows) {
+  const nodes = [];
+  for (const [k, v] of rows) nodes.push(el('dt', '', k), el('dd', '', v));
+  $(id).replaceChildren(...nodes);
+}
+
+/* List rows under a heading per group, groups in order of first appearance. */
+function groupedRows(items, key, row) {
+  const groups = new Map();
+  for (const it of items) {
+    if (!groups.has(it[key])) groups.set(it[key], []);
+    groups.get(it[key]).push(it);
+  }
+  const nodes = [];
+  for (const [name, list] of groups) nodes.push(el('li', 'grp', name), ...list.map(row));
+  return nodes;
+}
+
+/* ---------- theme ---------- */
+
+const THEMES = ['auto', 'light', 'dark'];
+const systemDark = matchMedia('(prefers-color-scheme: dark)');
+let theme = 'auto';
+
+function applyTheme() {
+  const dark = theme === 'dark' || (theme === 'auto' && systemDark.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  setText('theme-label', 'Theme: ' + theme);
+  $('theme').title = 'Theme: ' + theme;
+  $('theme').setAttribute('aria-label', 'Theme: ' + theme + '. Change');
+}
+
+function initTheme() {
+  try { theme = localStorage.getItem('theme') || 'auto'; } catch (e) { /* private mode */ }
+  if (!THEMES.includes(theme)) theme = 'auto';
+  $('theme').addEventListener('click', () => {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    try { localStorage.setItem('theme', theme); } catch (e) { /* private mode */ }
+    applyTheme();
+  });
+  systemDark.addEventListener('change', applyTheme);
+  applyTheme();
+}
+
 /* ---------- views ---------- */
 
 const VIEWS = ['dashboard', 'music', 'network', 'services', 'debug', 'files'];
@@ -520,21 +871,24 @@ let view = 'dashboard';
 function showView(name) {
   view = VIEWS.includes(name) ? name : 'dashboard';
   for (const v of VIEWS) $('view-' + v).hidden = v !== view;
-  for (const b of document.querySelectorAll('nav button')) {
-    if (b.dataset.view === view) b.setAttribute('aria-current', 'page');
-    else b.removeAttribute('aria-current');
+  for (const a of document.querySelectorAll('nav a')) {
+    if (a.dataset.view === view) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
   }
+  scrollTo(0, 0);
   if (view === 'music') { refreshPlayer(); refreshSongs(); }
   if (view === 'network') refreshNetwork();
   if (view === 'services') { refreshServices(); refreshSettings(); }
-  if (view === 'debug') { refreshLog(); refreshText('procs', 'procs'); refreshText('system', 'sysinfo'); }
+  if (view === 'debug') {
+    $('log').dataset.shown = '';              /* a hidden pane loses its scroll position */
+    refreshLog();
+    refreshText('procs', 'procs');
+    refreshText('system', 'sysinfo');
+  }
   if (view === 'files' && !$('fb-list').children.length) listDir(fbPath);
 }
 
 function initViews() {
-  for (const b of document.querySelectorAll('nav button')) {
-    b.addEventListener('click', () => { location.hash = b.dataset.view; });
-  }
   addEventListener('hashchange', () => showView(location.hash.slice(1)));
   showView(location.hash.slice(1));
 }
@@ -551,7 +905,7 @@ function renderSystem(s) {
   setText('kernel', s.kernel);
   setText('uptime', fmtUptime(s.uptime));
   setText('load', s.load.map((v) => v == null ? DASH : v.toFixed(2)).join('  '));
-  setText('clock', s.time == null ? DASH : new Date(s.time * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC');
+  setText('clock', s.time == null ? DASH : new Date(s.time * 1000).toISOString().replace('T', ' ').slice(0, 19));
 }
 
 /* Busy share between two cumulative /proc/stat samples; idle and iowait count as idle. */
@@ -569,7 +923,7 @@ function renderCpu(cpu, prev) {
     setText('cpu-pct', (usage * 100).toFixed(0) + ' %');
     setBar('cpu-bar', usage);
   }
-  setText('cpu-freq', cpu.freq_khz.map((k) => k == null ? DASH : Math.round(k / 1000)).join(' / ') + ' MHz');
+  setText('cpu-freq', cpu.freq_khz.map((k) => k == null ? DASH : Math.round(k / 1000)).join(' / '));
   setText('cpu-max', cpu.max_khz == null ? DASH : Math.round(cpu.max_khz / 1000) + ' MHz');
   setText('cpu-gov', cpu.governor);
 }
@@ -625,8 +979,8 @@ function renderSensors(s) {
   const light = s.light || {};                    /* null without a sensor */
   setText('light-vis', light.visible ?? DASH);
   setText('light-ir', light.ir ?? DASH);
-  setPill('mic', s.mic_muted ? 'muted' : 'live', s.mic_muted ? 'warn' : 'on');
-  setPill('dsp', s.dsp ? 'active' : 'off', s.dsp ? 'on' : '');
+  setPill('mic', s.mic_muted ? 'Microphones muted' : 'Microphones live', s.mic_muted ? 'warn' : 'on');
+  setPill('dsp', s.dsp ? 'Speaker tuning active' : 'Speaker tuning off', s.dsp ? 'on' : '');
 }
 
 function renderNet(s, prev) {
@@ -640,9 +994,11 @@ function renderNet(s, prev) {
 }
 
 function renderRails(rails) {
-  const nodes = [];
-  for (const r of rails) nodes.push(el('dt', '', r.name), el('dd', '', r.mv == null ? DASH : (r.mv / 1000).toFixed(3) + ' V'));
-  $('rails').replaceChildren(...nodes);
+  $('rails').replaceChildren(...rails.map((r) => {
+    const row = el('div');
+    row.append(el('dt', '', r.name), el('dd', '', r.mv == null ? DASH : (r.mv / 1000).toFixed(3) + ' V'));
+    return row;
+  }));
 }
 
 function renderStats(s) {
@@ -700,40 +1056,61 @@ function renderRing(ring) {
   });
 }
 
-/* ---------- volume ---------- */
+/* ---------- volume: the same control on the overview and next to the player ---------- */
 
 const VOLUME_DEBOUNCE_MS = 150;
 const VOLUME_HOLD_MS = 1500;    /* ignore polled values this long after the user moved the slider */
+const volSliders = document.querySelectorAll('.vol');
+const muteButtons = document.querySelectorAll('.mute');
 let volume = null;
 let volumeTouched = 0;
 let volumeTimer;
 
-function volumeInfo(percent, v) {
-  if (!v) return 'Volume service is off';
-  return (percent ?? DASH) + ' %' + (v.db != null ? '  ·  ' + v.db.toFixed(1) + ' dB' : '') + (v.muted ? '  ·  muted' : '');
+function showVolume(percent, info) {
+  for (const s of volSliders) {
+    if (percent != null) s.value = percent;
+    s.style.setProperty('--p', s.value + '%');      /* the filled part of the track */
+  }
+  for (const e of document.querySelectorAll('.vol-pct')) e.textContent = (percent ?? DASH) + ' %';
+  if (percent != null) {                            /* the logo: the volume as an arc */
+    $('logo-arc').setAttribute('stroke-dasharray', percent + ' 100');
+    $('logo').classList.toggle('zero', Number(percent) === 0);   /* no dot at 0 % */
+    $('logo-title').textContent = 'Volume ' + percent + ' %';
+  }
+  if (info != null) for (const e of document.querySelectorAll('.vol-info')) e.textContent = info;
 }
 
 function renderVolume(v) {
   volume = v;
-  $('vol').disabled = $('mute').disabled = !v;
-  if (!v) { setText('vol-info', volumeInfo(0, null)); return; }
-  $('mute').setAttribute('aria-pressed', String(v.muted));
-  $('mute').textContent = v.muted ? 'Unmute' : 'Mute';
+  for (const c of [...volSliders, ...muteButtons]) c.disabled = !v;
+  $('logo').classList.toggle('off', !v);
+  $('logo').classList.toggle('muted', !!v && v.muted);
+  if (!v) { showVolume(null, 'Volume service is off'); return; }
+  for (const b of muteButtons) {
+    b.setAttribute('aria-pressed', String(v.muted));
+    b.title = v.muted ? 'Unmute' : 'Mute';
+    b.setAttribute('aria-label', b.title);
+    setIcon(b, v.muted ? 'mute' : 'vol');
+  }
   if (Date.now() - volumeTouched < VOLUME_HOLD_MS) return;
-  if (v.percent != null) $('vol').value = v.percent;
-  setText('vol-info', volumeInfo(v.percent, v));
+  /* volume 0 is silent: the speaker is muted there too */
+  showVolume(v.percent, (v.db != null ? v.db.toFixed(1) + ' dB' : DASH) + (v.muted || v.percent === 0 ? '  ·  muted' : ''));
 }
 
 function initVolume() {
-  $('vol').addEventListener('input', () => {
-    volumeTouched = Date.now();
-    setText('vol-info', $('vol').value + ' %');
-    clearTimeout(volumeTimer);
-    volumeTimer = setTimeout(() => command('volume=' + $('vol').value), VOLUME_DEBOUNCE_MS);
-  });
-  $('mute').addEventListener('click', async () => {
-    if (volume && await command('mute=' + (volume.muted ? 0 : 1))) refreshStats();
-  });
+  for (const s of volSliders) {
+    s.addEventListener('input', () => {
+      volumeTouched = Date.now();
+      showVolume(s.value);
+      clearTimeout(volumeTimer);
+      volumeTimer = setTimeout(() => command('volume=' + s.value), VOLUME_DEBOUNCE_MS);
+    });
+  }
+  for (const b of muteButtons) {
+    b.addEventListener('click', async () => {
+      if (volume && await command('mute=' + (volume.muted ? 0 : 1))) refreshStats();
+    });
+  }
 }
 
 /* ---------- player ---------- */
@@ -746,17 +1123,25 @@ function renderPlayer(p) {
   player = p;
   const active = p.id != null;
   const playing = p.state === 'playing';
-  $('p-title').textContent = active ? p.title || p.id : 'Nothing playing';
-  $('p-title').classList.toggle('muted', !active);
-  $('p-time').textContent = fmtTime(p.elapsed) + ' / ' + fmtTime(p.duration);
+  const title = active ? p.title || p.id : 'Nothing playing';
+  const state = playing ? 'Playing' : p.state === 'paused' ? 'Paused' : 'Stopped';
+  for (const id of ['p-title', 'np-title']) {
+    $(id).textContent = title;
+    $(id).classList.toggle('muted', !active);
+  }
+  setText('p-state', active ? state : 'Pick a song from the library');
+  setText('np-sub', active ? state + '  ·  ' + fmtTime(p.elapsed) + ' / ' + fmtTime(p.duration) : 'Player is idle');
+  setText('p-el', fmtTime(p.elapsed));
+  setText('p-dur', fmtTime(p.duration));
   setBar('p-fill', p.duration > 0 ? p.elapsed / p.duration : 0);
   $('p-bar').classList.toggle('idle', !active);
   $('p-bar').setAttribute('aria-valuemax', Math.round(p.duration || 0));
   $('p-bar').setAttribute('aria-valuenow', Math.round(p.elapsed || 0));
-  $('ico-play').toggleAttribute('hidden', playing);
-  $('ico-pause').toggleAttribute('hidden', !playing);
-  $('p-toggle').title = playing ? 'Pause' : 'Play';
-  $('p-toggle').setAttribute('aria-label', $('p-toggle').title);
+  for (const id of ['p-toggle', 'np-toggle']) {
+    setIcon($(id), playing ? 'pause' : 'play');
+    $(id).title = playing ? 'Pause' : 'Play';
+    $(id).setAttribute('aria-label', $(id).title);
+  }
   $('p-stop').disabled = p.state === 'stopped';
   markCurrentSong();
 }
@@ -787,6 +1172,7 @@ function initPlayer() {
   $('p-next').addEventListener('click', () => playerCommand('next'));
   $('p-stop').addEventListener('click', () => playerCommand('stop'));
   $('p-toggle').addEventListener('click', togglePlay);
+  $('np-toggle').addEventListener('click', togglePlay);
   $('p-bar').addEventListener('click', (e) => {
     const box = $('p-bar').getBoundingClientRect();
     seekTo((e.clientX - box.left) / box.width * player.duration);
@@ -805,40 +1191,26 @@ function markCurrentSong() {
   for (const li of $('songs').children) li.classList.toggle('current', li.dataset.id === player.id);
 }
 
-/* Delete asks for a second click instead of a modal dialog. */
-function deleteButton(song) {
-  const btn = el('button', '', 'Delete');
-  let armed;
-  btn.addEventListener('click', async () => {
-    if (!armed) {
-      btn.textContent = 'Really?';
-      armed = setTimeout(() => { armed = null; btn.textContent = 'Delete'; }, 3000);
-      return;
-    }
-    clearTimeout(armed);
-    btn.disabled = true;
+function songRow(song) {
+  const li = el('li');
+  li.dataset.id = song.id;
+  const play = iconButton('play', 'Play', 'round');
+  play.addEventListener('click', () => playerCommand('play=' + encodeURIComponent(song.id)));
+  const del = iconButton('trash', 'Delete', 'ghost');
+  confirmClick(del, 'Delete?', async () => {
     await command('delete=' + encodeURIComponent(song.id));
     refreshSongs();
     refreshPlayer();
   });
-  return btn;
-}
-
-function songRow(song) {
-  const li = el('li');
-  li.dataset.id = song.id;
-  const play = el('button', '', 'Play');
-  play.addEventListener('click', () => playerCommand('play=' + encodeURIComponent(song.id)));
-  li.append(el('span', 'name', song.title), el('span', 'num', song.duration == null ? DASH : fmtTime(song.duration)),
-    el('span', 'num', fmtBytes(song.bytes)), play, deleteButton(song));
+  li.append(play, stack(song.title, (song.duration == null ? DASH : fmtTime(song.duration)) + '  ·  ' + fmtBytes(song.bytes)), del);
   return li;
 }
 
 function renderSongs(data) {
   songs = data.songs;
   storage = { used: data.used_bytes, limit: data.limit_bytes };
-  setText('storage', fmtBytes(storage.used) + ' of ' + fmtBytes(storage.limit) + ' used  ·  ' +
-    songs.length + (songs.length === 1 ? ' song' : ' songs'));
+  setText('storage', songs.length + (songs.length === 1 ? ' song' : ' songs') + '  ·  ' +
+    fmtBytes(storage.used) + ' of ' + fmtBytes(storage.limit));
   setBar('storage-bar', storage.limit > 0 ? storage.used / storage.limit : 0);
   $('songs').replaceChildren(...songs.map(songRow));
   $('songs-empty').hidden = songs.length > 0;
@@ -921,11 +1293,11 @@ function postWav(wav, title, onProgress) {
 
 function uploadRow(title) {
   const li = el('li');
-  const status = el('span', 'num', 'Waiting');
+  const status = el('span', '', 'Waiting');
   const bar = el('progress');
   bar.max = 1;
   bar.value = 0;
-  li.append(el('span', 'name', title), status, bar);
+  li.append(icon('up'), stack(title, status), bar);
   $('uploads').append(li);
   return {
     step(text, frac) {
@@ -996,36 +1368,6 @@ function initUpload() {
   });
 }
 
-/* ---------- shared by the admin views ---------- */
-
-/* A button that asks for a second click within 3 s instead of a modal dialog. */
-function confirmClick(btn, ask, action) {
-  const label = btn.textContent;
-  let armed;
-  btn.addEventListener('click', async () => {
-    if (!armed) {
-      btn.textContent = ask;
-      armed = setTimeout(() => { armed = null; btn.textContent = label; }, 3000);
-      return;
-    }
-    clearTimeout(armed);
-    armed = null;
-    btn.textContent = label;
-    btn.disabled = true;
-    try { await action(); } finally { btn.disabled = false; }
-  });
-}
-
-function kvRows(id, rows) {
-  const nodes = [];
-  for (const [k, v] of rows) nodes.push(el('dt', '', k), el('dd', '', v));
-  $(id).replaceChildren(...nodes);
-}
-
-async function reboot() {
-  if (await command('reboot')) toast('Rebooting…', true);
-}
-
 /* ---------- network ---------- */
 
 const NETWORK_MS = 3000;
@@ -1040,9 +1382,12 @@ function fmtBand(mhz) {
 
 function renderNetwork(n) {
   const w = n.wifi;
-  setText('wifi-state', w.state === 'connected' ? 'connected'
-    : w.state === 'absent' ? 'no Wi-Fi interface (wireless service off?)' : 'not connected');
-  setText('wifi-ssid', w.ssid == null ? DASH : ssidFromIw(w.ssid) ?? DASH);
+  const up = w.state === 'connected';
+  setPill('wifi-state', up ? 'Connected' : w.state === 'absent' ? 'Unavailable' : 'Not connected', up ? 'on' : '');
+  setText('wifi-ssid', w.state === 'absent' ? 'No Wi-Fi interface (wifi service off?)'
+    : (w.ssid != null && ssidFromIw(w.ssid)) || (up ? 'Hidden network' : 'No network'));
+  $('wifi-ssid').classList.toggle('muted', !up);
+  $('wifi-bars').replaceChildren(bars(up ? w.signal : null));
   setText('wifi-signal', w.signal == null ? DASH : w.signal + ' dBm');
   setText('wifi-band', fmtBand(w.freq));
   setText('wifi-rate', w.bitrate == null ? DASH : w.bitrate + ' Mbit/s');
@@ -1050,19 +1395,20 @@ function renderNetwork(n) {
   setText('wifi-ipv6', w.ipv6.join(', ') || DASH);
   setText('wifi-saved', w.configured ?? 'none');
   $('wifi-forget').disabled = !w.configured;
-  $('wifi-scan').disabled = w.state === 'absent';
+  $('wifi-scan').disabled = $('wifi-other').disabled = w.state === 'absent';
 
   const b = bluetooth = n.bluetooth;
-  setText('bt-state', !b.present ? 'not present (Bluetooth driver off?)' : b.powered ? 'on' : 'off');
+  setText('bt-state', !b.present ? 'Not present (Bluetooth driver off?)' : b.powered ? 'On' : 'Off');
   setText('bt-name', b.name || DASH);
   setText('bt-addr', b.address || DASH);
-  setText('bt-speaker', !b.speaker ? 'off (service bluetooth)' : b.pairing ? 'pairing mode' : 'ready');
+  setText('bt-speaker', !b.speaker ? 'Off (service bluetooth)' : b.pairing ? 'Pairing mode' : 'Ready');
   $('bt-power').disabled = !b.present;
-  $('bt-power').textContent = b.powered ? 'Turn off' : 'Turn on';
+  $('bt-power').setAttribute('aria-checked', String(!!b.powered));
   $('bt-scan').disabled = !b.present || !b.powered;
   $('bt-pair').disabled = !b.speaker;
   $('bt-pair').textContent = b.pairing ? 'Stop pairing' : 'Pairing mode';
-  if (b.speaker) refreshPaired(); else $('bt-paired').replaceChildren();
+  $('bt-pair').classList.toggle('pri', !!b.pairing);
+  if (b.speaker) refreshPaired(); else $('bt-paired').replaceChildren(el('li', 'empty', 'The Bluetooth speaker is off'));
 
   const t = n.thread, z = n.zigbee, rows = [];
   rows.push(['Thread service', t.enabled ? (t.agent ? 'running' : 'starting or failed') : 'off']);
@@ -1097,27 +1443,24 @@ function wifiRow(net) {
     pick.title = 'Only WPA2-Personal networks are supported';
   }
   pick.addEventListener('click', () => openWifiForm(net.ssid));
-  const meta = el('span', 'meta');
-  meta.append(el('span', 'pill', net.security), el('span', 'num', net.bands.split(' ').join(' + ') + ' GHz'));
-  const stack = el('span', 'stack');
-  stack.append(el('span', 'name', net.ssid), meta);
-  li.append(el('span', 'sig', net.signal + ' dBm'), stack, pick);
+  li.append(bars(net.signal), stack(net.ssid, el('span', 'pill', net.security),
+    el('span', 'num', net.bands.split(' ').join(' + ') + ' GHz'), el('span', 'num', net.signal + ' dBm')), pick);
   return li;
 }
 
 async function scanWifi() {
-  const btn = $('wifi-scan');
+  const btn = $('wifi-scan'), label = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Scanning…';
   try {
     const d = await api('wifi_scan', null, WIFI_SCAN_MS);
     const nets = d.networks.map((n) => ({ ...n, ssid: ssidFromIw(n.ssid) })).filter((n) => n.ssid != null);
-    $('wifi-list').replaceChildren(...(nets.length ? nets.map(wifiRow) : [el('li', 'muted', 'No networks found')]));
+    $('wifi-list').replaceChildren(...(nets.length ? nets.map(wifiRow) : [el('li', 'empty', 'No networks found')]));
   } catch (err) {
     toast(describe(err));
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Scan';
+    btn.textContent = label;
   }
 }
 
@@ -1130,11 +1473,8 @@ function openWifiForm(ssid) {
 
 function btRow(d) {
   const li = el('li');
-  const meta = el('span', 'meta');
-  meta.append(el('span', 'num', d.address), el('span', 'pill', d.type));
-  const stack = el('span', 'stack');
-  stack.append(el('span', 'name', d.name || '(no name)'), meta);
-  li.append(el('span', 'sig', d.rssi + ' dBm'), stack);
+  li.append(bars(d.rssi), stack(d.name || '(no name)', el('span', 'num', d.address), el('span', 'pill', d.type),
+    el('span', 'num', d.rssi + ' dBm')));
   return li;
 }
 
@@ -1144,20 +1484,17 @@ async function refreshPaired() {
   try { d = await api('bt_devices'); } catch { return; }
   $('bt-paired').replaceChildren(...(d.devices.length ? d.devices.map((p) => {
     const li = el('li');
-    const meta = el('span', 'meta');
-    meta.append(el('span', 'num', p.address), el('span', p.connected ? 'pill on' : 'pill', p.connected ? 'connected' : 'paired'));
-    const stack = el('span', 'stack');
-    stack.append(el('span', 'name', p.name || '(no name)'), meta);
-    const forget = el('button', '', 'Forget');
+    const forget = el('button', 'ghost danger', 'Forget');
     confirmClick(forget, 'Really?', async () => {
       if (await command('bt_forget=' + p.address)) {
         toast('Forgotten: ' + (p.name || p.address), true);
         refreshPaired();
       }
     });
-    li.append(stack, forget);
+    li.append(stack(p.name || '(no name)', el('span', 'num', p.address),
+      el('span', p.connected ? 'pill on' : 'pill', p.connected ? 'connected' : 'paired')), forget);
     return li;
-  }) : [el('li', 'muted', 'No phone paired')]));
+  }) : [el('li', 'empty', 'No phone paired')]));
 }
 
 async function scanBluetooth() {
@@ -1167,7 +1504,7 @@ async function scanBluetooth() {
   try {
     const d = await api('bt_scan', null, BT_SCAN_MS);
     const devs = d.devices.sort((a, b) => b.rssi - a.rssi);
-    $('bt-list').replaceChildren(...(devs.length ? devs.map(btRow) : [el('li', 'muted', 'No devices found')]));
+    $('bt-list').replaceChildren(...(devs.length ? devs.map(btRow) : [el('li', 'empty', 'No devices found')]));
   } catch (err) {
     toast(describe(err));
   } finally {
@@ -1178,6 +1515,7 @@ async function scanBluetooth() {
 
 function initNetwork() {
   $('wifi-scan').addEventListener('click', scanWifi);
+  $('wifi-other').addEventListener('click', () => openWifiForm(''));
   $('wifi-cancel').addEventListener('click', () => {
     $('wifi-form').hidden = true;
     $('wifi-pass-in').value = '';
@@ -1222,22 +1560,31 @@ function initNetwork() {
 
 function markPending() { $('pending').hidden = false; }
 
+async function reboot() {
+  if (await command('reboot')) toast('Rebooting…', true);
+}
+
+function serviceRow(s) {
+  const li = el('li', 'svc');
+  const sw = el('button', 'sw');
+  sw.setAttribute('role', 'switch');
+  sw.setAttribute('aria-checked', String(s.enabled));
+  sw.setAttribute('aria-label', s.name + ' service');
+  sw.title = s.enabled ? 'Enabled: click to disable' : 'Disabled: click to enable';
+  sw.addEventListener('click', async () => {
+    sw.disabled = true;
+    if (await command((s.enabled ? 'disable=' : 'enable=') + encodeURIComponent(s.name))) {
+      markPending();
+      await refreshServices();
+    }
+    sw.disabled = false;
+  });
+  li.append(stack(s.name, s.description), sw);
+  return li;
+}
+
 function renderServices(services) {
-  $('services').replaceChildren(...services.map((s) => {
-    const li = el('li');
-    const btn = el('button', '', s.enabled ? 'Disable' : 'Enable');
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      if (await command((s.enabled ? 'disable=' : 'enable=') + encodeURIComponent(s.name))) {
-        markPending();
-        await refreshServices();
-      }
-      btn.disabled = false;
-    });
-    li.append(el('span', 'name', s.name), el('span', 'desc', s.description), el('span', 'pill', s.group),
-      el('span', 'pill ' + (s.enabled ? 'on' : ''), s.enabled ? 'enabled' : 'disabled'), btn);
-    return li;
-  }));
+  $('services').replaceChildren(...groupedRows(services, 'group', serviceRow));
 }
 
 function refreshServices() { return poll('services', (d) => renderServices(d.services)); }
@@ -1271,22 +1618,27 @@ function settingInput(s) {
   return input;
 }
 
+/* Save lights up once the value differs from the stored one; Reset while it is not the default. */
 function settingRow(s) {
-  const li = el('li');
+  const li = el('li', 'set');
   const input = settingInput(s);
   const name = s.feature + '.' + s.key;
-  const save = el('button', '', 'Save');
-  const reset = el('button', '', 'Default');
+  const save = el('button', 'pri', 'Save');
+  const reset = el('button', 'ghost', 'Reset');
+  const secret = s.allowed === 'passphrase';
+  const mark = () => { save.disabled = secret ? !input.value : input.value === s.value; };
+  mark();
+  input.addEventListener('input', mark);
   reset.title = 'Back to the default (' + (s.default || 'unset') + ')';
+  reset.disabled = s.value === s.default;
   save.addEventListener('click', async () => {
-    if (s.allowed === 'passphrase' && !input.value) return toast('Type the new passphrase first');
     save.disabled = true;
     if (await command('set=' + encodeURIComponent(name), OCTET(input.value))) {
       markPending();
       toast('Saved', true);
       await refreshSettings();
     }
-    save.disabled = false;
+    mark();
   });
   reset.addEventListener('click', async () => {
     reset.disabled = true;
@@ -1296,7 +1648,9 @@ function settingRow(s) {
     }
     reset.disabled = false;
   });
-  li.append(el('span', 'name', s.feature + ' ' + s.key), input, save, reset, el('span', 'desc', s.description));
+  const ctl = el('span', 'ctl');
+  ctl.append(input, save, reset);
+  li.append(stack(s.key, s.description), ctl);
   return li;
 }
 
@@ -1304,7 +1658,7 @@ function settingRow(s) {
 async function refreshSettings() {
   try {
     const d = await api('settings');
-    $('settings').replaceChildren(...d.settings.map(settingRow));
+    $('settings').replaceChildren(...groupedRows(d.settings, 'feature', settingRow));
     $('settings-msg').hidden = true;
   } catch (err) {
     $('settings').replaceChildren();
@@ -1315,11 +1669,14 @@ async function refreshSettings() {
 
 function initServices() {
   confirmClick($('pending-reboot'), 'Really reboot?', reboot);
+  confirmClick($('reboot'), 'Really reboot?', reboot);
 }
 
 /* ---------- debug ---------- */
 
 const LOG_MS = 5000;
+const DEBUG_TABS = ['log', 'procs', 'sysinfo'];
+let debugTab = 'log';
 let logText = '';
 
 /* Keep following the end unless the reader has scrolled up. */
@@ -1358,7 +1715,18 @@ function saveText(name, text) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
+function showDebugTab(name) {
+  debugTab = name;
+  for (const b of $('debug-tabs').children) b.setAttribute('aria-selected', String(b.dataset.tab === name));
+  for (const t of DEBUG_TABS) $('tab-' + t).hidden = t !== name;
+  if (name === 'log') {
+    $('log').dataset.shown = '';
+    renderLog();
+  }
+}
+
 function initDebug() {
+  for (const b of $('debug-tabs').children) b.addEventListener('click', () => showDebugTab(b.dataset.tab));
   $('log-refresh').addEventListener('click', refreshLog);
   $('log-src').addEventListener('change', () => {
     $('log').dataset.shown = '';
@@ -1368,7 +1736,7 @@ function initDebug() {
   $('log-save').addEventListener('click', () =>
     saveText($('log-src').value === 'previous' ? 'kernel-log-previous.txt' : 'kernel-log.txt', logText));
   $('procs-refresh').addEventListener('click', () => refreshText('procs', 'procs'));
-  confirmClick($('reboot'), 'Really reboot?', reboot);
+  $('sysinfo-refresh').addEventListener('click', () => refreshText('system', 'sysinfo'));
 }
 
 /* ---------- files (read-only) ---------- */
@@ -1381,7 +1749,7 @@ function fileUrl(path, view) { return API + '?file=' + encodeURIComponent(path) 
 
 function renderCrumbs(path) {
   const crumb = (label, to) => {
-    const b = el('button', '', label);
+    const b = el('button', 'ghost', label);
     b.addEventListener('click', () => listDir(to));
     return b;
   };
@@ -1389,6 +1757,7 @@ function renderCrumbs(path) {
   let at = '';
   for (const part of path.split('/').filter(Boolean)) {
     at += '/' + part;
+    if (nodes.length > 1) nodes.push(el('span', '', '/'));
     nodes.push(crumb(part, at));
   }
   $('fb-crumbs').replaceChildren(...nodes);
@@ -1397,17 +1766,25 @@ function renderCrumbs(path) {
 function fbRow(dir, e) {
   const li = el('li');
   const path = joinPath(dir, e.name);
-  const name = el('button', 'name link', e.name + (e.type === 'dir' ? '/' : ''));
+  const name = el('button', 'link', e.name + (e.type === 'dir' ? '/' : ''));
   if (e.type === 'dir') name.addEventListener('click', () => listDir(path));
   else if (e.type === 'file') name.addEventListener('click', () => viewFile(path));
   else name.disabled = true;
   const when = new Date(e.mtime * 1000).toISOString().slice(0, 16).replace('T', ' ');
-  li.append(name, el('span', 'num', e.type === 'file' ? fmtBytes(e.size) : ''), el('span', 'num', when));
+  const label = el('span', 'stack');
+  label.append(name);
+  li.append(icon(e.type === 'dir' ? 'folder' : 'file'), label,
+    el('span', 'num', e.type === 'file' ? fmtBytes(e.size) : ''), el('span', 'num when', when));
   if (e.type === 'file') {
-    const dl = el('a', '', 'Download');
+    const dl = el('a', 'btn ib ghost');
     dl.href = fileUrl(path);
     dl.download = e.name;
+    dl.title = 'Download';
+    dl.setAttribute('aria-label', 'Download ' + e.name);
+    dl.append(icon('down'));
     li.append(dl);
+  } else {
+    li.append(el('span', 'ib'));                  /* keeps the columns aligned */
   }
   return li;
 }
@@ -1419,7 +1796,7 @@ async function listDir(path) {
     renderCrumbs(d.path);
     const dirFirst = (a, b) => (a.type === 'dir') === (b.type === 'dir') ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1;
     const entries = d.entries.sort(dirFirst);
-    $('fb-list').replaceChildren(...(entries.length ? entries.map((e) => fbRow(d.path, e)) : [el('li', 'muted', 'Empty')]));
+    $('fb-list').replaceChildren(...(entries.length ? entries.map((e) => fbRow(d.path, e)) : [el('li', 'empty', 'Empty')]));
   } catch (err) {
     toast(describe(err));
   }
@@ -1446,6 +1823,10 @@ async function viewFile(path) {
   }
 }
 
+function initFiles() {
+  $('fb-close').addEventListener('click', () => { $('fb-view').hidden = true; });
+}
+
 /* ---------- start ---------- */
 
 const STATS_MS = 2000;
@@ -1453,6 +1834,7 @@ const PLAYER_MS = 1000;
 
 function refreshStats() { return poll('stats', renderStats); }
 
+initTheme();
 initRing();
 initVolume();
 initPlayer();
@@ -1460,12 +1842,13 @@ initUpload();
 initNetwork();
 initServices();
 initDebug();
+initFiles();
 initViews();
-if (view !== 'services') refreshServices();     /* showView already fetched them otherwise */
+if (view !== 'music') refreshSongs();           /* the overview's play button starts the first song */
 every(STATS_MS, () => !document.hidden, refreshStats);
 every(PLAYER_MS, () => !document.hidden && view === 'music', refreshPlayer);
 every(NETWORK_MS, () => !document.hidden && view === 'network', refreshNetwork);
-every(LOG_MS, () => !document.hidden && view === 'debug' && $('log-follow').checked &&
+every(LOG_MS, () => !document.hidden && view === 'debug' && debugTab === 'log' && $('log-follow').checked &&
   $('log-src').value === 'current', refreshLog);
 </script>
 </body>
