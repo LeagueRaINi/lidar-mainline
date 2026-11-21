@@ -121,7 +121,7 @@ clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 install -m755 "$T/lidar-player" "$T/initramfs/usr/bin/lidar-player"
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
-install -m755 /work/tools/lidar-zigbee.sh "$T/initramfs/usr/bin/lidar-zigbee"
+install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
@@ -130,7 +130,6 @@ install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
 install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
 install -m755 /work/tools/lidar-wifi.sh "$T/initramfs/usr/bin/lidar-wifi"
-install -m755 /work/tools/lidar-thread.sh "$T/initramfs/usr/bin/lidar-thread"
 # Thread border router: ot-br-posix, pinned, built for musl against the
 # sysroot like the tools above. Its sources (with submodules) are cached in
 # /src. The vendor and product name end up in the border agent's mDNS
@@ -138,6 +137,42 @@ install -m755 /work/tools/lidar-thread.sh "$T/initramfs/usr/bin/lidar-thread"
 # -Wsign-compare. No ingress firewall: the default one drives the ipset and
 # ip6tables tools with rules from ot-br-posix's setup scripts, none of which
 # this system has (OTBR_NFTABLES would be the in-process alternative).
+#
+# The radio is shared with Zigbee (multiprotocol RCP), so otbr-agent does
+# not own the UART: cpcd does, and otbr-agent reaches the RCP through
+# libcpc with the Gecko SDK's CPC Spinel interface, plugged in as
+# OpenThread's vendor bus. Radio URL: spinel+cpc://cpcd_0?iid=2&iid-list=0
+# (OT_MULTIPAN_RCP is what makes the URL parser take iid and iid-list).
+# cpc-daemon is built as a subdirectory of the same CMake build, without
+# link encryption, which drops its mbedtls dependency: cpcd itself and
+# libcpc.so.3, which otbr-agent needs at run time. Both keep cpc-daemon's
+# default socket folder, /dev/shm, which has to exist before cpcd starts.
+# cpc-daemon is under Silicon Labs' MSLA, like zigbeed and the RCP below:
+# this image is for your own use, not for passing on.
+CPCD_TAG=v4.4.6
+CPCD_COMMIT=5e10b3e45ace73058327425a3fbedf06b4bcccbb
+CPCD=/src/cpc-daemon
+if [ "$(cat $CPCD/.complete 2>/dev/null)" != $CPCD_COMMIT ]; then
+	rm -rf $CPCD
+	git -c advice.detachedHead=false clone -q --depth 1 --branch $CPCD_TAG https://github.com/SiliconLabs/cpc-daemon.git $CPCD
+	[ "$(git -C $CPCD rev-parse HEAD)" = $CPCD_COMMIT ] ||
+		{ echo "cpc-daemon $CPCD_TAG is no longer $CPCD_COMMIT" >&2; exit 1; }
+	echo $CPCD_COMMIT > $CPCD/.complete
+fi
+# Only the POSIX host glue of the Gecko SDK (v4.4.3, the release the RCP
+# firmware is built from): a sparse, blobless checkout of that directory.
+GSDK_COMMIT=d95099f4c05b3c40cece93d8a261dd471e642086
+GSDK=/src/gecko_sdk
+GSDK_POSIX=protocol/openthread/platform-abstraction/posix
+if [ "$(cat $GSDK/.complete 2>/dev/null)" != $GSDK_COMMIT ]; then
+	rm -rf $GSDK
+	git init -q $GSDK
+	git -C $GSDK remote add origin https://github.com/SiliconLabs/gecko_sdk.git
+	git -C $GSDK sparse-checkout set --no-cone /$GSDK_POSIX/
+	git -C $GSDK fetch -q --depth 1 --filter=blob:none origin $GSDK_COMMIT
+	git -C $GSDK -c advice.detachedHead=false checkout -q FETCH_HEAD
+	echo $GSDK_COMMIT > $GSDK/.complete
+fi
 OTBR_TAG=v2026.11.0
 OTBR_COMMIT=76fb21d666a41050b43f8eaabc30e71d9d75d9fd
 OTBR=/src/ot-br-posix
@@ -152,6 +187,26 @@ fi
 # kept between runs, so ninja only rebuilds what changed
 OB=/src/build/otbr-$OTBR_COMMIT-${SYSROOT##*/}
 mkdir -p "$OB"
+# cpc_interface.cpp was written for a 2024 OpenThread. What this one needs
+# changed, applied to a copy in the build directory:
+#  - US_PER_S is now OT_US_PER_S;
+#  - BigEndian::ReadUint16() left the Encoding namespace, and its header is
+#    no longer pulled in by the other includes;
+#  - OT_ASSERT() is not declared without common/debug.hpp and compiles to
+#    nothing in this build, which leaves a set-but-unused variable (an error
+#    here) and failed endpoint options unnoticed: exit on them instead.
+# The copy is only replaced when it changes, to keep the build incremental.
+mkdir -p "$OB/cpc-vendor"
+sed -e 's/\bUS_PER_S\b/OT_US_PER_S/g' \
+	-e 's/Encoding::BigEndian::/BigEndian::/' \
+	-e 's|^#include "common/code_utils.hpp"|&\n#include "common/encoding.hpp"|' \
+	-e 's/OT_ASSERT(\(.*\));/VerifyOrDie(\1, OT_EXIT_FAILURE);/' \
+	$GSDK/$GSDK_POSIX/cpc_interface.cpp > "$T/cpc_interface.cpp"
+[ "$(grep -c -e OT_US_PER_S -e ' BigEndian::' -e common/encoding.hpp -e 'VerifyOrDie(.*OT_EXIT_FAILURE' \
+	"$T/cpc_interface.cpp")" = 8 ] || { echo "cpc_interface.cpp: the OpenThread port no longer applies" >&2; exit 1; }
+for f in "$T/cpc_interface.cpp" $GSDK/$GSDK_POSIX/cpc_interface.hpp $GSDK/$GSDK_POSIX/posix_vendor_rcp.cmake; do
+	cmp -s "$f" "$OB/cpc-vendor/${f##*/}" || cp "$f" "$OB/cpc-vendor/"
+done
 [ -f "$OB/toolchain.cmake" ] || cat > "$OB/toolchain.cmake" <<EOF
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
@@ -165,20 +220,51 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 EOF
+# The toolchain file predates the shared libcpc, hence the linker flags
+# here. -Wno-error=cpp: cpc-daemon includes <sys/errno.h>, a #warning in
+# musl, and inherits OpenThread's -Werror. The vendor bus's URL scheme is a
+# plain define without a CMake option.
 cmake -S $OTBR -B "$OB" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$OB/toolchain.cmake" \
-	-DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_C_FLAGS=-Wno-error=sign-compare \
-	-DCMAKE_CXX_FLAGS=-Wno-error=sign-compare -DBUILD_TESTING=OFF \
+	-DCMAKE_BUILD_TYPE=MinSizeRel "-DCMAKE_C_FLAGS=-Wno-error=sign-compare -Wno-error=cpp" \
+	'-DCMAKE_CXX_FLAGS=-Wno-error=sign-compare -DOPENTHREAD_POSIX_CONFIG_SPINEL_VENDOR_INTERFACE_URL_PROTOCOL_NAME=\"spinel+cpc\"' \
+	"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -s" -DBUILD_TESTING=OFF \
 	-DOTBR_VENDOR_NAME=lidar-mainline "-DOTBR_PRODUCT_NAME=Thread Border Router" \
-	-DOTBR_REST=ON -DOTBR_NAT64=OFF -DOTBR_NOTIFY_UPSTART=OFF -DOT_FIREWALL=OFF > "$T/otbr.log" 2>&1 &&
+	-DOTBR_REST=ON -DOTBR_NAT64=OFF -DOTBR_NOTIFY_UPSTART=OFF -DOT_FIREWALL=OFF \
+	-DOT_MULTIPAN_RCP=ON -DOT_POSIX_RCP_VENDOR_BUS=ON \
+	-DOT_POSIX_CONFIG_RCP_VENDOR_INTERFACE="$OB/cpc-vendor/cpc_interface.cpp" \
+	-DOT_POSIX_CONFIG_RCP_VENDOR_DEPS_PACKAGE="$OB/cpc-vendor/posix_vendor_rcp.cmake" \
+	-DCPCD_SOURCE_DIR=$CPCD -DENABLE_ENCRYPTION=OFF -DCPCD_CONFIG_FILE_PATH=/etc/cpcd.conf > "$T/otbr.log" 2>&1 &&
 	cmake --build "$OB" >> "$T/otbr.log" 2>&1 || { tail -n 40 "$T/otbr.log" >&2; exit 1; }
 install -m755 "$OB/src/agent/otbr-agent" "$T/initramfs/usr/bin/otbr-agent"
 install -m755 "$OB/third_party/openthread/repo/src/posix/ot-ctl" "$T/initramfs/usr/bin/ot-ctl"
-# The RCP image comes from efr32/build.sh (its own container)
-RCP=/work/out/efr32/lidar-ot-rcp.gbl
+# posix_vendor_rcp.cmake adds cpc-daemon as subdirectory "build"
+CB="$OB/third_party/openthread/repo/src/posix/platform/build"
+install -m755 "$CB/cpcd" "$T/initramfs/usr/bin/cpcd"
+install -m755 "$CB/libcpc.so.3" "$T/initramfs/usr/lib/libcpc.so.3"
+# cpcd's configuration; what is not set here keeps cpc-daemon's default.
+# The radio's UART has no RTS/CTS and the link is not encrypted.
+cat > "$T/initramfs/etc/cpcd.conf" <<'EOF'
+instance_name: cpcd_0
+bus_type: UART
+uart_device_file: /dev/ttyS2
+uart_device_baud: 115200
+uart_hardflow: false
+disable_encryption: true
+stdout_trace: false
+EOF
+# The multiprotocol RCP image comes from efr32/build.sh and zigbeed, the
+# Zigbee host stack, from efr32/zigbeed.sh (their own container)
+RCP=/work/out/efr32/lidar-mp-rcp.gbl
 if [ -f $RCP ]; then
-	install -D -m644 $RCP "$T/initramfs/usr/share/lidar/efr32/lidar-ot-rcp.gbl"
+	install -D -m644 $RCP "$T/initramfs/usr/share/lidar/efr32/lidar-mp-rcp.gbl"
 else
-	echo "warning: $RCP missing (build it with efr32/build.sh): the thread service cannot flash the radio" >&2
+	echo "warning: $RCP missing (build it with efr32/build.sh): the radio cannot be flashed" >&2
+fi
+ZIGBEED=/work/out/zigbeed/zigbeed
+if [ -f $ZIGBEED ]; then
+	install -m755 $ZIGBEED "$T/initramfs/usr/bin/zigbeed"
+else
+	echo "warning: $ZIGBEED missing (build it with efr32/zigbeed.sh): no Zigbee" >&2
 fi
 # Volume feedback tone: 90 ms at 520 Hz, -10 dBFS, 20 ms raised-cosine
 # fades, in the speaker's native format (48 kHz, 16 bit stereo).
@@ -362,15 +448,17 @@ fi
 if lidar-feature enabled ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
 	echo '::respawn:/usr/bin/lidar-ring daemon' >> /etc/inittab
 fi
-# The EFR32 radio runs either the Zigbee NCP or the Thread RCP: zigbee
-# brings the NCP up and bridges it to TCP, thread brings the RCP up and runs
-# otbr-agent.
-if lidar-feature enabled zigbee && lidar-feature enabled thread; then
-	echo "lidar: zigbee and thread both need the EFR32 radio, neither started: disable one" > /dev/kmsg
-elif lidar-feature enabled zigbee; then
-	echo '::respawn:/usr/bin/lidar-zigbee daemon' >> /etc/inittab
-elif lidar-feature enabled thread; then
-	echo '::respawn:/usr/bin/lidar-thread daemon' >> /etc/inittab
+# The EFR32 radio serves Zigbee and Thread at once (multi-PAN RCP): cpcd
+# multiplexes it, zigbee runs zigbeed and its TCP bridge, thread runs
+# otbr-agent; either or both.
+if lidar-feature enabled zigbee || lidar-feature enabled thread; then
+	echo '::respawn:/usr/bin/lidar-radio cpcd' >> /etc/inittab
+fi
+if lidar-feature enabled zigbee; then
+	echo '::respawn:/usr/bin/lidar-radio zigbee' >> /etc/inittab
+fi
+if lidar-feature enabled thread; then
+	echo '::respawn:/usr/bin/lidar-radio thread' >> /etc/inittab
 	# usb: otbr-agent's REST API sits on a unix socket, and only
 	# connections arriving on usb0 reach it (SO_BINDTODEVICE, as telnet)
 	if [ "$(lidar-feature get thread listen)" != any ] && [ -e /sys/class/net/usb0 ]; then

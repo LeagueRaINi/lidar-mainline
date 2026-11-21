@@ -35,8 +35,8 @@ wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
 webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, music, Wi-Fi/Bluetooth, services, logs, files
 telnet extra 0 root shell without authentication on port 23 of the USB network
-zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA); excludes thread
-thread extra 0 Thread border router: OpenThread RCP on the EFR32, otbr-agent with its REST API on port 8081 for Home Assistant; excludes zigbee
+zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
+thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
 dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter (needs the volume service and Fire OS on system_a)
 '
 
@@ -77,9 +77,9 @@ conf_get() { # key -> last value in the file, empty if none
 
 # The file may sit on a filesystem mounted read-only (the test image mounts
 # the booted slot that way): open it for writing only around the change. If
-# the filesystem itself is writable underneath (the thread service keeps its
-# data directory there), only this mount's flag is switched, so the data
-# directory stays writable.
+# the filesystem itself is writable underneath (the zigbee and thread
+# services keep their data directories there), only this mount's flag is
+# switched, so the data directories stay writable.
 conf_put() { # key [value]: replace the entry, or remove it without value
 	dir=${CONF%/*}
 	# Without the directory the slot is not mounted; writing would land in

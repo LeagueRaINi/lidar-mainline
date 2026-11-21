@@ -268,7 +268,7 @@ radio_json() {
 	fi
 	te=false; lidar-feature enabled thread && te=true
 	ze=false; lidar-feature enabled zigbee && ze=true
-	zb=false; pgrep -f 'socat TCP-LISTEN:6638' >/dev/null && zb=true
+	zb=false; pgrep -x zigbeed >/dev/null && zb=true
 	printf '"thread": {"enabled": %s, "agent": %s}, "zigbee": {"enabled": %s, "bridge": %s}' "$te" "$t" "$ze" "$zb"
 }
 

@@ -32,8 +32,8 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | **Wireless** | | |
 | Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, MAC from IDME |
 | Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware |
-| Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ EmberZNet NCP (the owner's copy of Fire OS's image), EZSP over TCP for Home Assistant (`zigbee` service) |
-| Thread border router (EFR32) | ✅ | ✅ OpenThread RCP built from this repository (`efr32/`), `otbr-agent` with its REST API for Home Assistant (`thread` service). Fire OS's Thread image speaks DSR's own multiplexing and is not used |
+| Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ Zigbee coordinator next to Thread on one radio: `zigbeed` (EmberZNet 7.4.3) on the Echo, EZSP over TCP for Home Assistant (`zigbee` service) |
+| Thread border router (EFR32) | ✅ | ✅ next to Zigbee on one radio: multi-PAN RCP built from this repository (`efr32/`), `otbr-agent` with its REST API for Home Assistant (`thread` service). Fire OS's own dual-PAN image speaks DSR's multiplexing and is not used |
 | **Interface and sensors** | | |
 | LED ring (12 RGB) | ✅ | ✅ boot animation; red while the mics are muted, volume arc (`ring` service) |
 | Buttons, mic mute, privacy latch | ✅ | ✅ |
@@ -128,8 +128,7 @@ decompression.
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
 | `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes |
 | `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
-| `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if another application or none is there) and bridges EZSP to TCP port 6638 |
-| `tools/lidar-thread.sh` | Thread border router: starts the EFR32's OpenThread RCP (uploading it if needed) and runs `otbr-agent`, with the Thread network kept on the booted slot |
+| `tools/lidar-radio.sh` | the EFR32 radio for Zigbee and Thread at once: uploads the multi-PAN RCP if needed and runs `cpcd`, `zigbeed` with its TCP bridge, and `otbr-agent`, with both networks kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
 | `tools/lidar-wifi.sh` | Wi-Fi client from `wireless ssid`/`passphrase`: start, stop, status and scan; used at boot and by the web interface |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
@@ -138,7 +137,7 @@ decompression.
 | `tools/lidar-player.c` | plays the web interface's song library on the speaker, with fades on pause, stop and skip |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 | `pogo-jig/` | 3D-printable pogo-pin jig for the USB test points, held by one M4 screw in the bottom insert: OpenSCAD source, STLs, assembly notes and a test-fit checklist |
-| `efr32/` | OpenThread RCP for the EFR32MG12 (Gecko SDK 4.4.3, its own build container and a GBL packer); see `efr32/README.md` |
+| `efr32/` | the EFR32MG12's multi-PAN RCP and `zigbeed` for the Echo (Gecko SDK 4.4.3, their own build container and a GBL packer); see `efr32/README.md` |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -159,11 +158,13 @@ W="$(pwd -W 2>/dev/null || pwd)"
 run() { podman run --rm -v lidar-src:/src -v "$W:/work" lidar-build bash /work/build.sh "$@"; }
 run uboot               # -> out/lidar-uboot.img
 run linux lidar         # Image.gz, dtbs, modules in /src/build/lidar
-# The thread service needs the EFR32 RCP image, built in its own container
-# (Silicon Labs' toolchain; see efr32/README.md) before testimg picks it up:
+# The zigbee and thread services need the EFR32's multi-PAN RCP and zigbeed,
+# built in their own container (Silicon Labs' toolchain; see efr32/README.md)
+# before testimg picks them up:
 podman build -t efr-build -f efr32/Containerfile efr32
-podman run --rm -v efr-src:/efr -v "$W:/work" efr-build bash /work/efr32/build.sh  # -> out/efr32/lidar-ot-rcp.gbl
-run testimg lidar       # -> out/lidar-test-system.ext4 (also builds ot-br-posix)
+podman run --rm -v efr-src:/efr -v "$W:/work" efr-build bash /work/efr32/build.sh    # -> out/efr32/lidar-mp-rcp.gbl
+podman run --rm -v efr-src:/efr -v "$W:/work" efr-build bash /work/efr32/zigbeed.sh  # -> out/zigbeed/zigbeed
+run testimg lidar       # -> out/lidar-test-system.ext4 (also builds cpcd and ot-br-posix)
 run bootimg lidar       # -> out/lidar-linux-boot.img (kernel booted straight from LK)
 run patches             # -> out/patches/{linux,u-boot}-lidar.diff
 ```
@@ -259,8 +260,8 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `wireless` | core | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
 | `usbaudio` | extra | off | USB speakerphone (below) |
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
-| `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); excludes `thread` |
-| `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); excludes `zigbee` |
+| `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
+| `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
 | `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 | `webui` | extra | off | web interface on port 80 of the USB network (below) |
 
@@ -449,54 +450,63 @@ printf 'MyNetwork\nmy passphrase' | curl -X POST -H 'Content-Type: application/o
   --data-binary @- 'http://169.254.7.2/cgi-bin/api?wifi_connect'
 ```
 
-### Zigbee coordinator
+### Zigbee and Thread
 
-The `zigbee` service turns the EFR32 into a network Zigbee coordinator, the
-way Silicon Labs USB sticks are used with Home Assistant: the radio runs
-EmberZNet as an NCP, and its EZSP serial protocol is bridged to TCP port
-6638. In Home Assistant, add the ZHA integration with the radio type EZSP and
-the path `socket://169.254.7.2:6638` (verified with `bellows`, ZHA's EZSP
-library: `bellows -d socket://169.254.7.2:6638 info`). The port accepts one
-client at a time.
+The EFR32 serves a Zigbee network and a Thread network at the same time, as
+on Fire OS. It runs a multi-PAN radio co-processor (RCP) built from `efr32/`
+(Silicon Labs' multiprotocol RCP from the Gecko SDK, adapted to this board),
+and both stacks run on the Echo (`lidar-radio`):
 
-- The firmware is the owner's own copy of Fire OS's EmberZNet 6.5.3 NCP
-  (`/system/vendor/firmware/silabs/xncp-fw.gbl` on `system_a`); nothing is
-  downloaded or redistributed. The service uploads it through the EFR32's
-  Gecko bootloader (`lidar-efr32`) only when the application there does not
-  answer as an NCP: nothing there, or the `thread` service's RCP. Verified on
-  hardware: switching from `thread` to `zigbee` uploads the NCP (about 30 s)
-  and the coordinator comes up.
+- `cpcd` (Silicon Labs' CPC daemon, v4.4.6) shares the radio's serial line
+  (`ttyS2`, 115200, no flow control) between the two stacks.
+- `zigbee` service: `zigbeed` (EmberZNet 7.4.3 for Linux, built by
+  `efr32/zigbeed.sh`) is the coordinator, and its EZSP port is bridged to
+  TCP port 6638, the way Silicon Labs USB sticks are used. In Home Assistant,
+  add the ZHA integration with the radio type EZSP and the path
+  `socket://169.254.7.2:6638`. The port accepts one client at a time; when
+  the client leaves, zigbeed restarts with the bridge.
+- `thread` service: `otbr-agent` (ot-br-posix v2026.11.0 with Silicon Labs'
+  CPC interface, built by `mk-testimg.sh`) is the border router. In Home
+  Assistant, add the OpenThread Border Router integration with the URL
+  `http://169.254.7.2:8081` (or the Wi-Fi address with `thread listen any`).
+  `ot-ctl` is the command line on the device.
+
+Either service runs alone or both together.
+
+- **One channel for both.** The MG12 cannot listen on two channels at once,
+  so the Zigbee and the Thread network must use the same channel: form the
+  Zigbee network on the Thread network's channel (`ot-ctl channel`), or move
+  the Thread network to the Zigbee channel. Their PAN IDs must differ (both
+  stacks pick random ones).
+- The RCP image ships in the test image
+  (`/usr/share/lidar/efr32/lidar-mp-rcp.gbl`). `lidar-radio` uploads it
+  through the EFR32's Gecko bootloader (`lidar-efr32`) only when `cpcd` finds
+  no RCP answering: nothing there, Fire OS's Zigbee NCP or an older image of
+  this project. That takes about 20 s.
 - The bootloader starts the application only while `EFR32_SWCLK` (GPIO1) is
   high; low keeps it in the bootloader. The board holds the line low at
-  power-on, so the EFR32 always comes up in the bootloader; the service then
-  raises the line (`gpioset`) and starts the application with the
-  bootloader's run command. After a reboot without a power cut the NCP keeps
+  power-on, so the EFR32 always comes up in the bootloader; `lidar-radio`
+  then raises the line (`gpioset`) and starts the application with the
+  bootloader's run command. After a reboot without a power cut the RCP keeps
   running.
-- The EFR32 keeps its network settings in its own flash. A unit that ran a
-  Zigbee network under Fire OS reports that network (coordinator, joined)
-  until Home Assistant forms a new one.
-- zigbee2mqtt's current `ember` driver needs EmberZNet 7.4 or newer, which
-  this image is not; ZHA supports it.
-
-### Thread border router
-
-The `thread` service makes the Echo a Thread border router: the EFR32 runs
-an OpenThread RCP built from `efr32/`, and `otbr-agent` (ot-br-posix
-v2026.11.0, built by `mk-testimg.sh`) drives it over `ttyS2`. In Home
-Assistant, add the OpenThread Border Router integration with the URL
-`http://169.254.7.2:8081` (or the Wi-Fi address with `thread listen any`).
-`ot-ctl` is the command line on the device.
-
-- The RCP image ships in the test image
-  (`/usr/share/lidar/efr32/lidar-ot-rcp.gbl`). The service uploads it only
-  when the EFR32 does not answer as an OpenThread RCP (nothing there, or the
-  `zigbee` service's NCP). `zigbee` and `thread` share the one radio: with
-  both enabled, neither starts and the kernel log says so.
-- The Thread network (network key, dataset, frame counters) lives in
-  `/var/lib/thread`, bound from the same directory on the booted slot. The
-  slot's filesystem is writable underneath, but its mount at `/media/system`
-  stays read-only, so this directory is the only place written;
-  `lidar-feature` switches only its own mount's flag when it writes.
+- The networks (keys, frame counters, tables) live in `/var/lib/zigbee`
+  (zigbeed's `host_token.nvm`) and `/var/lib/thread`, bound from the same
+  directories on the booted slot. The slot's filesystem is writable
+  underneath, but its mount at `/media/system` stays read-only, so these
+  directories are the only places written; `lidar-feature` switches only its
+  own mount's flag when it writes.
+- An existing Zigbee network moves with ZHA's backup: back it up (or use
+  "Migrate radio") before the RCP replaces the radio's firmware, then
+  restore it to this coordinator. A network formed by Fire OS has no ZHA
+  backup; its devices have to be paired again.
+- zigbeed restarts itself when ZHA resets it, and ZHA waits only 2.5 s for
+  the answer (then it retries in the wrong EZSP frame format). As built by
+  the SDK, zigbeed answered after 4.1 s here; `efr32/zigbeed.sh` patches its
+  restart down to 1.1 s (see `efr32/README.md`).
+- `zigbeed`, the RCP, `cpcd` and its library (which `otbr-agent` links)
+  are Silicon Labs' software under their license (MSLA). They are built from
+  their sources on your machine and not distributed; neither is the test
+  image that contains them.
 - `thread infra` is the network shared with Home Assistant (`wlan0` by
   default, which needs `wireless ssid` and `wireless passphrase`). The
   service turns on IPv6 forwarding and keeps router advertisements accepted
@@ -509,13 +519,15 @@ Assistant, add the OpenThread Border Router integration with the URL
   `ip6tables` tools with rules from its own setup scripts, which this
   system does not have, so it is built without (`OT_FIREWALL=OFF`). The Echo
   then routes between the LAN and the Thread network like any IPv6 router.
-- otbr-agent's log goes to the kernel log, one line per record, prefixed
-  `otbr-agent:`.
-- Verified on hardware with `thread infra usb0`: the RCP is uploaded when the
-  NCP was there, a new network reaches `leader` with border routing
-  `running`, the REST API answers on `169.254.7.2:8081`, and after a reboot
-  the same network comes back by itself. Not yet verified: `wlan0` as the
-  infrastructure link, and Thread devices joining.
+- `cpcd`, `zigbeed` and `otbr-agent` log to the kernel log, one line per
+  record, prefixed with their names.
+- Verified on hardware with `thread infra usb0`: the RCP replaces the
+  previous image, `cpcd`, `zigbeed` and `otbr-agent` run together, ZHA's
+  library (`bellows`) forms a Zigbee network on channel 22 while the Thread
+  network stays `leader` on channel 22, and after a reboot both networks
+  come back by themselves. Not yet verified: devices joining either network,
+  `wlan0` as the infrastructure link, and stability over days (Home
+  Assistant dropped its own zigbeed-based add-on over stability problems).
 
 ### LED ring
 
