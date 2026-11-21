@@ -629,7 +629,9 @@ From the test system's shell:
 - `dmesg`
 - `/sys/kernel/debug/gpio`
 - `i2cdetect -y 0/1/2`: expect 0x18-0x1b, 0x39, 0x3f, 0x48 on bus 0; 0x57 on
-  bus 1; and 0x18, 0x2e, 0x48, 0x4a on bus 2
+  bus 1; and 0x18, 0x48, 0x4a on bus 2. Addresses with a bound driver show
+  as `UU`, which does not prove the chip is there: 0x2e (MCP4631) shows `UU`
+  too, but every read from it fails with no ACK
 - `cat /sys/class/hwmon/*/temp1_input`
 - LEDs in `/sys/class/leds/ring*:*/brightness`
 - `evtest` for the buttons and the privacy switch
@@ -754,7 +756,14 @@ bound by `lidar-volume`'s cap.
   comes first (the other one is then silent). The driver disables first
   and then mutes, so the amplifier is muted for the next start. With the
   speaker output held open (`volume keepalive`) that is one click at boot
-  and one at shutdown or reboot.
+  and one at shutdown or reboot. Fire OS uses the same order: its audio HAL
+  (`libalexaaudiohal.so`) enables the amplifier, unmutes it 400 ms later,
+  and on close disables it and then mutes it. The HAL's speaker tables set
+  nothing else on the amplifier, and the stock device tree gives the
+  speaker path only GPIO105 (amplifier enable) and GPIO109 (output mux),
+  with no amplifier supply regulator. The MCP4631 potentiometer at 0x2e on
+  I2C bus 2, also in the stock device tree, does not acknowledge any read
+  on the tested unit, so it plays no part in the amplifier sequence.
 - **Line-out / headphones:** both channels work through the `Output Route`
   control (GPIO109 low = jack, amp off), now from the headphone drivers in
   plain stereo as on stock. Before that change every stream start made a
