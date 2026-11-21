@@ -33,7 +33,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, MAC from IDME |
 | Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware |
 | Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ EmberZNet NCP (the owner's copy of Fire OS's image), EZSP over TCP for Home Assistant (`zigbee` service) |
-| Thread border router (EFR32) | ✅ | 🛠️ Fire OS's Thread image speaks DSR's own multiplexing; needs an OpenThread RCP built for this board |
+| Thread border router (EFR32) | ✅ | ✅ OpenThread RCP built from this repository (`efr32/`), `otbr-agent` with its REST API for Home Assistant (`thread` service). Fire OS's Thread image speaks DSR's own multiplexing and is not used |
 | **Interface and sensors** | | |
 | LED ring (12 RGB) | ✅ | ✅ boot animation; red while the mics are muted, volume arc (`ring` service) |
 | Buttons, mic mute, privacy latch | ✅ | ✅ |
@@ -128,13 +128,16 @@ decompression.
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
 | `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes |
 | `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
-| `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if needed) and bridges EZSP to TCP port 6638 |
+| `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if another application or none is there) and bridges EZSP to TCP port 6638 |
+| `tools/lidar-thread.sh` | Thread border router: starts the EFR32's OpenThread RCP (uploading it if needed) and runs `otbr-agent`, with the Thread network kept on the booted slot |
+| `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
 | `tools/lidar-player.c` | plays the web interface's song library on the speaker, with fades on pause, stop and skip |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 | `pogo-jig/` | 3D-printable pogo-pin jig for the USB test points, held by one M4 screw in the bottom insert: OpenSCAD source, STLs, assembly notes and a test-fit checklist |
+| `efr32/` | OpenThread RCP for the EFR32MG12 (Gecko SDK 4.4.3, its own build container and a GBL packer); see `efr32/README.md` |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -155,7 +158,11 @@ W="$(pwd -W 2>/dev/null || pwd)"
 run() { podman run --rm -v lidar-src:/src -v "$W:/work" lidar-build bash /work/build.sh "$@"; }
 run uboot               # -> out/lidar-uboot.img
 run linux lidar         # Image.gz, dtbs, modules in /src/build/lidar
-run testimg lidar       # -> out/lidar-test-system.ext4
+# The thread service needs the EFR32 RCP image, built in its own container
+# (Silicon Labs' toolchain; see efr32/README.md) before testimg picks it up:
+podman build -t efr-build -f efr32/Containerfile efr32
+podman run --rm -v efr-src:/efr -v "$W:/work" efr-build bash /work/efr32/build.sh  # -> out/efr32/lidar-ot-rcp.gbl
+run testimg lidar       # -> out/lidar-test-system.ext4 (also builds ot-br-posix)
 run bootimg lidar       # -> out/lidar-linux-boot.img (kernel booted straight from LK)
 run patches             # -> out/patches/{linux,u-boot}-lidar.diff
 ```
@@ -251,7 +258,8 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `wireless` | core | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
 | `usbaudio` | extra | off | USB speakerphone (below) |
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
-| `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below) |
+| `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); excludes `thread` |
+| `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); excludes `zigbee` |
 | `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 | `webui` | extra | off | web interface on port 80 of the USB network (below) |
 
@@ -270,6 +278,8 @@ lidar-feature unset wireless country      # back to the default
 | `telnet listen` | `usb` | `usb`, `any` | `usb`: only connections arriving on `usb0` are accepted. `any`: every interface, so the passwordless root shell is open to the Wi-Fi network too |
 | `wireless bluetooth` | `on` | `on`, `off` | `off`: the Bluetooth driver (`btmtksdio`) is not loaded |
 | `wireless country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
+| `wireless ssid` | unset | 1-32 bytes | Wi-Fi network (WPA2-Personal) to join at boot, with `wireless passphrase`; the address comes from DHCP (`udhcpc`) |
+| `wireless passphrase` | unset | 8-63 printable ASCII characters | passphrase of that network. Stored in plain text in `lidar.conf`, which only root can read; `lidar-feature settings` shows it as `(set)` |
 | `volume max_attenuation` | 0 | 0-60 | cap in dB: full volume is this far below the codec's 0 dB. 0 is Amazon's maximum; raise it to keep the speaker quieter |
 | `volume initial` | 30 | 0-100 | volume at boot, in percent of the range up to the cap |
 | `volume ring` | `on` | `on`, `off` | show volume changes on the LED ring (needs the `ring` service) |
@@ -280,6 +290,8 @@ lidar-feature unset wireless country      # back to the default
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
 | `usbaudio aec` | `on` | `on`, `off` | `on`: the microphone the host gets is cleaned by `lidar-aec` (echo cancellation, noise suppression); `off`: the plain six-mic mix |
 | `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
+| `thread infra` | `wlan0` | `wlan0`, `usb0` | the network Home Assistant is on: the border router routes between it and the Thread network and advertises the Thread network there |
+| `thread listen` | `usb` | `usb`, `any` | `usb`: the REST API sits on a unix socket that `lidar-listen` bridges to port 8081 for connections arriving on `usb0` only (`SO_BINDTODEVICE`, as for telnet); `any`: otbr-agent listens on every address, Wi-Fi included. The API has no authentication and can change the Thread network |
 | `webui listen` | `usb` | `usb`, `any` | `usb`: the web interface only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `webui storage_mb` | 256 | 64-512 | RAM for uploaded songs, in MB (about 11 minutes of music per 128 MB), a RAM disk of its own; the library is cleared on reboot |
 
@@ -294,6 +306,10 @@ lidar-feature unset wireless country      # back to the default
   `usbaudio.keepalive` lines in `lidar.conf` are ignored: speaker volume and
   the keep-alive belong to the `volume` service.
 - `wireless country` has not been tried on hardware.
+- `wireless ssid`/`passphrase`: the configuration that `wpa_supplicant` gets
+  is verified on hardware (SSID as hex, the PSK from `wpa_passphrase`, also
+  for passphrases with `"`, `#` and spaces); joining a network with it is not
+  verified yet.
 
 ### System volume
 
@@ -421,8 +437,10 @@ client at a time.
 - The firmware is the owner's own copy of Fire OS's EmberZNet 6.5.3 NCP
   (`/system/vendor/firmware/silabs/xncp-fw.gbl` on `system_a`); nothing is
   downloaded or redistributed. The service uploads it through the EFR32's
-  Gecko bootloader only when the application area holds nothing that starts,
-  so it normally runs once.
+  Gecko bootloader (`lidar-efr32`) only when the application there does not
+  answer as an NCP: nothing there, or the `thread` service's RCP. Verified on
+  hardware: switching from `thread` to `zigbee` uploads the NCP (about 30 s)
+  and the coordinator comes up.
 - The bootloader starts the application only while `EFR32_SWCLK` (GPIO1) is
   high; low keeps it in the bootloader. The board holds the line low at
   power-on, so the EFR32 always comes up in the bootloader; the service then
@@ -434,6 +452,37 @@ client at a time.
   until Home Assistant forms a new one.
 - zigbee2mqtt's current `ember` driver needs EmberZNet 7.4 or newer, which
   this image is not; ZHA supports it.
+
+### Thread border router
+
+The `thread` service makes the Echo a Thread border router: the EFR32 runs
+an OpenThread RCP built from `efr32/`, and `otbr-agent` (ot-br-posix
+v2026.11.0, built by `mk-testimg.sh`) drives it over `ttyS2`. In Home
+Assistant, add the OpenThread Border Router integration with the URL
+`http://169.254.7.2:8081` (or the Wi-Fi address with `thread listen any`).
+`ot-ctl` is the command line on the device.
+
+- The RCP image ships in the test image
+  (`/usr/share/lidar/efr32/lidar-ot-rcp.gbl`). The service uploads it only
+  when the EFR32 does not answer as an OpenThread RCP (nothing there, or the
+  `zigbee` service's NCP). `zigbee` and `thread` share the one radio: with
+  both enabled, neither starts and the kernel log says so.
+- The Thread network (network key, dataset, frame counters) lives in
+  `/var/lib/thread`, bound from the same directory on the booted slot. The
+  slot's filesystem is writable underneath, but its mount at `/media/system`
+  stays read-only, so this directory is the only place written;
+  `lidar-feature` switches only its own mount's flag when it writes.
+- `thread infra` is the network shared with Home Assistant (`wlan0` by
+  default, which needs `wireless ssid` and `wireless passphrase`). The
+  service turns on IPv6 forwarding and keeps router advertisements accepted
+  on that interface, as ot-br-posix's own setup does. mDNS is OpenThread's
+  built-in one; the border agent appears as "lidar-mainline Thread Border
+  Router".
+- Verified on hardware with `thread infra usb0`: the RCP is uploaded when the
+  NCP was there, a new network reaches `leader` with border routing
+  `running`, the REST API answers on `169.254.7.2:8081`, and after a reboot
+  the same network comes back by itself. Not yet verified: `wlan0` as the
+  infrastructure link, and Thread devices joining.
 
 ### LED ring
 
@@ -687,7 +736,9 @@ bound by `lidar-volume`'s cap.
   ASH/EZSP) and `dsr/zb_mux_rcp.gbl` (DSR's OpenThread "dualpan" RCP), both
   unencrypted. Verified on hardware: with `EFR32_SWCLK` low, a pulse on
   `EFR32_RESET_N` brings up the bootloader menu, and its `2. run` starts the
-  application again.
+  application again. ttyS2 needs the `8250_mtk.c` overlay: without it the
+  UART stops transmitting for good once the EFR32 sends while the port is
+  closed.
 - **TSL2540 ambient light sensor:** new minimal IIO driver (`tsl2540`):
   visible and IR counts, gain and integration time. Verified on hardware:
   chip ID, configuration, and readings from 0 in the dark to about 7000

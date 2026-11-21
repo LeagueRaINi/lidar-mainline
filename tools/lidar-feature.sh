@@ -33,18 +33,24 @@ wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
 webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, upload songs and play them on the speaker
 telnet extra 0 root shell without authentication on port 23 of the USB network
-zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA)
+zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA); excludes thread
+thread extra 0 Thread border router: OpenThread RCP on the EFR32, otbr-agent with its REST API on port 8081 for Home Assistant; excludes zigbee
 dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter (needs the volume service and Fire OS on system_a)
 '
 
 # feature key default allowed description
-# default "-" is unset. allowed is a|b|c (one of), N-M (integer range) or
-# CC (two capital letters).
+# default "-" is unset. allowed is a|b|c (one of), N-M (integer range),
+# CC (two capital letters), ssid (1-32 bytes, no control characters) or
+# passphrase (8-63 printable ASCII characters, masked in "settings").
 SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
 wireless bluetooth on on|off off: do not load the Bluetooth driver
 wireless country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
+wireless ssid - ssid Wi-Fi network to join at boot (WPA2-Personal, needs passphrase); unset: no Wi-Fi connection
+wireless passphrase - passphrase passphrase of that network, kept in plain text in lidar.conf (readable by root only)
 zigbee listen usb usb|any usb: accept the coordinator connection on usb0 only; any: on every interface, Wi-Fi included
+thread infra wlan0 wlan0|usb0 network Home Assistant is on: the border router routes between it and the Thread network and advertises there
+thread listen usb usb|any usb: REST API (no authentication) on usb0 only; any: on every interface, Wi-Fi included
 webui listen usb usb|any usb: accept web connections on usb0 only; any: on every interface, Wi-Fi included
 webui storage_mb 256 64-512 RAM for uploaded songs in MB (about 11 minutes per 128 MB), cleared on reboot
 volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
@@ -68,7 +74,10 @@ conf_get() { # key -> last value in the file, empty if none
 }
 
 # The file may sit on a filesystem mounted read-only (the test image mounts
-# the booted slot that way): open it for writing only around the change.
+# the booted slot that way): open it for writing only around the change. If
+# the filesystem itself is writable underneath (the thread service keeps its
+# data directory there), only this mount's flag is switched, so the data
+# directory stays writable.
 conf_put() { # key [value]: replace the entry, or remove it without value
 	dir=${CONF%/*}
 	# Without the directory the slot is not mounted; writing would land in
@@ -78,18 +87,28 @@ conf_put() { # key [value]: replace the entry, or remove it without value
 		return 1
 	}
 	mnt=$(df -P "$dir" 2>/dev/null | awk 'NR == 2 { print $6 }')
+	# mount options and superblock options of the last mount on $mnt
+	opts=$(awk -v m="$mnt" '$5 == m { split($0, a, " - "); split(a[2], s, " "); o = $6 " " s[3] }
+		END { print o }' /proc/self/mountinfo)
 	ro=
-	if [ -n "$mnt" ] && awk -v m="$mnt" '$2 == m && $4 ~ /(^|,)ro(,|$)/ { f = 1 } END { exit !f }' /proc/mounts; then
-		mount -o remount,rw "$mnt" || return 1
-		ro=1
-	fi
-	{
-		[ -f "$CONF" ] && awk -v k="$1" 'index($0, k "=") != 1' "$CONF"
-		[ $# -lt 2 ] || echo "$1=$2"
-	} > "$CONF.new" && mv "$CONF.new" "$CONF" && sync
+	case ",${opts% *}," in *,ro,*)
+		case ",${opts#* }," in
+		*,ro,*) mount -o remount,rw "$mnt" && ro=remount,ro ;;
+		*) mount -o remount,bind,rw "$mnt" && ro=remount,bind,ro ;;
+		esac || return 1
+		;;
+	esac
+	# the file holds the Wi-Fi passphrase: readable by root only
+	(
+		umask 077
+		{
+			[ -f "$CONF" ] && awk -v k="$1" 'index($0, k "=") != 1' "$CONF"
+			[ $# -lt 2 ] || echo "$1=$2"
+		} > "$CONF.new"
+	) && chmod 600 "$CONF.new" && mv "$CONF.new" "$CONF" && sync
 	rc=$?
 	[ $rc -eq 0 ] || rm -f "$CONF.new"
-	[ -z "$ro" ] || mount -o remount,ro "$mnt"
+	[ -z "$ro" ] || mount -o "$ro" "$mnt"
 	return $rc
 }
 
@@ -134,6 +153,15 @@ valid() { # allowed value
 		case $2 in '' | *[!0-9]* | ?????* | 0?*) return 1 ;; esac
 		[ "$2" -ge "${1%-*}" ] && [ "$2" -le "${1#*-}" ] && return 0
 		;;
+	ssid)
+		case $2 in *[[:cntrl:]]*) return 1 ;; esac
+		n=$(printf %s "$2" | wc -c)
+		[ "$n" -ge 1 ] && [ "$n" -le 32 ] && return 0
+		;;
+	passphrase)
+		case $2 in *[![:print:]]*) return 1 ;; esac
+		[ ${#2} -ge 8 ] && [ ${#2} -le 63 ] && return 0
+		;;
 	*)
 		case $2 in '' | *'|'*) return 1 ;; esac
 		case "|$1|" in *"|$2|"*) return 0 ;; esac
@@ -144,7 +172,7 @@ valid() { # allowed value
 
 setting_value() { # feature key default allowed -> value in effect
 	v=$(conf_get "$1.$2")
-	if valid "$4" "$v"; then echo "$v"; else echo "$3"; fi
+	if valid "$4" "$v"; then printf '%s\n' "$v"; else printf '%s\n' "$3"; fi
 }
 
 case $1 in
@@ -175,6 +203,7 @@ settings)
 		[ -z "$2" ] || [ "$f" = "$2" ] || continue
 		[ "$d" != - ] || d=
 		v=$(setting_value "$f" "$k" "$d" "$a")
+		[ "$a" != passphrase ] || [ -z "$v" ] || v='(set)'
 		printf '%-8s %-15s %-5s (default %s, allowed %s)  %s\n' \
 			"$f" "$k" "${v:-unset}" "${d:-unset}" "$a" "$desc"
 	done
@@ -186,10 +215,16 @@ get)
 set)
 	need_setting "$2" "$3"
 	valid "$ALLOWED" "$4" || {
-		echo "invalid value '$4' for $2 $3 (allowed: $ALLOWED)" >&2
+		case $ALLOWED in
+		passphrase) echo "invalid passphrase for $2 $3 (allowed: 8-63 printable ASCII characters)" >&2 ;;
+		ssid) echo "invalid value '$4' for $2 $3 (allowed: 1-32 bytes, no control characters)" >&2 ;;
+		*) echo "invalid value '$4' for $2 $3 (allowed: $ALLOWED)" >&2 ;;
+		esac
 		exit 2
 	}
-	conf_put "$2.$3" "$4" && echo "$2 $3: $4 (takes effect on next boot)"
+	shown=$4
+	[ "$ALLOWED" != passphrase ] || shown='(set)'
+	conf_put "$2.$3" "$4" && echo "$2 $3: $shown (takes effect on next boot)"
 	;;
 unset)
 	need_setting "$2" "$3"

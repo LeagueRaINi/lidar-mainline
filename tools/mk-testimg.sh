@@ -128,6 +128,55 @@ install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
 install -m755 /work/tools/lidar-usbaudio.sh "$T/initramfs/usr/bin/lidar-usbaudio"
 install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
+install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
+install -m755 /work/tools/lidar-thread.sh "$T/initramfs/usr/bin/lidar-thread"
+# Thread border router: ot-br-posix, pinned, built for musl against the
+# sysroot like the tools above. Its sources (with submodules) are cached in
+# /src. The vendor and product name end up in the border agent's mDNS
+# record; -Wno-error=sign-compare because musl's CMSG_NXTHDR trips clang's
+# -Wsign-compare.
+OTBR_TAG=v2026.11.0
+OTBR_COMMIT=76fb21d666a41050b43f8eaabc30e71d9d75d9fd
+OTBR=/src/ot-br-posix
+if [ "$(cat $OTBR/.complete 2>/dev/null)" != $OTBR_COMMIT ]; then
+	rm -rf $OTBR
+	git clone -q --depth 1 --branch $OTBR_TAG https://github.com/openthread/ot-br-posix.git $OTBR
+	[ "$(git -C $OTBR rev-parse HEAD)" = $OTBR_COMMIT ] ||
+		{ echo "ot-br-posix $OTBR_TAG is no longer $OTBR_COMMIT" >&2; exit 1; }
+	git -C $OTBR submodule update -q --init --recursive --depth 1
+	echo $OTBR_COMMIT > $OTBR/.complete
+fi
+# kept between runs, so ninja only rebuilds what changed
+OB=/src/build/otbr-$OTBR_COMMIT-${SYSROOT##*/}
+mkdir -p "$OB"
+[ -f "$OB/toolchain.cmake" ] || cat > "$OB/toolchain.cmake" <<EOF
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_SYSROOT $SYSROOT)
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_C_COMPILER_TARGET aarch64-alpine-linux-musl)
+set(CMAKE_CXX_COMPILER_TARGET aarch64-alpine-linux-musl)
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld -s")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+EOF
+cmake -S $OTBR -B "$OB" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$OB/toolchain.cmake" \
+	-DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_C_FLAGS=-Wno-error=sign-compare \
+	-DCMAKE_CXX_FLAGS=-Wno-error=sign-compare -DBUILD_TESTING=OFF \
+	-DOTBR_VENDOR_NAME=lidar-mainline "-DOTBR_PRODUCT_NAME=Thread Border Router" \
+	-DOTBR_REST=ON -DOTBR_NAT64=OFF -DOTBR_NOTIFY_UPSTART=OFF > "$T/otbr.log" 2>&1 &&
+	cmake --build "$OB" >> "$T/otbr.log" 2>&1 || { tail -n 40 "$T/otbr.log" >&2; exit 1; }
+install -m755 "$OB/src/agent/otbr-agent" "$T/initramfs/usr/bin/otbr-agent"
+install -m755 "$OB/third_party/openthread/repo/src/posix/ot-ctl" "$T/initramfs/usr/bin/ot-ctl"
+# The RCP image comes from efr32/build.sh (its own container)
+RCP=/work/out/efr32/lidar-ot-rcp.gbl
+if [ -f $RCP ]; then
+	install -D -m644 $RCP "$T/initramfs/usr/share/lidar/efr32/lidar-ot-rcp.gbl"
+else
+	echo "warning: $RCP missing (build it with efr32/build.sh): the thread service cannot flash the radio" >&2
+fi
 # Volume feedback tone: 90 ms at 520 Hz, -10 dBFS, 20 ms raised-cosine
 # fades, in the speaker's native format (48 kHz, 16 bit stereo).
 mkdir -p "$T/initramfs/usr/share/lidar"
@@ -310,9 +359,21 @@ fi
 if lidar-feature enabled ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
 	echo '::respawn:/usr/bin/lidar-ring daemon' >> /etc/inittab
 fi
-# Zigbee coordinator: brings the EFR32 NCP up and bridges it to TCP
-if lidar-feature enabled zigbee; then
+# The EFR32 radio runs either the Zigbee NCP or the Thread RCP: zigbee
+# brings the NCP up and bridges it to TCP, thread brings the RCP up and runs
+# otbr-agent.
+if lidar-feature enabled zigbee && lidar-feature enabled thread; then
+	echo "lidar: zigbee and thread both need the EFR32 radio, neither started: disable one" > /dev/kmsg
+elif lidar-feature enabled zigbee; then
 	echo '::respawn:/usr/bin/lidar-zigbee daemon' >> /etc/inittab
+elif lidar-feature enabled thread; then
+	echo '::respawn:/usr/bin/lidar-thread daemon' >> /etc/inittab
+	# usb: otbr-agent's REST API sits on a unix socket, and only
+	# connections arriving on usb0 reach it (SO_BINDTODEVICE, as telnet)
+	if [ "$(lidar-feature get thread listen)" != any ] && [ -e /sys/class/net/usb0 ]; then
+		echo '::respawn:/usr/bin/lidar-listen usb0 8081 socat STDIO UNIX-CONNECT:/run/otbr-rest.sock' \
+			>> /etc/inittab
+	fi
 fi
 # Web interface: the player daemon, and httpd tied to usb0 unless the owner
 # asks for every interface (as for telnet)
@@ -354,6 +415,33 @@ fi
 			elif ! modprobe btmtksdio; then
 				echo "lidar: Bluetooth driver failed to load" > /dev/kmsg
 			fi
+			# Join the configured network. The SSID goes in as hex and the
+			# passphrase as its 64-digit PSK: wpa_supplicant's own quoting
+			# breaks on '"' followed by '#'. wpa_passphrase only reads it
+			# from a terminal, so it is an argument for a moment; everything
+			# on this system runs as root anyway.
+			ssid=$(lidar-feature get wireless ssid)
+			pass=$(lidar-feature get wireless passphrase)
+			if [ -n "$ssid" ] && [ -n "$pass" ]; then
+				for i in $(seq 1 20); do
+					[ -d /sys/class/net/wlan0 ] && break
+					sleep 0.5
+				done
+				psk=$(wpa_passphrase "$ssid" "$pass" | sed -n 's/^[[:space:]]psk=//p')
+				hex=$(printf %s "$ssid" | od -An -tx1 -v | tr -d ' \n')
+				(umask 077; printf 'network={\n\tssid=%s\n\tpsk=%s\n}\n' "$hex" "$psk" > /run/wpa_supplicant.conf)
+				if [ ${#psk} -ne 64 ]; then
+					echo "lidar: wpa_passphrase gave no PSK, Wi-Fi not started" > /dev/kmsg
+				elif wpa_supplicant -B -i wlan0 -c /run/wpa_supplicant.conf > /dev/kmsg 2>&1; then
+					# in the background at once: -b alone waits ~9 s first
+					udhcpc -b -i wlan0 > /dev/kmsg 2>&1 &
+					echo "lidar: joining the configured Wi-Fi network" > /dev/kmsg
+				else
+					echo "lidar: wpa_supplicant failed to start" > /dev/kmsg
+				fi
+			elif [ -n "$ssid$pass" ]; then
+				echo "lidar: Wi-Fi needs both wireless ssid and wireless passphrase" > /dev/kmsg
+			fi
 		else
 			echo "lidar: Wi-Fi firmware not staged" > /dev/kmsg
 		fi
@@ -393,6 +481,7 @@ cat > "$T/fs/etc/lidar.conf" <<'EOF'
 feature.usbaudio=1
 feature.telnet=1
 EOF
+chmod 600 "$T/fs/etc/lidar.conf"
 
 rm -f "$OUT/lidar-test-system.ext4"
 mke2fs -q -t ext4 -L lidar-test -d "$T/fs" "$OUT/lidar-test-system.ext4" 256M

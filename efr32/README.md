@@ -1,9 +1,9 @@
-# EFR32MG12 radio firmware (work in progress)
+# EFR32MG12 radio firmware
 
-Goal: Thread (OpenThread RCP, for an OpenThread border router on the Echo)
-on lidar's Silicon Labs radio, later Zigbee and Thread at the same time
-(multi-PAN RCP with `cpcd`, `zigbeed` and `otbr-agent`). Today the radio runs
-Amazon's EmberZNet NCP for the `zigbee` service.
+An OpenThread RCP for lidar's Silicon Labs radio, driven by `otbr-agent` on
+the Echo (the `thread` service; see the main README). Later goal: Zigbee and
+Thread at the same time (multi-PAN RCP with `cpcd`, `zigbeed` and
+`otbr-agent`). The `zigbee` service runs Amazon's EmberZNet NCP instead.
 
 ## The radio, as read from Amazon's two images
 
@@ -67,11 +67,14 @@ slc 6 notes, all handled in `build.sh`:
   `lidar-linux/drivers/tty/serial/8250/`: without it ttyS2 stops transmitting
   once the EFR32 sends while the port is closed, and only a reboot of the Echo
   clears that state.
-- Next: `otbr-agent` on the Echo against this RCP.
+- `otbr-agent` (ot-br-posix v2026.11.0) runs against it: a new network
+  reaches `leader`, with border routing running (the `thread` service).
 
 ## Going back to Amazon's Zigbee firmware
 
-Hold `EFR32_SWCLK` low, pulse `EFR32_RESET_N`, choose `1` in the bootloader
-menu and send Fire OS's `xncp-fw.gbl` with `lidar-xmodem`. The `zigbee`
-service does this by itself when it finds no Zigbee firmware. The bootloader
-and the chip's factory data are never written.
+Disable `thread` and enable `zigbee`: the `zigbee` service sees that the
+application is not an NCP and uploads Fire OS's `xncp-fw.gbl` through the
+bootloader (`lidar-efr32 flash`). By hand: hold `EFR32_SWCLK` low, pulse
+`EFR32_RESET_N`, choose `1` in the bootloader menu and send the image with
+`lidar-xmodem`. The bootloader and the chip's factory data are never
+written.
