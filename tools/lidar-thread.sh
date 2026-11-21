@@ -63,6 +63,14 @@ keep_data() {
 
 case $1 in
 daemon)
+	# The agent outlives this script if only the script is killed. It owns
+	# the radio, so end it before the RCP is checked or uploaded.
+	if pkill -x otbr-agent; then
+		for i in $(seq 1 50); do
+			pgrep -x otbr-agent >/dev/null || break
+			sleep 0.1
+		done
+	fi
 	infra=$(lidar-feature get thread infra)
 	# usb: a unix socket, which init's lidar-listen bridges to port 8081 for
 	# connections arriving on usb0 only (an address alone would also be
@@ -84,8 +92,13 @@ daemon)
 	echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
 	echo 2 > /proc/sys/net/ipv6/conf/$infra/accept_ra
 	echo 64 > /proc/sys/net/ipv6/conf/$infra/accept_ra_rt_info_max_plen
-	exec otbr-agent -I wpan0 -B "$infra" --data-path $DATA -s -d 5 \
-		--rest-listen-address $rest "$RADIO" 2> /dev/kmsg
+	# otbr-agent writes each log line in two pieces, and every write to
+	# /dev/kmsg is a record of its own: hand it over by whole lines
+	otbr-agent -I wpan0 -B "$infra" --data-path $DATA -s -d 5 \
+		--rest-listen-address $rest "$RADIO" 2>&1 |
+		while IFS= read -r l; do
+			[ -z "$l" ] || printf 'otbr-agent: %s\n' "$l" > /dev/kmsg
+		done
 	;;
 status)
 	if pgrep -x otbr-agent >/dev/null; then

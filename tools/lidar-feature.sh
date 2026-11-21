@@ -16,7 +16,9 @@
 # Usage: lidar-feature list
 #        lidar-feature enabled <name>      (exit status 0 if enabled)
 #        lidar-feature enable|disable|reset <name>
-#        lidar-feature settings [<name>]
+#        lidar-feature settings [--raw] [<name>]
+#                  (--raw: tab-separated feature, key, value, default,
+#                   allowed, description; passphrases as "(set)")
 #        lidar-feature get <name> <key>    (prints the value in effect)
 #        lidar-feature set <name> <key> <value>
 #        lidar-feature unset <name> <key>  (back to the default)
@@ -31,7 +33,7 @@ volume core 1 system volume for the speaker: USB host slider, volume buttons, li
 ring core 1 LED ring after boot: red while the mics are muted, volume changes
 wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
-webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, upload songs and play them on the speaker
+webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, music, Wi-Fi/Bluetooth, services, logs, files
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: EmberZNet NCP on the EFR32, EZSP over TCP port 6638 for Home Assistant (ZHA); excludes thread
 thread extra 0 Thread border router: OpenThread RCP on the EFR32, otbr-agent with its REST API on port 8081 for Home Assistant; excludes zigbee
@@ -197,6 +199,8 @@ enable | disable | reset)
 	esac
 	;;
 settings)
+	raw=
+	[ "$2" != --raw ] || { raw=1; shift; }
 	[ -z "$2" ] || need_name "$2"
 	echo "$SETTINGS" | while read -r f k d a desc; do
 		[ -n "$f" ] || continue
@@ -204,8 +208,12 @@ settings)
 		[ "$d" != - ] || d=
 		v=$(setting_value "$f" "$k" "$d" "$a")
 		[ "$a" != passphrase ] || [ -z "$v" ] || v='(set)'
-		printf '%-8s %-15s %-5s (default %s, allowed %s)  %s\n' \
-			"$f" "$k" "${v:-unset}" "${d:-unset}" "$a" "$desc"
+		if [ -n "$raw" ]; then
+			printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$k" "$v" "$d" "$a" "$desc"
+		else
+			printf '%-8s %-15s %-5s (default %s, allowed %s)  %s\n' \
+				"$f" "$k" "${v:-unset}" "${d:-unset}" "$a" "$desc"
+		fi
 	done
 	;;
 get)
@@ -231,7 +239,7 @@ unset)
 	conf_put "$2.$3" && echo "$2 $3: back to default (${DEF:-unset})"
 	;;
 *)
-	sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

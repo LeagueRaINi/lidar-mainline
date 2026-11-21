@@ -33,7 +33,7 @@ button:disabled { opacity: .45; cursor: default; }
 header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center;
   gap: .4rem 1.2rem; padding: .6rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
 header h1 { margin: 0; font-size: 1.05rem; }
-nav { display: flex; gap: .3rem; }
+nav { display: flex; flex-wrap: wrap; gap: .3rem; }
 nav button { border-color: transparent; }
 nav button[aria-current="page"], nav button[aria-current="page"]:hover {
   background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -45,6 +45,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 1rem; }
 .wide { grid-column: 1 / -1; }
 #toast { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%); max-width: 90vw;
   padding: .5rem .9rem; border-radius: 8px; background: var(--bad); color: #fff; z-index: 3; }
+#toast.ok { background: var(--ok); }
 
 /* key/value rows, meters */
 .kv { display: grid; grid-template-columns: auto 1fr; gap: .15rem 1rem; margin: 0; }
@@ -105,13 +106,34 @@ button[aria-pressed="true"], button[aria-pressed="true"]:hover:not(:disabled) {
 #uploads:empty { display: none; }
 #uploads { margin-top: .7rem; }
 
-/* services */
+/* services and settings */
 #services .name { flex: 0 0 9rem; font-weight: 600; }
-#services .desc { flex: 1; min-width: 0; color: var(--muted); }
+#services .desc, #settings .desc { flex: 1; min-width: 0; color: var(--muted); }
+#settings li { flex-wrap: wrap; }
+#settings .name { flex: 0 0 13rem; font-weight: 600; }
+#settings .desc { flex-basis: 100%; order: 9; font-size: .85rem; }
+#settings .val { flex: 1; min-width: 8rem; }
+#pending { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
 @media (max-width: 560px) {
   #services li { flex-wrap: wrap; }
   #services .desc { flex-basis: 100%; }
 }
+
+/* forms, tool bars, text panes */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .7rem 0; }
+input[type=text], input[type=password], input[type=search], input[type=number], select {
+  font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  padding: .25rem .5rem; min-width: 0; }
+pre.text { margin: 0; max-height: 60vh; overflow: auto; padding: .6rem; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.rows .sig { flex: 0 0 4.5rem; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rows button.link { border: 0; padding: 0; text-align: left; color: var(--accent); }
+/* Scan results: the name over a line of details, so narrow screens keep it */
+.rows .stack { flex: 1; min-width: 0; }
+.rows .stack .name { display: block; white-space: normal; overflow-wrap: anywhere; }
+.rows .meta { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .15rem; font-size: .85rem; }
+#fb-crumbs button { padding: .1rem .45rem; }
 </style>
 </head>
 <body>
@@ -120,7 +142,10 @@ button[aria-pressed="true"], button[aria-pressed="true"]:hover:not(:disabled) {
   <nav>
     <button data-view="dashboard">Dashboard</button>
     <button data-view="music">Music</button>
+    <button data-view="network">Network</button>
     <button data-view="services">Services</button>
+    <button data-view="debug">Debug</button>
+    <button data-view="files">Files</button>
   </nav>
 </header>
 <p id="banner" role="alert" hidden></p>
@@ -238,11 +263,109 @@ button[aria-pressed="true"], button[aria-pressed="true"]:hover:not(:disabled) {
   </div>
 </section>
 
-<section id="view-services" hidden>
+<section id="view-network" class="grid" hidden>
   <div class="card">
+    <h2>Wi-Fi</h2>
+    <dl class="kv">
+      <dt>State</dt><dd id="wifi-state">–</dd>
+      <dt>Network</dt><dd id="wifi-ssid">–</dd>
+      <dt>Signal</dt><dd id="wifi-signal">–</dd>
+      <dt>Band</dt><dd id="wifi-band">–</dd>
+      <dt>Bit rate</dt><dd id="wifi-rate">–</dd>
+      <dt>IPv4</dt><dd id="wifi-ipv4">–</dd>
+      <dt>IPv6</dt><dd id="wifi-ipv6">–</dd>
+      <dt>Saved network</dt><dd id="wifi-saved">–</dd>
+    </dl>
+    <div class="bar">
+      <button id="wifi-scan">Scan</button>
+      <button id="wifi-forget">Forget saved network</button>
+    </div>
+    <form id="wifi-form" class="bar" hidden>
+      <input id="wifi-ssid-in" type="text" placeholder="Network name" maxlength="32" required aria-label="Network name">
+      <input id="wifi-pass-in" type="password" placeholder="Passphrase" minlength="8" maxlength="63" required
+             autocomplete="off" aria-label="Passphrase">
+      <button type="submit">Connect</button>
+      <button type="button" id="wifi-cancel">Cancel</button>
+    </form>
+    <ul class="rows" id="wifi-list"></ul>
+    <p class="muted">WPA2-Personal. The network is saved on the booted slot and joined at every boot.</p>
+  </div>
+  <div class="card">
+    <h2>Bluetooth</h2>
+    <dl class="kv">
+      <dt>Controller</dt><dd id="bt-state">–</dd>
+      <dt>Name</dt><dd id="bt-name">–</dd>
+      <dt>Address</dt><dd id="bt-addr">–</dd>
+    </dl>
+    <div class="bar">
+      <button id="bt-power" disabled>Turn on</button>
+      <button id="bt-scan" disabled>Scan</button>
+    </div>
+    <ul class="rows" id="bt-list"></ul>
+  </div>
+  <div class="card">
+    <h2>Thread and Zigbee</h2>
+    <dl class="kv" id="radio"></dl>
+  </div>
+</section>
+
+<section id="view-services" class="grid" hidden>
+  <div class="card wide" id="pending" hidden>
+    <span>Changes take effect after a reboot.</span>
+    <button id="pending-reboot">Reboot now</button>
+  </div>
+  <div class="card wide">
     <h2>Services</h2>
     <ul class="rows" id="services"></ul>
-    <p class="muted">Read-only. Changing services needs a reboot.</p>
+  </div>
+  <div class="card wide">
+    <h2>Settings</h2>
+    <ul class="rows" id="settings"></ul>
+    <p class="muted" id="settings-msg" hidden></p>
+  </div>
+</section>
+
+<section id="view-debug" class="grid" hidden>
+  <div class="card wide">
+    <h2>Kernel log</h2>
+    <div class="bar">
+      <select id="log-src" aria-label="Log">
+        <option value="current">This boot</option>
+        <option value="previous">Previous boot (pstore)</option>
+      </select>
+      <input id="log-filter" type="search" placeholder="Filter" aria-label="Filter">
+      <label><input id="log-follow" type="checkbox" checked> Follow</label>
+      <button id="log-refresh">Refresh</button>
+      <button id="log-save">Download</button>
+    </div>
+    <pre class="text" id="log"></pre>
+  </div>
+  <div class="card wide">
+    <h2>Processes</h2>
+    <div class="bar"><button id="procs-refresh">Refresh</button></div>
+    <pre class="text" id="procs"></pre>
+  </div>
+  <div class="card wide">
+    <h2>Storage, mounts and modules</h2>
+    <pre class="text" id="sysinfo"></pre>
+  </div>
+  <div class="card">
+    <h2>Device</h2>
+    <div class="bar"><button id="reboot">Reboot</button></div>
+    <p class="muted">The page reconnects by itself once the Echo is back.</p>
+  </div>
+</section>
+
+<section id="view-files" class="grid" hidden>
+  <div class="card wide">
+    <h2>Files</h2>
+    <div class="bar" id="fb-crumbs"></div>
+    <ul class="rows" id="fb-list"></ul>
+    <p class="muted">Read-only. Device nodes, the kernel message stream, process memory and debugfs are not offered.</p>
+  </div>
+  <div class="card wide" id="fb-view" hidden>
+    <h2 id="fb-name"></h2>
+    <pre class="text" id="fb-text"></pre>
   </div>
 </section>
 </main>
@@ -304,14 +427,18 @@ const TIMEOUT_MS = 5000;
 
 class ApiError extends Error {}
 
-/* GET a read-only query, or POST a command (empty JSON body) when `post` is set.
+/* GET a read-only query, or POST a command when `post` is set: `true` sends an empty JSON body,
+   { type, body } sends that body (data that must not go into the URL).
    Rejects with ApiError for {"error": ...}, any other Error if unreachable. */
-async function api(query, post) {
+async function api(query, post, timeoutMs) {
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctl.abort(), timeoutMs || TIMEOUT_MS);
   try {
     const opts = { signal: ctl.signal, cache: 'no-store' };
-    if (post) Object.assign(opts, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (post) {
+      const p = post === true ? { type: 'application/json', body: '{}' } : post;
+      Object.assign(opts, { method: 'POST', headers: { 'Content-Type': p.type }, body: p.body });
+    }
     const res = await fetch(API + '?' + query, opts);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json = await res.json();
@@ -322,14 +449,18 @@ async function api(query, post) {
   }
 }
 
+/* Body for commands that carry data: a type the browser will not send cross-site without a preflight. */
+const OCTET = (body) => ({ type: 'application/octet-stream', body });
+
 function showBanner(text) {
   $('banner').textContent = text || '';
   $('banner').hidden = !text;
 }
 
 let toastTimer;
-function toast(text) {
+function toast(text, ok) {
   $('toast').textContent = text;
+  $('toast').classList.toggle('ok', !!ok);
   $('toast').hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4000);
@@ -358,9 +489,9 @@ async function poll(query, render) {
 }
 
 /* User-triggered command: failures show as a toast. Returns true on success. */
-async function command(query) {
+async function command(query, post = true, timeoutMs) {
   try {
-    await api(query, true);
+    await api(query, post, timeoutMs);
     return true;
   } catch (err) {
     toast(describe(err));
@@ -379,7 +510,7 @@ function every(ms, active, fn) {
 
 /* ---------- views ---------- */
 
-const VIEWS = ['dashboard', 'music', 'services'];
+const VIEWS = ['dashboard', 'music', 'network', 'services', 'debug', 'files'];
 let view = 'dashboard';
 
 function showView(name) {
@@ -390,7 +521,10 @@ function showView(name) {
     else b.removeAttribute('aria-current');
   }
   if (view === 'music') { refreshPlayer(); refreshSongs(); }
-  if (view === 'services') refreshServices();
+  if (view === 'network') refreshNetwork();
+  if (view === 'services') { refreshServices(); refreshSettings(); }
+  if (view === 'debug') { refreshLog(); refreshText('procs', 'procs'); refreshText('system', 'sysinfo'); }
+  if (view === 'files' && !$('fb-list').children.length) listDir(fbPath);
 }
 
 function initViews() {
@@ -505,15 +639,6 @@ function renderRails(rails) {
   const nodes = [];
   for (const r of rails) nodes.push(el('dt', '', r.name), el('dd', '', r.mv == null ? DASH : (r.mv / 1000).toFixed(3) + ' V'));
   $('rails').replaceChildren(...nodes);
-}
-
-function renderServices(services) {
-  $('services').replaceChildren(...services.map((s) => {
-    const li = el('li');
-    li.append(el('span', 'name', s.name), el('span', 'desc', s.description),
-      el('span', 'pill', s.group), el('span', 'pill ' + (s.enabled ? 'on' : ''), s.enabled ? 'enabled' : 'disabled'));
-    return li;
-  }));
 }
 
 function renderStats(s) {
@@ -867,22 +992,445 @@ function initUpload() {
   });
 }
 
+/* ---------- shared by the admin views ---------- */
+
+/* A button that asks for a second click within 3 s instead of a modal dialog. */
+function confirmClick(btn, ask, action) {
+  const label = btn.textContent;
+  let armed;
+  btn.addEventListener('click', async () => {
+    if (!armed) {
+      btn.textContent = ask;
+      armed = setTimeout(() => { armed = null; btn.textContent = label; }, 3000);
+      return;
+    }
+    clearTimeout(armed);
+    armed = null;
+    btn.textContent = label;
+    btn.disabled = true;
+    try { await action(); } finally { btn.disabled = false; }
+  });
+}
+
+function kvRows(id, rows) {
+  const nodes = [];
+  for (const [k, v] of rows) nodes.push(el('dt', '', k), el('dd', '', v));
+  $(id).replaceChildren(...nodes);
+}
+
+async function reboot() {
+  if (await command('reboot')) toast('Rebooting…', true);
+}
+
+/* ---------- network ---------- */
+
+const NETWORK_MS = 3000;
+const WIFI_SCAN_MS = 20000;
+const BT_SCAN_MS = 25000;       /* discovery runs about 10 s on each transport */
+let bluetooth = null;
+
+function fmtBand(mhz) {
+  if (mhz == null) return DASH;
+  return (mhz >= 5925 ? '6 GHz' : mhz >= 4900 ? '5 GHz' : '2.4 GHz') + '  ·  ' + mhz + ' MHz';
+}
+
+function renderNetwork(n) {
+  const w = n.wifi;
+  setText('wifi-state', w.state === 'connected' ? 'connected'
+    : w.state === 'absent' ? 'no Wi-Fi interface (wireless service off?)' : 'not connected');
+  setText('wifi-ssid', w.ssid == null ? DASH : ssidFromIw(w.ssid) ?? DASH);
+  setText('wifi-signal', w.signal == null ? DASH : w.signal + ' dBm');
+  setText('wifi-band', fmtBand(w.freq));
+  setText('wifi-rate', w.bitrate == null ? DASH : w.bitrate + ' Mbit/s');
+  setText('wifi-ipv4', w.ipv4.join(', ') || DASH);
+  setText('wifi-ipv6', w.ipv6.join(', ') || DASH);
+  setText('wifi-saved', w.configured ?? 'none');
+  $('wifi-forget').disabled = !w.configured;
+  $('wifi-scan').disabled = w.state === 'absent';
+
+  const b = bluetooth = n.bluetooth;
+  setText('bt-state', !b.present ? 'not present (Bluetooth driver off?)' : b.powered ? 'on' : 'off');
+  setText('bt-name', b.name || DASH);
+  setText('bt-addr', b.address || DASH);
+  $('bt-power').disabled = !b.present;
+  $('bt-power').textContent = b.powered ? 'Turn off' : 'Turn on';
+  $('bt-scan').disabled = !b.present || !b.powered;
+
+  const t = n.thread, z = n.zigbee, rows = [];
+  rows.push(['Thread service', t.enabled ? (t.agent ? 'running' : 'starting or failed') : 'off']);
+  if (t.agent) {
+    rows.push(['Thread role', t.agent.state], ['Network', t.agent.network || DASH], ['Channel', t.agent.channel],
+      ['PAN ID', t.agent.panid], ['Border routing', t.agent.border_routing]);
+  }
+  rows.push(['Zigbee service', z.enabled ? (z.bridge ? 'coordinator on port 6638' : 'starting or failed') : 'off']);
+  kvRows('radio', rows);
+}
+
+function refreshNetwork() { return poll('network', renderNetwork); }
+
+/* iw prints every SSID byte that is not plain printable ASCII (backslash and edge spaces included)
+   as \xNN: back to bytes, read as UTF-8. Hidden networks come out as empty or all zero bytes. */
+function ssidFromIw(s) {
+  const bytes = [];
+  for (let i = 0; i < s.length; i++) {
+    const hex = s[i] === '\\' && /^x[0-9a-fA-F]{2}$/.test(s.slice(i + 1, i + 4));
+    bytes.push(hex ? parseInt(s.slice(i + 2, i + 4), 16) : s.charCodeAt(i));
+    if (hex) i += 3;
+  }
+  return bytes.some((b) => b !== 0) ? new TextDecoder().decode(new Uint8Array(bytes)) : null;
+}
+
+/* Only WPA2-Personal is set up (also in WPA2/WPA3 mixed mode). */
+function wifiRow(net) {
+  const li = el('li');
+  const pick = el('button', '', 'Connect');
+  if (!net.security.startsWith('wpa2')) {
+    pick.disabled = true;
+    pick.title = 'Only WPA2-Personal networks are supported';
+  }
+  pick.addEventListener('click', () => openWifiForm(net.ssid));
+  const meta = el('span', 'meta');
+  meta.append(el('span', 'pill', net.security), el('span', 'num', net.bands.split(' ').join(' + ') + ' GHz'));
+  const stack = el('span', 'stack');
+  stack.append(el('span', 'name', net.ssid), meta);
+  li.append(el('span', 'sig', net.signal + ' dBm'), stack, pick);
+  return li;
+}
+
+async function scanWifi() {
+  const btn = $('wifi-scan');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  try {
+    const d = await api('wifi_scan', null, WIFI_SCAN_MS);
+    const nets = d.networks.map((n) => ({ ...n, ssid: ssidFromIw(n.ssid) })).filter((n) => n.ssid != null);
+    $('wifi-list').replaceChildren(...(nets.length ? nets.map(wifiRow) : [el('li', 'muted', 'No networks found')]));
+  } catch (err) {
+    toast(describe(err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Scan';
+  }
+}
+
+function openWifiForm(ssid) {
+  $('wifi-form').hidden = false;
+  $('wifi-ssid-in').value = ssid || '';
+  $('wifi-pass-in').value = '';
+  (ssid ? $('wifi-pass-in') : $('wifi-ssid-in')).focus();
+}
+
+function btRow(d) {
+  const li = el('li');
+  const meta = el('span', 'meta');
+  meta.append(el('span', 'num', d.address), el('span', 'pill', d.type));
+  const stack = el('span', 'stack');
+  stack.append(el('span', 'name', d.name || '(no name)'), meta);
+  li.append(el('span', 'sig', d.rssi + ' dBm'), stack);
+  return li;
+}
+
+async function scanBluetooth() {
+  const btn = $('bt-scan');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+  try {
+    const d = await api('bt_scan', null, BT_SCAN_MS);
+    const devs = d.devices.sort((a, b) => b.rssi - a.rssi);
+    $('bt-list').replaceChildren(...(devs.length ? devs.map(btRow) : [el('li', 'muted', 'No devices found')]));
+  } catch (err) {
+    toast(describe(err));
+  } finally {
+    btn.textContent = 'Scan';
+    btn.disabled = !(bluetooth && bluetooth.powered);
+  }
+}
+
+function initNetwork() {
+  $('wifi-scan').addEventListener('click', scanWifi);
+  $('wifi-cancel').addEventListener('click', () => {
+    $('wifi-form').hidden = true;
+    $('wifi-pass-in').value = '';
+  });
+  $('wifi-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ssid = $('wifi-ssid-in').value, pass = $('wifi-pass-in').value;
+    if (/[\r\n]/.test(ssid + pass)) return toast('Line breaks are not allowed');
+    const btn = e.submitter;
+    if (btn) btn.disabled = true;
+    const ok = await command('wifi_connect', OCTET(ssid + '\n' + pass), 15000);
+    if (btn) btn.disabled = false;
+    if (!ok) return;
+    $('wifi-pass-in').value = '';
+    $('wifi-form').hidden = true;
+    toast('Saved, joining ' + ssid + '…', true);
+    refreshNetwork();
+  });
+  confirmClick($('wifi-forget'), 'Really forget?', async () => {
+    if (await command('wifi_forget')) {
+      toast('Network forgotten', true);
+      refreshNetwork();
+    }
+  });
+  $('bt-power').addEventListener('click', async () => {
+    if (!bluetooth) return;
+    $('bt-power').disabled = true;
+    await command('bt_power=' + (bluetooth.powered ? 'off' : 'on'), true, 8000);
+    await refreshNetwork();
+    $('bt-power').disabled = !(bluetooth && bluetooth.present);
+  });
+  $('bt-scan').addEventListener('click', scanBluetooth);
+}
+
+/* ---------- services and settings ---------- */
+
+function markPending() { $('pending').hidden = false; }
+
+function renderServices(services) {
+  $('services').replaceChildren(...services.map((s) => {
+    const li = el('li');
+    const btn = el('button', '', s.enabled ? 'Disable' : 'Enable');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      if (await command((s.enabled ? 'disable=' : 'enable=') + encodeURIComponent(s.name))) {
+        markPending();
+        await refreshServices();
+      }
+      btn.disabled = false;
+    });
+    li.append(el('span', 'name', s.name), el('span', 'desc', s.description), el('span', 'pill', s.group),
+      el('span', 'pill ' + (s.enabled ? 'on' : ''), s.enabled ? 'enabled' : 'disabled'), btn);
+    return li;
+  }));
+}
+
+function refreshServices() { return poll('services', (d) => renderServices(d.services)); }
+
+/* The input that fits a setting's allowed values (see lidar-feature). */
+function settingInput(s) {
+  let input;
+  if (s.allowed.includes('|')) {
+    input = el('select');
+    for (const o of s.allowed.split('|')) {
+      const opt = el('option', '', o);
+      opt.value = o;
+      input.append(opt);
+    }
+    input.value = s.value;
+  } else if (/^\d+-\d+$/.test(s.allowed)) {
+    const [lo, hi] = s.allowed.split('-');
+    input = el('input');
+    Object.assign(input, { type: 'number', min: lo, max: hi, value: s.value });
+  } else if (s.allowed === 'passphrase') {
+    input = el('input');
+    Object.assign(input, { type: 'password', autocomplete: 'off', placeholder: s.value ? 'set (type to replace)' : 'unset' });
+  } else {
+    input = el('input');
+    Object.assign(input, { type: 'text', value: s.value, placeholder: 'unset' });
+    if (s.allowed === 'CC') input.maxLength = 2;
+    if (s.allowed === 'ssid') input.maxLength = 32;
+  }
+  input.classList.add('val');
+  input.setAttribute('aria-label', s.feature + ' ' + s.key);
+  return input;
+}
+
+function settingRow(s) {
+  const li = el('li');
+  const input = settingInput(s);
+  const name = s.feature + '.' + s.key;
+  const save = el('button', '', 'Save');
+  const reset = el('button', '', 'Default');
+  reset.title = 'Back to the default (' + (s.default || 'unset') + ')';
+  save.addEventListener('click', async () => {
+    if (s.allowed === 'passphrase' && !input.value) return toast('Type the new passphrase first');
+    save.disabled = true;
+    if (await command('set=' + encodeURIComponent(name), OCTET(input.value))) {
+      markPending();
+      toast('Saved', true);
+      await refreshSettings();
+    }
+    save.disabled = false;
+  });
+  reset.addEventListener('click', async () => {
+    reset.disabled = true;
+    if (await command('unset=' + encodeURIComponent(name))) {
+      markPending();
+      await refreshSettings();
+    }
+    reset.disabled = false;
+  });
+  li.append(el('span', 'name', s.feature + ' ' + s.key), input, save, reset, el('span', 'desc', s.description));
+  return li;
+}
+
+/* Settings are admin-only: over Wi-Fi the card says so instead of raising the banner. */
+async function refreshSettings() {
+  try {
+    const d = await api('settings');
+    $('settings').replaceChildren(...d.settings.map(settingRow));
+    $('settings-msg').hidden = true;
+  } catch (err) {
+    $('settings').replaceChildren();
+    $('settings-msg').textContent = describe(err);
+    $('settings-msg').hidden = false;
+  }
+}
+
+function initServices() {
+  confirmClick($('pending-reboot'), 'Really reboot?', reboot);
+}
+
+/* ---------- debug ---------- */
+
+const LOG_MS = 5000;
+let logText = '';
+
+/* Keep following the end unless the reader has scrolled up. */
+function renderLog() {
+  const f = $('log-filter').value.toLowerCase();
+  const pre = $('log');
+  const atEnd = !pre.dataset.shown || pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+  pre.textContent = f ? logText.split('\n').filter((l) => l.toLowerCase().includes(f)).join('\n') : logText;
+  if (atEnd) pre.scrollTop = pre.scrollHeight;
+  pre.dataset.shown = '1';
+}
+
+async function refreshLog() {
+  try {
+    const d = await api('log=' + $('log-src').value, null, 15000);
+    logText = d.text ?? 'No log from a previous boot: pstore only keeps one across a warm reboot.';
+    renderLog();
+  } catch (err) {
+    $('log').textContent = describe(err);
+  }
+}
+
+async function refreshText(query, id) {
+  try {
+    $(id).textContent = (await api(query, null, 10000)).text;
+  } catch (err) {
+    $(id).textContent = describe(err);
+  }
+}
+
+function saveText(name, text) {
+  const a = el('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function initDebug() {
+  $('log-refresh').addEventListener('click', refreshLog);
+  $('log-src').addEventListener('change', () => {
+    $('log').dataset.shown = '';
+    refreshLog();
+  });
+  $('log-filter').addEventListener('input', renderLog);
+  $('log-save').addEventListener('click', () =>
+    saveText($('log-src').value === 'previous' ? 'kernel-log-previous.txt' : 'kernel-log.txt', logText));
+  $('procs-refresh').addEventListener('click', () => refreshText('procs', 'procs'));
+  confirmClick($('reboot'), 'Really reboot?', reboot);
+}
+
+/* ---------- files (read-only) ---------- */
+
+const PREVIEW_BYTES = 262144;   /* what the device sends for a preview */
+let fbPath = '/';
+
+function joinPath(dir, name) { return (dir === '/' ? '' : dir) + '/' + name; }
+function fileUrl(path, view) { return API + '?file=' + encodeURIComponent(path) + (view ? '&view' : ''); }
+
+function renderCrumbs(path) {
+  const crumb = (label, to) => {
+    const b = el('button', '', label);
+    b.addEventListener('click', () => listDir(to));
+    return b;
+  };
+  const nodes = [crumb('/', '/')];
+  let at = '';
+  for (const part of path.split('/').filter(Boolean)) {
+    at += '/' + part;
+    nodes.push(crumb(part, at));
+  }
+  $('fb-crumbs').replaceChildren(...nodes);
+}
+
+function fbRow(dir, e) {
+  const li = el('li');
+  const path = joinPath(dir, e.name);
+  const name = el('button', 'name link', e.name + (e.type === 'dir' ? '/' : ''));
+  if (e.type === 'dir') name.addEventListener('click', () => listDir(path));
+  else if (e.type === 'file') name.addEventListener('click', () => viewFile(path));
+  else name.disabled = true;
+  const when = new Date(e.mtime * 1000).toISOString().slice(0, 16).replace('T', ' ');
+  li.append(name, el('span', 'num', e.type === 'file' ? fmtBytes(e.size) : ''), el('span', 'num', when));
+  if (e.type === 'file') {
+    const dl = el('a', '', 'Download');
+    dl.href = fileUrl(path);
+    dl.download = e.name;
+    li.append(dl);
+  }
+  return li;
+}
+
+async function listDir(path) {
+  try {
+    const d = await api('ls=' + encodeURIComponent(path), null, 10000);
+    fbPath = d.path;
+    renderCrumbs(d.path);
+    const dirFirst = (a, b) => (a.type === 'dir') === (b.type === 'dir') ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1;
+    const entries = d.entries.sort(dirFirst);
+    $('fb-list').replaceChildren(...(entries.length ? entries.map((e) => fbRow(d.path, e)) : [el('li', 'muted', 'Empty')]));
+  } catch (err) {
+    toast(describe(err));
+  }
+}
+
+/* The preview comes as text/plain; an error comes as JSON. */
+async function viewFile(path) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const res = await fetch(fileUrl(path, true), { signal: ctl.signal, cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if ((res.headers.get('Content-Type') || '').startsWith('application/json')) throw new ApiError((await res.json()).error);
+    const buf = await res.arrayBuffer();
+    const text = new TextDecoder().decode(buf);
+    $('fb-name').textContent = path + (buf.byteLength >= PREVIEW_BYTES ? '  (first 256 KB)' : '');
+    $('fb-text').textContent = new Uint8Array(buf).includes(0) ? 'Binary file: use Download.' : text || '(empty)';
+    $('fb-view').hidden = false;
+    $('fb-view').scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    toast(describe(err));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ---------- start ---------- */
 
 const STATS_MS = 2000;
 const PLAYER_MS = 1000;
 
 function refreshStats() { return poll('stats', renderStats); }
-function refreshServices() { return poll('services', (d) => renderServices(d.services)); }
 
 initRing();
 initVolume();
 initPlayer();
 initUpload();
+initNetwork();
+initServices();
+initDebug();
 initViews();
 if (view !== 'services') refreshServices();     /* showView already fetched them otherwise */
 every(STATS_MS, () => !document.hidden, refreshStats);
 every(PLAYER_MS, () => !document.hidden && view === 'music', refreshPlayer);
+every(NETWORK_MS, () => !document.hidden && view === 'network', refreshNetwork);
+every(LOG_MS, () => !document.hidden && view === 'debug' && $('log-follow').checked &&
+  $('log-src').value === 'current', refreshLog);
 </script>
 </body>
 </html>

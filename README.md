@@ -131,6 +131,7 @@ decompression.
 | `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if another application or none is there) and bridges EZSP to TCP port 6638 |
 | `tools/lidar-thread.sh` | Thread border router: starts the EFR32's OpenThread RCP (uploading it if needed) and runs `otbr-agent`, with the Thread network kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
+| `tools/lidar-wifi.sh` | Wi-Fi client from `wireless ssid`/`passphrase`: start, stop, status and scan; used at boot and by the web interface |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
@@ -306,10 +307,10 @@ lidar-feature unset wireless country      # back to the default
   `usbaudio.keepalive` lines in `lidar.conf` are ignored: speaker volume and
   the keep-alive belong to the `volume` service.
 - `wireless country` has not been tried on hardware.
-- `wireless ssid`/`passphrase`: the configuration that `wpa_supplicant` gets
-  is verified on hardware (SSID as hex, the PSK from `wpa_passphrase`, also
-  for passphrases with `"`, `#` and spaces); joining a network with it is not
-  verified yet.
+- `wireless ssid`/`passphrase`: verified on hardware. The configuration
+  that `wpa_supplicant` gets (SSID as hex, the PSK from `wpa_passphrase`,
+  also for passphrases with `"`, `#` and spaces) and a real join from the
+  web interface: WPA2 on 5 GHz, address, default route and DNS from DHCP.
 
 ### System volume
 
@@ -407,21 +408,45 @@ up:
   them. `lidar-player` plays the library in order, with pause, seek and
   skip. The library lives in RAM (`webui storage_mb`) and is gone after a
   reboot.
-- **Services:** which services are on.
+- **Network:** Wi-Fi status (network, signal, band, bit rate, addresses),
+  a scan list to pick a network from, connect (saved as `wireless ssid` and
+  `wireless passphrase` and joined at once, through `lidar-wifi`) and forget.
+  Bluetooth power and a scan of nearby devices (name, address, type,
+  signal) through `btmgmt`, without `bluetoothd`. Thread and Zigbee state:
+  role, network, channel, PAN ID, border routing.
+- **Services:** switch services on and off and edit their settings, with
+  inputs that only offer the allowed values; then reboot from the page.
+- **Debug:** the kernel log with a filter and live follow, the previous
+  boot's log from pstore (after a crash or a warm reboot), processes,
+  storage, mounts and modules, and a reboot button.
+- **Files:** a read-only file browser with text preview (first 256 KB) and
+  download. Device nodes, `/proc/kmsg`, `/proc/kcore`, process memory and
+  debugfs are refused: reading some of them blocks, and debugfs register
+  dumps of clock-gated blocks can stall the bus. Everything else is
+  served, `lidar.conf` with the Wi-Fi passphrase included: the settings
+  view shows it as `(set)`, but the file holds it in plain text.
 
 There is no login: as with telnet, the server (BusyBox `httpd` behind
 `lidar-listen`) only accepts connections that arrive on `usb0` unless
-`webui listen any` is set. Unlike telnet, a web server can also be reached
-by other web pages open in the host's browser, so the API only takes
-commands as POST with `Content-Type: application/json` (uploads with
-`application/octet-stream`), which a foreign page cannot send without a
-CORS preflight that the server never answers, and only when the Echo is
-addressed by IP (no DNS rebinding). Everything on the page comes from
-`/cgi-bin/api` as JSON, so scripts can use it too:
+`webui listen any` is set. Even then, everything that changes the device or
+reads more than its status (Wi-Fi and Bluetooth control, services and
+settings, logs, files, reboot) is only answered for clients on the USB
+network (`169.254.0.0/16`); over Wi-Fi the dashboard, music and the network
+status stay available. Unlike telnet, a web server can also be reached by
+other web pages open in the host's browser, so the API only takes commands
+as POST with `Content-Type: application/json`, or `application/octet-stream`
+for those that carry data (uploads, Wi-Fi credentials, setting values),
+which a foreign page cannot send without a CORS preflight that the server
+never answers, and only when the Echo is addressed by IP (no DNS
+rebinding). Everything on the page comes from `/cgi-bin/api` as JSON, so
+scripts can use it too:
 
 ```sh
 curl 'http://169.254.7.2/cgi-bin/api?stats'
+curl 'http://169.254.7.2/cgi-bin/api?network'
 curl -X POST -H 'Content-Type: application/json' -d '{}' 'http://169.254.7.2/cgi-bin/api?volume=40'
+printf 'MyNetwork\nmy passphrase' | curl -X POST -H 'Content-Type: application/octet-stream' \
+  --data-binary @- 'http://169.254.7.2/cgi-bin/api?wifi_connect'
 ```
 
 ### Zigbee coordinator
@@ -478,6 +503,14 @@ Assistant, add the OpenThread Border Router integration with the URL
   on that interface, as ot-br-posix's own setup does. mDNS is OpenThread's
   built-in one; the border agent appears as "lidar-mainline Thread Border
   Router".
+- Multicast between the Thread network and the LAN is routed by
+  otbr-agent (the kernel has `CONFIG_IPV6_MROUTE` for it). There is no
+  ingress firewall: ot-br-posix's default one runs the `ipset` and
+  `ip6tables` tools with rules from its own setup scripts, which this
+  system does not have, so it is built without (`OT_FIREWALL=OFF`). The Echo
+  then routes between the LAN and the Thread network like any IPv6 router.
+- otbr-agent's log goes to the kernel log, one line per record, prefixed
+  `otbr-agent:`.
 - Verified on hardware with `thread infra usb0`: the RCP is uploaded when the
   NCP was there, a new network reaches `leader` with border routing
   `running`, the REST API answers on `169.254.7.2:8081`, and after a reboot

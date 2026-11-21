@@ -1,23 +1,53 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 # Web UI backend (BusyBox httpd CGI): device statistics, volume, the song
-# library and the player. One query per request, JSON out; see the README.
+# library and the player, network and radio status and control, logs, files
+# and the services. One query per request, JSON out; see the README.
 #
-# Reads are GET (stats, player, songs, services). Commands must be POST with
-# Content-Type application/json, uploads POST with application/octet-stream:
-# a web page elsewhere in the host's browser cannot send either without a
-# CORS preflight, which this server never answers. The Host header must be
-# an IP address, which keeps DNS rebinding out.
+# Reads are GET. Commands must be POST with Content-Type application/json,
+# and those that carry data (uploads, Wi-Fi credentials, setting values) POST
+# with application/octet-stream: a web page elsewhere in the host's browser
+# cannot send either without a CORS preflight, which this server never
+# answers. The Host header must be an IP address, which keeps DNS rebinding
+# out.
+#
+# There is no login. Everything that changes the device or reads more than
+# its status (radios, services, settings, logs, files, reboot) is "admin" and
+# only answered for clients on the USB network, even with "webui listen any".
 LIB=/run/lidar-player
 FIFO=/run/lidar-player.fifo
 
-printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
+HDR=
+hdr() {
+	[ -n "$HDR" ] || printf 'Content-Type: application/json\r\nCache-Control: no-store\r\nCross-Origin-Resource-Policy: same-origin\r\n\r\n'
+	HDR=1
+}
 
-fail() { printf '{"error": "%s"}\n' "$1"; exit 0; }
-ok() { printf '{"ok": true}\n'; exit 0; }
+fail() { hdr; printf '{"error": "%s"}\n' "$1"; exit 0; }
+ok() { hdr; printf '{"ok": true}\n'; exit 0; }
+
+# Clients on the USB network: a 169.254.0.0/16 address (httpd writes IPv6
+# peers as [addr], IPv4 ones on its dual-stack socket as ::ffff:addr) whose
+# route is usb0. Replies to it then only ever leave through usb0, so a Wi-Fi
+# host that fakes such a source cannot complete a connection; without usb0
+# ("webui listen any") they would follow the default route, hence the check.
+admin() {
+	a=${REMOTE_ADDR#[}; a=${a%]}; a=${a#::ffff:}
+	case $a in 169.254.*) ;; *) fail "only over the USB network" ;; esac
+	ip route get "$a" 2>/dev/null | grep -q ' dev usb0 ' || fail "only over the USB network"
+}
 
 # JSON string body: backslash and quote escaped, control characters dropped
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\000-\037'; }
+
+# Tab-separated lines -> the same with backslashes and quotes escaped and
+# control characters (tabs and newlines kept) dropped, ready for "%s" in JSON
+jesc() { tr -d '\000-\010\013-\037\177' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+# Text -> one JSON string, lines joined with \n
+jtext() {
+	tr '\t' ' ' | jesc | awk 'BEGIN { printf "\"" } { printf "%s\\n", $0 } END { printf "\"" }'
+}
 
 # file -> $v (first line); $2 (default null) if unreadable or empty; no fork
 rdv() {
@@ -193,8 +223,210 @@ upload() {
 	printf '{"ok": true, "id": "%s"}\n' "$id"
 }
 
-# the server is reached by its address, never by a name
-case ${HTTP_HOST%:*} in '' | *[!0-9.]*) fail "bad host" ;; esac
+# ---------- network and radios ----------
+
+wifi_json() {
+	lidar-wifi status 2>/dev/null | jesc | awk -F= '
+		function s(k) { return (k in v && v[k] != "") ? "\"" v[k] "\"" : "null" }
+		function n(k) { return (k in v && v[k] != "") ? v[k] + 0 : "null" }
+		{ k = $1; x = substr($0, length(k) + 2) }
+		k == "ipv4" || k == "ipv6" { a[k] = a[k] (a[k] == "" ? "" : ", ") "\"" x "\""; next }
+		{ v[k] = x }
+		END {
+			printf "{\"state\": %s, \"ssid\": %s, \"configured\": %s, \"freq\": %s, \"signal\": %s, \"bitrate\": %s, \"ipv4\": [%s], \"ipv6\": [%s]}",
+				s("state"), s("ssid"), s("configured"), n("freq"), n("signal"), n("bitrate"), a["ipv4"], a["ipv6"]
+		}'
+}
+
+bt_json() {
+	if [ ! -d /sys/class/bluetooth/hci0 ]; then
+		printf '{"present": false}'
+		return
+	fi
+	timeout 2 btmgmt info 2>/dev/null | tr '\t' ' ' | jesc | awk '
+		/^[[:space:]]+addr / { addr = $2 }
+		/current settings:/ { pw = / powered( |$)/ }
+		/^[[:space:]]+name / { sub(/^[[:space:]]+name /, ""); name = $0 }
+		END { printf "{\"present\": true, \"powered\": %s, \"address\": \"%s\", \"name\": \"%s\"}",
+			pw ? "true" : "false", addr, name }'
+}
+
+# The first line of the agent's answer to a CLI command. Not ot-ctl: it exits
+# after "Done" with the prompt unread, and the agent logs every such call as
+# a reset connection. socat closes its side first and reads to the end.
+otc() {
+	o=$(printf '%s\n' "$*" | timeout 3 socat -t 1 - UNIX-CONNECT:/run/openthread-wpan0.sock 2>/dev/null) || return
+	printf '%s\n' "${o%%
+*}" | jesc
+}
+
+radio_json() {
+	t=null
+	# a stalled agent costs one timeout, not five
+	if pgrep -x otbr-agent >/dev/null && st=$(otc state) && [ -n "$st" ]; then
+		t="{\"state\": \"$st\", \"channel\": \"$(otc channel)\", \"network\": \"$(otc networkname)\", \"panid\": \"$(otc panid)\", \"border_routing\": \"$(otc br state)\"}"
+	fi
+	te=false; lidar-feature enabled thread && te=true
+	ze=false; lidar-feature enabled zigbee && ze=true
+	zb=false; pgrep -f 'socat TCP-LISTEN:6638' >/dev/null && zb=true
+	printf '"thread": {"enabled": %s, "agent": %s}, "zigbee": {"enabled": %s, "bridge": %s}' "$te" "$t" "$ze" "$zb"
+}
+
+network() {
+	printf '{"wifi": %s, "bluetooth": %s, %s}\n' "$(wifi_json)" "$(bt_json)" "$(radio_json)"
+}
+
+wifi_scan() {
+	lidar-wifi scan 2>/dev/null | jesc | awk -F '\t' 'BEGIN { printf "{\"networks\": [" }
+		NF >= 4 { printf "%s{\"signal\": %s, \"bands\": \"%s\", \"security\": \"%s\", \"ssid\": \"%s\"}",
+			n++ ? ", " : "", $1 + 0, $2, $3, $4 }
+		END { print "]}" }'
+}
+
+body_len() { # at most $1 bytes of request body -> $len; in this shell, so fail ends the request
+	len=${CONTENT_LENGTH:-0}
+	case $len in '' | *[!0-9]*) fail "bad length" ;; esac
+	[ "$len" -le "$1" ] || fail "request too long"
+}
+
+# body: SSID, newline, passphrase
+wifi_connect() {
+	body_len 200
+	b=$(head -c "$len")
+	ssid=${b%%
+*}
+	pass=${b#*
+}
+	[ "$ssid" != "$b" ] || fail "expected the SSID and the passphrase on two lines"
+	# checked before anything is saved: a new SSID with the old passphrase
+	# would join nothing at the next boot
+	case $pass in *[![:print:]]*) pass= ;; esac
+	[ ${#pass} -ge 8 ] && [ ${#pass} -le 63 ] ||
+		fail "invalid passphrase (8-63 printable ASCII characters)"
+	lidar-feature set wireless ssid "$ssid" >/dev/null 2>&1 || fail "invalid SSID (1-32 bytes)"
+	lidar-feature set wireless passphrase "$pass" >/dev/null 2>&1 ||
+		fail "invalid passphrase (8-63 printable ASCII characters)"
+	lidar-wifi restart >/dev/null 2>&1 || fail "Wi-Fi did not start (see the kernel log)"
+	ok
+}
+
+bt_scan() {
+	[ -d /sys/class/bluetooth/hci0 ] || fail "no Bluetooth controller"
+	# "hci0 dev_found: <addr> type <LE Public|LE Random|BR/EDR> rssi <n> flags ...",
+	# then the advertised "name <name>"; discovery ends by itself
+	timeout 15 btmgmt find 2>/dev/null | tr '\t' ' ' | jesc | awk '
+		/dev_found: / {
+			a = $0; sub(/.*dev_found: /, "", a); cur = a; sub(/ .*/, "", cur)
+			t = a; sub(/^[^ ]+ type /, "", t); sub(/ rssi .*/, "", t)
+			r = a; sub(/.* rssi /, "", r); r = r + 0
+			if (!(cur in rssi) || r > rssi[cur]) rssi[cur] = r
+			type[cur] = t
+			next
+		}
+		/^[[:space:]]*name / && cur != "" { nm = $0; sub(/^[[:space:]]*name /, "", nm); name[cur] = nm }
+		END {
+			printf "{\"devices\": ["
+			for (d in rssi) printf "%s{\"address\": \"%s\", \"type\": \"%s\", \"rssi\": %d, \"name\": \"%s\"}",
+				n++ ? ", " : "", d, type[d], rssi[d], name[d]
+			print "]}"
+		}'
+}
+
+# ---------- debug ----------
+
+klog() { # this boot's kernel log, or the previous boot's from pstore
+	if [ "$val" = previous ]; then
+		f=$(ls /sys/fs/pstore/console-ramoops* /sys/fs/pstore/dmesg-ramoops* 2>/dev/null | head -n 1)
+		[ -n "$f" ] || { printf '{"text": null}\n'; return; }
+		printf '{"text": %s}\n' "$(tail -n 3000 "$f" | jtext)"
+	else
+		printf '{"text": %s}\n' "$(dmesg | tail -n 3000 | jtext)"
+	fi
+}
+
+system_info() {
+	printf '{"text": %s}\n' "$({
+		echo '# df -h'; df -h
+		echo; echo '# mounts'; cat /proc/mounts
+		echo; echo '# lsmod'; lsmod
+	} 2>&1 | jtext)"
+}
+
+# ---------- services and settings ----------
+
+settings() {
+	lidar-feature settings --raw | jesc | awk -F '\t' 'BEGIN { printf "{\"settings\": [" }
+		NF >= 6 { printf "%s{\"feature\": \"%s\", \"key\": \"%s\", \"value\": \"%s\", \"default\": \"%s\", \"allowed\": \"%s\", \"description\": \"%s\"}",
+			n++ ? ",\n " : "", $1, $2, $3, $4, $5, $6 }
+		END { print "]}" }'
+}
+
+setting_name() { # $val = <feature>.<key> -> $sf, $sk
+	case $val in *.* ) ;; *) fail "bad setting" ;; esac
+	sf=${val%%.*}; sk=${val#*.}
+	case $sf$sk in '' | *[!a-z0-9_]*) fail "bad setting" ;; esac
+}
+
+# body: the new value
+set_setting() {
+	setting_name
+	body_len 256
+	v=$(head -c "$len")
+	msg=$(lidar-feature set "$sf" "$sk" "$v" 2>&1 >/dev/null) || fail "$(esc "$msg")"
+	ok
+}
+
+# ---------- files (read-only) ----------
+
+fpath() { # URL-encoded absolute path -> $p, canonical
+	p=$(busybox-extras httpd -d "$1")
+	case $p in /*) ;; *) fail "bad path" ;; esac
+	p=$(realpath "$p" 2>/dev/null) || fail "no such path"
+}
+
+ls_dir() {
+	fpath "$val"
+	[ -d "$p" ] || fail "not a directory"
+	printf '{"path": "%s", "entries": [' "$(esc "$p")"
+	# type|size|mtime|path; the path may hold "|", so it is what follows the third
+	find "$p" -mindepth 1 -maxdepth 1 -exec stat -L -c '%F|%s|%Y|%n' {} + 2>/dev/null | tr '\t' ' ' | jesc | awk -F '|' '{
+		n = $0; sub(/^[^|]*\|[^|]*\|[^|]*\|/, "", n); sub(/.*\//, "", n)
+		t = $1 == "directory" ? "dir" : ($1 ~ /regular/ ? "file" : "other")
+		printf "%s{\"name\": \"%s\", \"type\": \"%s\", \"size\": %d, \"mtime\": %d}", c++ ? ",\n " : "", n, t, $2, $3 }'
+	printf ']}\n'
+}
+
+# Download, or with "&view" the first 256 KB as plain text. Device nodes,
+# the kernel message stream, process memory and debugfs (whose register
+# dumps can stall the bus on clock-gated blocks) are refused.
+get_file() {
+	fpath "$val"
+	case $p in
+	/dev/* | /proc/kmsg | /proc/kcore | /proc/*/mem | /proc/*/pagemap | /sys/kernel/debug/*)
+		fail "not readable from here" ;;
+	esac
+	[ -f "$p" ] || fail "not a regular file"
+	[ -r "$p" ] || fail "not readable"
+	n=$(printf '%s' "${p##*/}" | tr -c 'A-Za-z0-9._-' '_')
+	case $QUERY_STRING in
+	*'&view'*)
+		printf 'Content-Type: text/plain; charset=utf-8\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: no-store\r\n\r\n'
+		timeout 5 head -c 262144 "$p"
+		;;
+	*)
+		printf 'Content-Type: application/octet-stream\r\nContent-Disposition: attachment; filename="%s"\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: no-store\r\n\r\n' "$n"
+		timeout 60 cat "$p"
+		;;
+	esac
+}
+
+# the server is reached by its address, never by a name: a.b.c.d[:port] or
+# [IPv6][:port]
+case $HTTP_HOST in
+\[*) h=${HTTP_HOST#[}; h=${h%%]*} ;;
+*) h=${HTTP_HOST%:*}; case $h in *[!0-9.]*) h= ;; esac ;;
+esac
+case $h in '' | *[!0-9A-Za-z:.%]*) fail "bad host" ;; esac
 
 # QUERY_STRING: one command, e.g. "stats", "play=<id>", "upload&title=..."
 q=${QUERY_STRING%%&*}
@@ -203,15 +435,21 @@ val=; [ "$key" != "$q" ] && val=${q#*=}
 title=
 case $QUERY_STRING in *'&title='*) title=${QUERY_STRING#*&title=}; title=${title%%&*} ;; esac
 
+# downloads write their own headers
+[ "$key" = file ] || hdr
+
 case $key in
-stats | player | songs | services) ;;
-upload)
+stats | player | songs | services | network) ;;
+wifi_scan | bt_scan | log | procs | system | settings | ls | file) admin ;;
+upload | wifi_connect | set)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/octet-stream ] ||
-		fail "upload needs POST with application/octet-stream"
+		fail "$key needs POST with application/octet-stream"
+	[ "$key" = upload ] || admin
 	;;
 *)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/json ] ||
 		fail "commands need POST with application/json"
+	case $key in wifi_forget | bt_power | enable | disable | unset | reboot) admin ;; esac
 	;;
 esac
 
@@ -245,6 +483,50 @@ mute)
 	0) lidar-volume unmute >/dev/null 2>&1 || fail "volume service not running" ;;
 	*) fail "bad mute" ;;
 	esac
+	ok
+	;;
+network) network ;;
+wifi_scan) wifi_scan ;;
+wifi_connect) wifi_connect ;;
+wifi_forget)
+	lidar-feature unset wireless ssid >/dev/null && lidar-feature unset wireless passphrase >/dev/null ||
+		fail "cannot change the settings"
+	lidar-wifi stop
+	ok
+	;;
+bt_power)
+	# without bluetoothd nobody else enables LE, and a discovery over both
+	# transports is rejected without it
+	case $val in
+	on)
+		{ timeout 5 btmgmt le on && timeout 5 btmgmt power on; } >/dev/null 2>&1 ||
+			fail "Bluetooth controller not available"
+		;;
+	off) timeout 5 btmgmt power off >/dev/null 2>&1 || fail "Bluetooth controller not available" ;;
+	*) fail "bad power" ;;
+	esac
+	ok
+	;;
+bt_scan) bt_scan ;;
+log) klog ;;
+procs) printf '{"text": %s}\n' "$(top -b -n 1 | head -n 80 | jtext)" ;;
+system) system_info ;;
+settings) settings ;;
+enable | disable)
+	case $val in '' | *[!a-z0-9]*) fail "bad service" ;; esac
+	lidar-feature "$key" "$val" >/dev/null 2>&1 || fail "cannot change $val"
+	ok
+	;;
+set) set_setting ;;
+unset)
+	setting_name
+	lidar-feature unset "$sf" "$sk" >/dev/null 2>&1 || fail "unknown setting"
+	ok
+	;;
+ls) ls_dir ;;
+file) get_file ;;
+reboot)
+	(sleep 1; reboot) >/dev/null 2>&1 &
 	ok
 	;;
 *) fail "unknown request" ;;

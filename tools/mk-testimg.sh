@@ -24,7 +24,7 @@ ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
 curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
 	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod cjson \
-	alsa-ucm-conf
+	alsa-ucm-conf bluez-btmgmt
 # fw_printenv/fw_setenv: U-Boot keeps its environment at the top of misc
 cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
@@ -129,12 +129,15 @@ install -m755 /work/tools/lidar-usbaudio.sh "$T/initramfs/usr/bin/lidar-usbaudio
 install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
 install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
+install -m755 /work/tools/lidar-wifi.sh "$T/initramfs/usr/bin/lidar-wifi"
 install -m755 /work/tools/lidar-thread.sh "$T/initramfs/usr/bin/lidar-thread"
 # Thread border router: ot-br-posix, pinned, built for musl against the
 # sysroot like the tools above. Its sources (with submodules) are cached in
 # /src. The vendor and product name end up in the border agent's mDNS
 # record; -Wno-error=sign-compare because musl's CMSG_NXTHDR trips clang's
-# -Wsign-compare.
+# -Wsign-compare. No ingress firewall: the default one drives the ipset and
+# ip6tables tools with rules from ot-br-posix's setup scripts, none of which
+# this system has (OTBR_NFTABLES would be the in-process alternative).
 OTBR_TAG=v2026.11.0
 OTBR_COMMIT=76fb21d666a41050b43f8eaabc30e71d9d75d9fd
 OTBR=/src/ot-br-posix
@@ -166,7 +169,7 @@ cmake -S $OTBR -B "$OB" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$OB/toolchain.cmake" \
 	-DCMAKE_BUILD_TYPE=MinSizeRel -DCMAKE_C_FLAGS=-Wno-error=sign-compare \
 	-DCMAKE_CXX_FLAGS=-Wno-error=sign-compare -DBUILD_TESTING=OFF \
 	-DOTBR_VENDOR_NAME=lidar-mainline "-DOTBR_PRODUCT_NAME=Thread Border Router" \
-	-DOTBR_REST=ON -DOTBR_NAT64=OFF -DOTBR_NOTIFY_UPSTART=OFF > "$T/otbr.log" 2>&1 &&
+	-DOTBR_REST=ON -DOTBR_NAT64=OFF -DOTBR_NOTIFY_UPSTART=OFF -DOT_FIREWALL=OFF > "$T/otbr.log" 2>&1 &&
 	cmake --build "$OB" >> "$T/otbr.log" 2>&1 || { tail -n 40 "$T/otbr.log" >&2; exit 1; }
 install -m755 "$OB/src/agent/otbr-agent" "$T/initramfs/usr/bin/otbr-agent"
 install -m755 "$OB/third_party/openthread/repo/src/posix/ot-ctl" "$T/initramfs/usr/bin/ot-ctl"
@@ -415,33 +418,8 @@ fi
 			elif ! modprobe btmtksdio; then
 				echo "lidar: Bluetooth driver failed to load" > /dev/kmsg
 			fi
-			# Join the configured network. The SSID goes in as hex and the
-			# passphrase as its 64-digit PSK: wpa_supplicant's own quoting
-			# breaks on '"' followed by '#'. wpa_passphrase only reads it
-			# from a terminal, so it is an argument for a moment; everything
-			# on this system runs as root anyway.
-			ssid=$(lidar-feature get wireless ssid)
-			pass=$(lidar-feature get wireless passphrase)
-			if [ -n "$ssid" ] && [ -n "$pass" ]; then
-				for i in $(seq 1 20); do
-					[ -d /sys/class/net/wlan0 ] && break
-					sleep 0.5
-				done
-				psk=$(wpa_passphrase "$ssid" "$pass" | sed -n 's/^[[:space:]]psk=//p')
-				hex=$(printf %s "$ssid" | od -An -tx1 -v | tr -d ' \n')
-				(umask 077; printf 'network={\n\tssid=%s\n\tpsk=%s\n}\n' "$hex" "$psk" > /run/wpa_supplicant.conf)
-				if [ ${#psk} -ne 64 ]; then
-					echo "lidar: wpa_passphrase gave no PSK, Wi-Fi not started" > /dev/kmsg
-				elif wpa_supplicant -B -i wlan0 -c /run/wpa_supplicant.conf > /dev/kmsg 2>&1; then
-					# in the background at once: -b alone waits ~9 s first
-					udhcpc -b -i wlan0 > /dev/kmsg 2>&1 &
-					echo "lidar: joining the configured Wi-Fi network" > /dev/kmsg
-				else
-					echo "lidar: wpa_supplicant failed to start" > /dev/kmsg
-				fi
-			elif [ -n "$ssid$pass" ]; then
-				echo "lidar: Wi-Fi needs both wireless ssid and wireless passphrase" > /dev/kmsg
-			fi
+			# join the configured network, if any
+			lidar-wifi start
 		else
 			echo "lidar: Wi-Fi firmware not staged" > /dev/kmsg
 		fi
