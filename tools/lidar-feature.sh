@@ -1,9 +1,12 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 # Switches for the services on top of the base system, and their settings.
-# Core services give the stock behaviour (volume, LED ring, wireless, boot
-# animation) and are on by default; a system that brings its own can turn
-# them off. Extras are tools for development and testing, off by default.
+# Core services make the device work on its own as on stock (volume, LED
+# ring, Wi-Fi, Bluetooth speaker, speaker tuning, boot animation) and are
+# on by default; a system that brings its own can turn them off. Extras are
+# for development and integration (USB, Zigbee, Thread), off by default.
+# Services do not require each other (except thread on wlan0, which needs
+# wifi): one that misses another falls back (see the descriptions) and logs it.
 #
 # They live in a plain file, one "key=value" per line:
 #   feature.<name>=0|1
@@ -31,16 +34,16 @@ CONF=${LIDAR_CONF:-/media/system/etc/lidar.conf}
 # name category default description
 FEATURES='
 bootanim core 1 light-ring animation while booting
-volume core 1 system volume for the speaker: USB host slider, volume buttons, lidar-volume
-ring core 1 LED ring after boot: red while the mics are muted, volume changes
-wireless core 1 stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers
+volume core 1 system volume for the speaker: volume buttons, Bluetooth phones, USB host slider, lidar-volume
+ring core 1 LED ring after boot: red while the mics are muted, volume changes, Bluetooth pairing mode
+wifi core 1 Wi-Fi client: joins the network in the wifi settings at boot (DHCP); the clock comes from NTP once online. Needs the Wi-Fi firmware from Fire OS on system_a
+bluetooth core 1 Bluetooth speaker: phones play on the Echo (A2DP, SBC and AAC), paired by holding the action button 3 s. Needs the Wi-Fi firmware from Fire OS on system_a; without the volume service the phone volume scales the samples
+dsp core 1 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter. Needs Fire OS on system_a and the volume service, untuned without them
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
 webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, music, Wi-Fi/Bluetooth, services, logs, files
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
-bluetooth extra 0 Bluetooth speaker: phones play on the Echo (A2DP, SBC and AAC), paired by holding the action button 3 s; needs wireless with its Bluetooth driver
-dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter (needs the volume service and Fire OS on system_a)
 '
 
 # feature key default allowed description
@@ -50,12 +53,11 @@ dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multib
 # ASCII characters, masked in "settings").
 SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
-wireless bluetooth on on|off off: do not load the Bluetooth driver
-wireless country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
-wireless ssid - ssid Wi-Fi network to join at boot (WPA2-Personal, needs passphrase); unset: no Wi-Fi connection
-wireless passphrase - passphrase passphrase of that network, kept in plain text in lidar.conf (readable by root only)
+wifi country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
+wifi ssid - ssid Wi-Fi network to join at boot (WPA2-Personal, needs passphrase); unset: no Wi-Fi connection
+wifi passphrase - passphrase passphrase of that network, kept in plain text in lidar.conf (readable by root only)
 zigbee listen usb usb|any usb: accept the coordinator connection on usb0 only; any: on every interface, Wi-Fi included
-thread infra wlan0 wlan0|usb0 network Home Assistant is on: the border router routes between it and the Thread network and advertises there
+thread infra wlan0 wlan0|usb0 network Home Assistant is on: the border router routes between it and the Thread network and advertises there; wlan0 needs the wifi service
 thread listen usb usb|any usb: REST API (no authentication) on usb0 only; any: on every interface, Wi-Fi included
 bluetooth name lidar label name phones show for the Echo
 bluetooth pair_seconds 120 30-600 how long the Echo stays visible and pairable after the action button was held 3 s
@@ -277,7 +279,7 @@ keep)
 	( flock 9 && keep_locked "$2" ) 9> /run/lidar-slot.lock
 	;;
 *)
-	sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,31p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

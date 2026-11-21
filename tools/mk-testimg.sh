@@ -502,9 +502,8 @@ if lidar-feature enabled thread; then
 fi
 # Bluetooth speaker: the D-Bus system bus, bluetoothd, bluealsa and its
 # player, and lidar-bluetooth's daemon (pairing, action button, volume);
-# each waits for the one before. Needs the driver the wireless service loads.
-if lidar-feature enabled bluetooth && lidar-feature enabled wireless &&
-   [ "$(lidar-feature get wireless bluetooth)" = on ]; then
+# each waits for the one before, bluetoothd for the driver loaded below.
+if lidar-feature enabled bluetooth; then
 	mkdir -p /run/dbus
 	dbus-uuidgen --ensure
 	for s in 'dbus-daemon --system --nofork --nopidfile' 'lidar-bluetooth bluetoothd' \
@@ -526,14 +525,17 @@ if lidar-feature enabled webui; then
 		echo "::respawn:/usr/bin/lidar-listen usb0 80 $www -i" >> /etc/inittab
 	fi
 fi
-# Stage the owner's own Wi-Fi firmware and calibration from Fire OS
-# (system_a, read-only); the ROM patch both functions share is the image's
-# linux-firmware one. Then load WLAN before Bluetooth: btmtksdio must not
-# start while the WLAN driver downloads the patch. The regulatory domain is a
+# Wi-Fi and Bluetooth share one chip (MT7668). For either, stage the owner's
+# own Wi-Fi firmware and calibration from Fire OS (system_a, read-only; the
+# ROM patch both functions share is the image's linux-firmware one) and load
+# the WLAN driver: Bluetooth needs it first too, btmtksdio must not start
+# while the WLAN driver downloads the patch. The regulatory domain is a
 # cfg80211 user hint, so it can be set as soon as the driver has pulled
 # cfg80211 in. Backgrounded so the shell never waits.
 (
-	if lidar-feature enabled wireless; then
+	wifi=; lidar-feature enabled wifi && wifi=1
+	bt=; lidar-feature enabled bluetooth && bt=1
+	if [ -n "$wifi$bt" ]; then
 		dev=/dev/disk/by-partlabel/system_a
 		fw=/mnt/fireos/system/vendor/firmware
 		mkdir -p /mnt/fireos
@@ -542,20 +544,19 @@ fi
 		      $fw/TxPwrLimit_MT76x8.dat $fw/wifi.cfg /lib/firmware/ &&
 		   modprobe wlan_mt76x8_sdio; then
 			echo "lidar: Wi-Fi firmware staged, WLAN driver loaded" > /dev/kmsg
-			cc=$(lidar-feature get wireless country)
+			cc=$(lidar-feature get wifi country)
 			if [ -n "$cc" ]; then
 				iw reg set "$cc" > /dev/kmsg 2>&1 &&
 					echo "lidar: regulatory domain $cc requested" > /dev/kmsg
 			fi
-			if [ "$(lidar-feature get wireless bluetooth)" = off ]; then
-				echo "lidar: Bluetooth driver not loaded (setting)" > /dev/kmsg
-			elif ! modprobe btmtksdio; then
+			if [ -n "$bt" ] && ! modprobe btmtksdio; then
 				echo "lidar: Bluetooth driver failed to load" > /dev/kmsg
 			fi
 			# join the configured network, if any
-			lidar-wifi start
+			[ -z "$wifi" ] || lidar-wifi start
 		else
-			echo "lidar: Wi-Fi firmware not staged" > /dev/kmsg
+			echo "lidar: Wi-Fi firmware not staged: no Wi-Fi, no Bluetooth" > /dev/kmsg
+			touch /run/lidar-no-radio-firmware
 		fi
 		umount /mnt/fireos 2>/dev/null
 	fi

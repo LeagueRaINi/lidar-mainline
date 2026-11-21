@@ -5,7 +5,8 @@
 # transport, bluealsa-aplay plays every connected phone into lidar_speaker
 # (system volume, speaker tuning, mixed with other sounds). The phone's
 # volume (AVRCP absolute volume) is the system volume: changes go to
-# lidar-volume, and lidar-volume sends its changes back to the phone.
+# lidar-volume, and lidar-volume sends its changes back to the phone
+# (without the volume service, bluealsa scales the phone's audio by it).
 #
 # Pairing: holding the action button 3 s (or "lidar-bluetooth pair") makes
 # the Echo visible and pairable for "bluetooth pair_seconds", with a blue
@@ -72,6 +73,10 @@ wait_for() { # seconds command...: true once the command succeeds
 	done
 	return 1
 }
+
+# init found no Wi-Fi firmware to stage: no controller will come, so wait
+# quietly instead of logging every minute
+no_firmware() { [ -e /run/lidar-no-radio-firmware ] && { sleep 3600; exit 1; }; }
 
 uptime_s() { cut -d. -f1 /proc/uptime; }
 
@@ -209,7 +214,7 @@ bluealsa_watch() {
 }
 
 daemon() {
-	wait_for 60 bluealsa_up || { log "bluealsa is not running"; sleep 60; exit 1; }
+	wait_for 60 bluealsa_up || { no_firmware; log "bluealsa is not running"; sleep 60; exit 1; }
 	# phones bonded before they were trusted (older versions of this)
 	for m in $(devices_of Bonded); do btctl trust "$m" >/dev/null; done
 	# a daemon that died in pairing mode left these behind
@@ -250,7 +255,7 @@ daemon() {
 case $1 in
 bluetoothd)
 	# the driver loads in the background after Wi-Fi
-	wait_for 60 test -d /sys/class/bluetooth/hci0 || { log "no Bluetooth controller"; sleep 60; exit 1; }
+	wait_for 60 test -d /sys/class/bluetooth/hci0 || { no_firmware; log "no Bluetooth controller"; sleep 60; exit 1; }
 	# AVRCP remote-control keys from a phone become Linux input events
 	modprobe uinput
 	wait_for 30 test -S /run/dbus/system_bus_socket || { log "no D-Bus system bus"; sleep 10; exit 1; }
@@ -281,17 +286,21 @@ bluetoothd)
 	pkill -f 'lidar-bluetooth daemon'
 	;;
 bluealsa)
-	wait_for 60 bluetoothd_up || { log "bluetoothd is not running"; sleep 10; exit 1; }
+	wait_for 60 bluetoothd_up || { no_firmware; log "bluetoothd is not running"; sleep 10; exit 1; }
 	# Alpine's bluealsa keeps its per-phone state under /usr/var/lib
 	mkdir -p /var/lib/bluealsa /usr/var/lib
 	ln -sfn /var/lib/bluealsa /usr/var/lib/bluealsa
-	# --a2dp-volume: the phone's volume is not applied to the samples here,
-	# lidar-volume applies it as the system volume
+	# --a2dp-volume: the phone's volume is not applied to the samples here
+	# by default (bluealsa-aplay decides, below)
 	bluealsa -p a2dp-sink -c aac --a2dp-volume 2>&1 | to_kmsg bluealsa
 	;;
 aplay)
-	wait_for 60 bluealsa_up || { log "bluealsa is not running"; sleep 10; exit 1; }
-	bluealsa-aplay -D lidar_speaker --volume=none 2>&1 | to_kmsg bluealsa-aplay
+	wait_for 60 bluealsa_up || { no_firmware; log "bluealsa is not running"; sleep 10; exit 1; }
+	# with the volume service, lidar-volume applies the phone's volume as
+	# the system volume; without it, bluealsa scales the samples by it
+	v=none
+	lidar-feature enabled volume || { v=software; log "no volume service: the phone's volume scales the audio"; }
+	bluealsa-aplay -D lidar_speaker --volume=$v 2>&1 | to_kmsg bluealsa-aplay
 	;;
 daemon) daemon ;;
 pair)

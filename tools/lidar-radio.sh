@@ -148,6 +148,13 @@ thread)
 		done
 	fi
 	infra=$(lidar-feature get thread infra)
+	# wlan0 may exist without the wifi service (the driver Bluetooth needs)
+	# but then never joins a network
+	if [ "$infra" = wlan0 ] && ! lidar-feature enabled wifi; then
+		log "thread infra wlan0 needs the wifi service"
+		sleep 600
+		exit 1
+	fi
 	# usb: a unix socket, which init's lidar-listen bridges to port 8081 for
 	# connections arriving on usb0 only (an address alone would also be
 	# reachable through wlan0)

@@ -316,8 +316,9 @@ wifi_connect() {
 	case $pass in *[![:print:]]*) pass= ;; esac
 	[ ${#pass} -ge 8 ] && [ ${#pass} -le 63 ] ||
 		fail "invalid passphrase (8-63 printable ASCII characters)"
-	lidar-feature set wireless ssid "$ssid" >/dev/null 2>&1 || fail "invalid SSID (1-32 bytes)"
-	lidar-feature set wireless passphrase "$pass" >/dev/null 2>&1 ||
+	lidar-feature enabled wifi || fail "the wifi service is off (enable it, then reboot)"
+	lidar-feature set wifi ssid "$ssid" >/dev/null 2>&1 || fail "invalid SSID (1-32 bytes)"
+	lidar-feature set wifi passphrase "$pass" >/dev/null 2>&1 ||
 		fail "invalid passphrase (8-63 printable ASCII characters)"
 	lidar-wifi restart >/dev/null 2>&1 || fail "Wi-Fi did not start (see the kernel log)"
 	ok
@@ -502,20 +503,20 @@ network) network ;;
 wifi_scan) wifi_scan ;;
 wifi_connect) wifi_connect ;;
 wifi_forget)
-	lidar-feature unset wireless ssid >/dev/null && lidar-feature unset wireless passphrase >/dev/null ||
+	lidar-feature unset wifi ssid >/dev/null && lidar-feature unset wifi passphrase >/dev/null ||
 		fail "cannot change the settings"
 	lidar-wifi stop
 	ok
 	;;
 bt_power)
-	# without bluetoothd nobody else enables LE, and a discovery over both
-	# transports is rejected without it
+	# LE first: bluetoothd turns it on, but may be restarting; a discovery
+	# over both transports is rejected without it
 	case $val in
 	on)
 		{ timeout 5 btmgmt le on && timeout 5 btmgmt power on; } >/dev/null 2>&1 ||
-			fail "Bluetooth controller not available"
+			fail "Bluetooth controller not available (service bluetooth)"
 		;;
-	off) timeout 5 btmgmt power off >/dev/null 2>&1 || fail "Bluetooth controller not available" ;;
+	off) timeout 5 btmgmt power off >/dev/null 2>&1 || fail "Bluetooth controller not available (service bluetooth)" ;;
 	*) fail "bad power" ;;
 	esac
 	ok

@@ -1,13 +1,14 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
-# Wi-Fi client on wlan0 from the "wireless ssid" and "wireless passphrase"
+# Wi-Fi client on wlan0 from the "wifi ssid" and "wifi passphrase"
 # settings (lidar-feature): wpa_supplicant for WPA2-Personal, udhcpc for the
 # address. The SSID goes to wpa_supplicant as hex and the passphrase as its
 # 64-digit PSK: wpa_supplicant's own quoting breaks on '"' followed by '#'.
 # wpa_passphrase only reads the passphrase from a terminal, so it is an
 # argument for a moment; everything on this system runs as root anyway.
 #
-# Usage: lidar-wifi start     join the configured network (nothing if unset)
+# Usage: lidar-wifi start     join the configured network (nothing if unset;
+#                             refused while the wifi service is off)
 #        lidar-wifi stop      leave it
 #        lidar-wifi restart
 #        lidar-wifi status    key=value lines: state, ssid, signal, ...
@@ -46,12 +47,17 @@ stop() {
 }
 
 start() {
-	ssid=$(lidar-feature get wireless ssid)
-	pass=$(lidar-feature get wireless passphrase)
+	if ! lidar-feature enabled wifi; then
+		log "the wifi service is off"
+		echo "lidar-wifi: the wifi service is off" >&2
+		return 1
+	fi
+	ssid=$(lidar-feature get wifi ssid)
+	pass=$(lidar-feature get wifi passphrase)
 	if [ -z "$ssid$pass" ]; then
 		return 0
 	elif [ -z "$ssid" ] || [ -z "$pass" ]; then
-		log "needs both wireless ssid and wireless passphrase"
+		log "needs both wifi ssid and wifi passphrase"
 		return 1
 	fi
 	wait_if || { log "no $IF"; return 1; }
@@ -90,7 +96,7 @@ status() {
 		}'
 	ip -4 -o addr show dev $IF 2>/dev/null | awk '{ print "ipv4=" $4 }'
 	ip -6 -o addr show dev $IF scope global 2>/dev/null | awk '{ print "ipv6=" $4 }'
-	printf 'configured=%s\n' "$(lidar-feature get wireless ssid)"
+	printf 'configured=%s\n' "$(lidar-feature get wifi ssid)"
 }
 
 scan() {
@@ -133,7 +139,7 @@ restart) stop; start ;;
 status) status ;;
 scan) scan ;;
 *)
-	sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

@@ -131,7 +131,7 @@ decompression.
 | `tools/lidar-radio.sh` | the EFR32 radio for Zigbee and Thread at once: uploads the multi-PAN RCP if needed and runs `cpcd`, `zigbeed` with its TCP bridge, and `otbr-agent`, with both networks kept on the booted slot |
 | `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
-| `tools/lidar-wifi.sh` | Wi-Fi client from `wireless ssid`/`passphrase`: start, stop, status and scan; used at boot and by the web interface |
+| `tools/lidar-wifi.sh` | Wi-Fi client from `wifi ssid`/`passphrase` (`wifi` service): start, stop, status and scan; used at boot and by the web interface |
 | `tools/lidar-time.sh` | the clock (no RTC on this board): NTP once the network is up, the last synced time saved on the booted slot and set at the next boot |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
@@ -222,12 +222,32 @@ area.
 
 Services sit on top of the base system, in two groups:
 
-- **Core** services give the stock behaviour: system volume, LED ring,
-  wireless and the boot animation. They are **on by default**. A system that
-  brings its own (its own volume handling or LED daemon, say) turns the
-  matching service off so the two do not fight over the same controls.
-- **Extras** are tools for development and testing: the USB speakerphone
-  and a passwordless telnet shell. They are **off by default**.
+- **Core** services make the device work on its own, as on stock: system
+  volume, LED ring, Wi-Fi, the Bluetooth speaker, the speaker tuning and the
+  boot animation. They are **on by default**. A system that brings its own
+  (its own volume handling or LED daemon, say) turns the matching service
+  off so the two do not fight over the same controls.
+- **Extras** are for development and integration: everything on the USB
+  port beyond the serial shell and network (speakerphone, web interface,
+  telnet) and the Zigbee and Thread radio. They are **off by default**.
+
+Services do not require each other, with one exception: `thread` with
+`thread infra wlan0` (the default) needs `wifi` and does not start without
+it (it says so in the kernel log). Otherwise one that misses another falls
+back and logs it: Bluetooth without `volume` lets the phone's volume scale
+the samples, `dsp` without `volume` (or without Fire OS on `system_a`)
+leaves the speaker untuned. Wi-Fi and Bluetooth share one chip: with either
+on, the Wi-Fi firmware is staged from Fire OS on `system_a` and the WLAN
+driver loads, which Bluetooth needs first; `wifi` off then only means no
+network is joined. Without the staged firmware there is neither, and the
+Bluetooth services wait quietly.
+
+The former `wireless` service is now `wifi`: in `lidar.conf`,
+`feature.wireless` becomes `feature.wifi` and `wireless.ssid`,
+`wireless.passphrase`, `wireless.country` become `wifi.ssid` and so on.
+Its `wireless bluetooth` setting is gone: the `bluetooth` service, now on
+by default, decides (`lidar-feature disable bluetooth` keeps the radio
+off).
 
 The switches and settings live in `/etc/lidar.conf` on the root filesystem
 of the slot that booted, one `key=value` per line: `feature.<name>=0|1` and
@@ -258,15 +278,15 @@ lidar-feature reset usbaudio       # back to the default (off)
 |---|---|---|---|
 | `bootanim` | core | on | light-ring animation while booting |
 | `volume` | core | on | system volume for the speaker (below) |
-| `ring` | core | on | LED ring after boot: red while the mics are muted, volume changes (below) |
-| `wireless` | core | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
+| `ring` | core | on | LED ring after boot: red while the mics are muted, volume changes, Bluetooth pairing mode (below) |
+| `wifi` | core | on | Wi-Fi client: joins the network in the `wifi` settings at boot; the clock comes from NTP once online |
+| `bluetooth` | core | on | Bluetooth speaker for phones (below) |
+| `dsp` | core | on | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 | `usbaudio` | extra | off | USB speakerphone (below) |
+| `webui` | extra | off | web interface on port 80 of the USB network (below) |
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
 | `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
-| `bluetooth` | extra | off | Bluetooth speaker for phones (below); needs `wireless` with `wireless bluetooth on` |
-| `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
-| `webui` | extra | off | web interface on port 80 of the USB network (below) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -274,17 +294,16 @@ default.
 ```sh
 lidar-feature settings [feature]          # values in effect, defaults, allowed
 lidar-feature get telnet listen           # prints the value in effect
-lidar-feature set wireless country DE     # takes effect on the next boot
-lidar-feature unset wireless country      # back to the default
+lidar-feature set wifi country DE         # takes effect on the next boot
+lidar-feature unset wifi country          # back to the default
 ```
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `telnet listen` | `usb` | `usb`, `any` | `usb`: only connections arriving on `usb0` are accepted. `any`: every interface, so the passwordless root shell is open to the Wi-Fi network too |
-| `wireless bluetooth` | `on` | `on`, `off` | `off`: the Bluetooth driver (`btmtksdio`) is not loaded |
-| `wireless country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
-| `wireless ssid` | unset | 1-32 bytes | Wi-Fi network (WPA2-Personal) to join at boot, with `wireless passphrase`; the address comes from DHCP (`udhcpc`) |
-| `wireless passphrase` | unset | 8-63 printable ASCII characters | passphrase of that network. Stored in plain text in `lidar.conf`, which only root can read; `lidar-feature settings` shows it as `(set)` |
+| `wifi country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
+| `wifi ssid` | unset | 1-32 bytes | Wi-Fi network (WPA2-Personal) to join at boot, with `wifi passphrase`; the address comes from DHCP (`udhcpc`) |
+| `wifi passphrase` | unset | 8-63 printable ASCII characters | passphrase of that network. Stored in plain text in `lidar.conf`, which only root can read; `lidar-feature settings` shows it as `(set)` |
 | `volume max_attenuation` | 0 | 0-60 | cap in dB: full volume is this far below the codec's 0 dB. 0 is Amazon's maximum; raise it to keep the speaker quieter |
 | `volume initial` | 30 | 0-100 | volume at boot, in percent of the range up to the cap |
 | `volume ring` | `on` | `on`, `off` | show volume changes on the LED ring (needs the `ring` service) |
@@ -295,7 +314,7 @@ lidar-feature unset wireless country      # back to the default
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
 | `usbaudio aec` | `on` | `on`, `off` | `on`: the microphone the host gets is cleaned by `lidar-aec` (echo cancellation, noise suppression); `off`: the plain six-mic mix |
 | `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
-| `thread infra` | `wlan0` | `wlan0`, `usb0` | the network Home Assistant is on: the border router routes between it and the Thread network and advertises the Thread network there |
+| `thread infra` | `wlan0` | `wlan0`, `usb0` | the network Home Assistant is on: the border router routes between it and the Thread network and advertises the Thread network there. `wlan0` needs the `wifi` service |
 | `thread listen` | `usb` | `usb`, `any` | `usb`: the REST API sits on a unix socket that `lidar-listen` bridges to port 8081 for connections arriving on `usb0` only (`SO_BINDTODEVICE`, as for telnet); `any`: otbr-agent listens on every address, Wi-Fi included. The API has no authentication and can change the Thread network |
 | `bluetooth name` | `lidar` | 1-48 bytes | name phones show for the Echo |
 | `bluetooth pair_seconds` | 120 | 30-600 | how long pairing mode lasts |
@@ -313,8 +332,8 @@ lidar-feature unset wireless country      # back to the default
   (`lidar-usbaudio start`). Old `usbaudio.speaker_volume` and
   `usbaudio.keepalive` lines in `lidar.conf` are ignored: speaker volume and
   the keep-alive belong to the `volume` service.
-- `wireless country` has not been tried on hardware.
-- `wireless ssid`/`passphrase`: verified on hardware. The configuration
+- `wifi country` has not been tried on hardware.
+- `wifi ssid`/`passphrase`: verified on hardware. The configuration
   that `wpa_supplicant` gets (SSID as hex, the PSK from `wpa_passphrase`,
   also for passphrases with `"`, `#` and spaces) and a real join from the
   web interface: WPA2 on 5 GHz, address, default route and DNS from DHCP.
@@ -425,12 +444,12 @@ up:
   skip. The library lives in RAM (`webui storage_mb`) and is gone after a
   reboot.
 - **Network:** Wi-Fi status (network, signal, band, bit rate, addresses),
-  a scan list to pick a network from, connect (saved as `wireless ssid` and
-  `wireless passphrase` and joined at once, through `lidar-wifi`) and forget.
-  Bluetooth power and a scan of nearby devices (name, address, type,
-  signal) through `btmgmt`; with the `bluetooth` service, the speaker's
-  state, pairing mode on and off, and the paired phones with a button to
-  forget each. Thread and Zigbee state: role, network, channel, PAN ID,
+  a scan list to pick a network from, connect (saved as `wifi ssid` and
+  `wifi passphrase` and joined at once, through `lidar-wifi`) and forget.
+  With the `bluetooth` service (it loads the Bluetooth driver): power and a
+  scan of nearby devices (name, address, type, signal) through `btmgmt`,
+  the speaker's state, pairing mode on and off, and the paired phones with
+  a button to forget each. Thread and Zigbee state: role, network, channel, PAN ID,
   border routing.
 - **Services:** switch services on and off and edit their settings, with
   inputs that only offer the allowed values; then reboot from the page.
@@ -495,7 +514,8 @@ tuning, mixed with other sounds (`lidar-bluetooth`).
   The Echo itself never connects to a phone: not at boot, and not after
   the link was lost (BlueZ's `ReconnectAttempts` is 0).
 - **Volume:** the phone's volume (AVRCP absolute volume) is the system
-  volume. Changes on the phone go to `lidar-volume` (with the volume arc on
+  volume (without the `volume` service, bluealsa scales the phone's audio
+  by it instead). Changes on the phone go to `lidar-volume` (with the volume arc on
   the ring), and the volume buttons, the web interface and the USB host's
   slider move the phone's slider. Each slider answers a change with its own
   rounding of it (an iPhone has 16 steps); `lidar-volume` takes what comes
@@ -575,7 +595,7 @@ Either service runs alone or both together.
   their sources on your machine and not distributed; neither is the test
   image that contains them.
 - `thread infra` is the network shared with Home Assistant (`wlan0` by
-  default, which needs `wireless ssid` and `wireless passphrase`). The
+  default, which needs the `wifi` service with `wifi ssid` and `wifi passphrase`). The
   service turns on IPv6 forwarding and keeps router advertisements accepted
   on that interface, as ot-br-posix's own setup does. mDNS is OpenThread's
   built-in one; the border agent appears as "lidar-mainline Thread Border
