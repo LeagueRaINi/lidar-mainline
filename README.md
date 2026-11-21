@@ -112,7 +112,7 @@ decompression.
 | Path | What |
 |---|---|
 | `lidar-uboot/` | U-Boot v2026.10 overlay: `mt8516_amazon_lidar_defconfig`, board DTS, `MTK_LK_CHAINLOAD` Kconfig, boot environment `board/mediatek/mt8516/amazon_lidar.env`, `drivers/mmc/mtk-sd.c` (upstream copy with DMA for MT8516 and a bounce buffer for unaligned reads; check against upstream on version bumps) |
-| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), `drivers/bluetooth/btmtksdio.c` (upstream copy with an MT7668 LE fix; check against upstream on version bumps), bindings |
+| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), `drivers/bluetooth/btmtksdio.c` (upstream copy with an MT7668 LE fix; check against upstream on version bumps), `drivers/tty/serial/8250/8250_mtk.c` (upstream copy without 16650 sleep mode, which wedges the UART's transmitter when data arrives on a closed port; check against upstream on version bumps), bindings |
 | `lidar-wifi/` | MT7668 gen4 Wi-Fi driver ported from Amazon's GPL release, built out of tree |
 | `lidar.config` | kernel config fragment applied on top of arm64 `defconfig` |
 | `build.sh` | build entry point inside the container (targets listed in its header) |
