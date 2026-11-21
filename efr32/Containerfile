@@ -37,3 +37,8 @@ ENV PATH=/opt/gcc-arm/bin:/opt/silabs/java21/jre/bin:/opt/silabs/slc-cli:$PATH \
     ARM_GCC_DIR=/opt/gcc-arm \
     HOME=/root
 WORKDIR /efr
+# zigbeed (efr32/zigbeed.sh): a host program for the Echo, linked statically
+# against glibc because Silicon Labs' prebuilt Zigbee stack libraries need it.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu file \
+    && rm -rf /var/lib/apt/lists/*
