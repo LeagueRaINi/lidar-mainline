@@ -10,8 +10,9 @@
 #   - the volume buttons (hold to repeat; a short tone at the new level);
 #   - this command.
 #
-# The level runs from 0 (codec -63.5 dB, practically silent) to the safety
-# cap set by "lidar-feature set volume max_attenuation <dB>".
+# The level runs from 0 (silent: muted like the mute flag, since the codec's
+# lowest step, -63.5 dB, is still audible) to the safety cap set by
+# "lidar-feature set volume max_attenuation <dB>".
 #
 # With the speaker tuning (dsp feature) the volume is applied by lidar-dsp,
 # before its EQ and compressor as on stock: lidar-volume writes the level to
@@ -59,16 +60,29 @@ now_cs() { # uptime in centiseconds
 # events from that side are taken as its echo and ignored. "show" puts
 # the volume on the LED ring.
 apply() {
+	# Level 0 is silence: the codec's lowest step is -63.5 dB, still audible,
+	# so it counts as muted (the state keeps the level and the mute flag)
+	silent=$mute; [ "$level" = 0 ] && silent=1
 	c=$level
-	[ "$mute" = 1 ] && c=0
+	[ "$silent" = 1 ] && c=0
 	if [ -e $DSP/active ]; then
-		awk -v l="$level" -v m="$VMAX" -v u="$mute" \
+		awk -v l="$level" -v m="$VMAX" -v u="$silent" \
 			'BEGIN { printf "%.1f %.1f %d\n", (l - 127) / 2, (l - m) / 2, u }' > $DSP/volume.new &&
 			mv $DSP/volume.new $DSP/volume
 		# a lidar-dsp killed without cleanup leaves ready behind
 		[ -e $DSP/ready ] && pidof lidar-dsp >/dev/null && c=$VMAX
 	fi
 	amixer -q -c $CODEC cset name='PCM Playback Volume' "$c,$c"
+	# Without lidar-dsp muting the samples, silence takes the output
+	# drivers' mute (DAC to line out and headphone driver, both feed the
+	# amplifier); written only when it changes
+	d=on
+	[ "$silent" = 1 ] && [ "$c" = 0 ] && d=off
+	if [ "$d" != "$drivers" ]; then
+		amixer -q -c $CODEC cset name='LO DAC Playback Switch' "$d,$d"
+		amixer -q -c $CODEC cset name='HP DAC Playback Switch' "$d,$d"
+		drivers=$d
+	fi
 	if [ -e /proc/asound/$GADGET ]; then
 		if [ "$(ctl_get $GADGET 'PCM Capture Volume')" != "$level" ]; then
 			amixer -q -c $GADGET cset name='PCM Capture Volume' "$level"

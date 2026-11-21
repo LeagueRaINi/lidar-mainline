@@ -348,8 +348,11 @@ lidar-feature unset wifi country          # back to the default
 ### System volume
 
 `lidar-volume` (the `volume` service) owns one speaker volume and mute, applied
-to the codec's `PCM Playback Volume` in 0.5 dB steps from silent up to the
-safety cap. Everything that changes volume feeds the same state:
+to the codec's `PCM Playback Volume` in 0.5 dB steps up to the safety cap.
+Volume 0 is silence: the codec's lowest step (-63.5 dB) is still audible, so
+0 mutes like the mute flag (in `lidar-dsp`'s samples with the speaker tuning,
+otherwise through the codec's DAC-to-driver switches). Everything that
+changes volume feeds the same state:
 
 - **USB host:** the speakerphone offers the host a hardware volume and mute
   whose steps are the codec's steps, so the host's own volume curve applies
