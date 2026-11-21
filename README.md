@@ -132,6 +132,7 @@ decompression.
 | `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
 | `tools/lidar-wifi.sh` | Wi-Fi client from `wireless ssid`/`passphrase`: start, stop, status and scan; used at boot and by the web interface |
+| `tools/lidar-time.sh` | the clock (no RTC on this board): NTP once the network is up, the last synced time saved on the booted slot and set at the next boot |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
@@ -317,6 +318,13 @@ lidar-feature unset wireless country      # back to the default
   that `wpa_supplicant` gets (SSID as hex, the PSK from `wpa_passphrase`,
   also for passphrases with `"`, `#` and spaces) and a real join from the
   web interface: WPA2 on 5 GHz, address, default route and DNS from DHCP.
+- The clock: the board has no real-time clock (no PMIC on it, as on
+  stock), so it starts at 1970 on every boot. `lidar-time` sets the last
+  time it saved before the services start, and BusyBox `ntpd` sets the
+  real time from `pool.ntp.org` once there is a default route and a DNS
+  server; every sync is saved on the booted slot. Verified on hardware:
+  the saved time at 2.7 s after boot, NTP at 10 s over Wi-Fi. The clock
+  runs in UTC.
 
 ### System volume
 

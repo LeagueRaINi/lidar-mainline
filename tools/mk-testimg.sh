@@ -137,6 +137,7 @@ install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
 install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
 install -m755 /work/tools/lidar-wifi.sh "$T/initramfs/usr/bin/lidar-wifi"
+install -m755 /work/tools/lidar-time.sh "$T/initramfs/usr/bin/lidar-time"
 # Thread border router: ot-br-posix, pinned, built for musl against the
 # sysroot like the tools above. Its sources (with submodules) are cached in
 # /src. The vendor and product name end up in the border agent's mDNS
@@ -470,6 +471,10 @@ if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null
 		fi
 	fi
 fi
+# The clock (no RTC on this board): the last saved time now, NTP once the
+# network is up
+lidar-time restore
+echo '::respawn:/usr/bin/lidar-time daemon' >> /etc/inittab
 # System volume and LED ring: init owns the daemons and restarts them
 if lidar-feature enabled volume; then
 	echo '::respawn:/usr/bin/lidar-volume daemon' >> /etc/inittab
