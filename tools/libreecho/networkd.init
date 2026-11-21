@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# lidar: in place of LibreEcho's networkd. lidar's le-netd answers
+# /run/libreecho/network.sock from outside the sandbox (status, scans and
+# joining through lidar's own Wi-Fi). This keeps the process and pid file
+# LibreEcho's web service takes as a running network daemon.
+PIDFILE=/var/run/libreecho-networkd.pid
+SOCK=/run/libreecho/network.sock
+
+running() { [ -f $PIDFILE ] && kill -0 "$(cat $PIDFILE)" 2>/dev/null; }
+
+case $1 in
+start)
+	running && exit 0
+	[ -S $SOCK ] || { echo "networkd: no $SOCK (lidar's le-netd)"; exit 1; }
+	( while [ -S $SOCK ]; do sleep 60; done ) </dev/null >/dev/null 2>&1 &
+	echo $! > $PIDFILE
+	;;
+stop)
+	running && kill "$(cat $PIDFILE)"
+	rm -f $PIDFILE
+	;;
+restart) "$0" stop; "$0" start ;;
+status) running ;;
+*) echo "usage: $0 start|stop|restart|status"; exit 2 ;;
+esac

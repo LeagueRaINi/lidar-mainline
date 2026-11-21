@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * le-sandbox: runs LibreEcho's userspace so that it cannot reach the eMMC.
+ * le-sandbox: runs LibreEcho's userspace away from the eMMC and, in normal
+ * operation, from lidar's own files.
  *
  * Usage: le-sandbox <root> <pidfile> <cmd> [args...]
  *
@@ -22,8 +23,18 @@
  *     <root>, runs <cmd> and then reaps orphans until it is killed. Killing
  *     it ends every process in the namespace. Its host PID goes to <pidfile>.
  *
- * Even a chroot escape inside the namespaces finds no node and cannot make
- * one. Real-time priorities and memory locking are granted through rlimits,
+ * This keeps an unmodified release where it belongs; it is not a boundary
+ * against a deliberately hostile one. The initramfs stays mounted in the
+ * sandbox's mount namespace, hidden by the chroot only, and a process
+ * inside holds CAP_SYS_CHROOT in its user namespace (LibreEcho's mDNS and
+ * AirPlay chroots need it): it can escape the chroot and, as uid 0, write
+ * lidar's files there. It finds no block device node and cannot make one,
+ * but it could change a lidar tool that host root runs later, and through
+ * that reach everything.
+ * Open: make <root> the real root of the mount namespace (move it, then
+ * pivot_root), so the initramfs is unreachable.
+ *
+ * Real-time priorities and memory locking are granted through rlimits,
  * since CAP_SYS_NICE and CAP_IPC_LOCK no longer count.
  */
 #define _GNU_SOURCE
@@ -136,9 +147,10 @@ int main(int argc, char **argv)
 		wait_byte(mapped[0]);	/* EOF if the parent failed */
 		close(ready[1]);
 		close(mapped[0]);
-		/* the new mount namespace belongs to the user namespace */
-		if (unshare(CLONE_NEWNS | CLONE_NEWPID) < 0)
-			die("mount/pid namespace");
+		/* the new mount namespace belongs to the user namespace; the UTS
+		   one lets LibreEcho set its own hostname */
+		if (unshare(CLONE_NEWNS | CLONE_NEWPID | CLONE_NEWUTS) < 0)
+			die("mount/pid/uts namespace");
 		init = fork();
 		if (init < 0)
 			die("fork");

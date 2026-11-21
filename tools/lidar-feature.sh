@@ -45,7 +45,7 @@ telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
 visualizer extra 0 sound display on the LED ring: spectrum or level of whatever the speaker plays, below the displays of the ring service
-libreecho extra 0 runs a LibreEcho release (installed with lidar-libreecho) in place of the ring, volume, dsp, bluetooth, visualizer, usbaudio and webui services
+libreecho extra 0 runs a LibreEcho release (installed with lidar-libreecho) in place of the ring, volume, dsp, bluetooth, visualizer, usbaudio, webui and thread services
 '
 
 # feature key default allowed description

@@ -131,12 +131,16 @@ clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 install -m755 "$T/lidar-viz" "$T/initramfs/usr/bin/lidar-viz"
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
-# LibreEcho add-on (libreecho feature): adapter, sandbox, privacy-latch
-# module, scripts
+# LibreEcho add-on (libreecho feature): adapter, network daemon stand-in,
+# sandbox, privacy-latch module, scripts
 clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness \
 	-s -o "$T/le-adapter" /work/tools/libreecho/le-adapter.c -lasound -lpthread
 install -m755 "$T/le-adapter" "$T/initramfs/usr/bin/le-adapter"
+clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness \
+	-s -o "$T/le-netd" /work/tools/libreecho/le-netd.c -lcjson
+install -m755 "$T/le-netd" "$T/initramfs/usr/bin/le-netd"
 clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness -Wno-unused-result \
 	-s -o "$T/le-sandbox" /work/tools/libreecho/le-sandbox.c
@@ -149,7 +153,8 @@ LE=$T/initramfs/usr/share/lidar/libreecho
 install -D -m644 "$T/amz_privacy/amz_privacy.ko" "$LE/amz_privacy.ko"
 install -D -m644 /work/tools/libreecho/audio-profile "$LE/audio-profile"
 install -D -m644 -t "$LE/default" /work/tools/libreecho/default/*
-install -m755 /work/tools/libreecho/capture /work/tools/libreecho/mixer "$LE/"
+install -m755 /work/tools/libreecho/capture /work/tools/libreecho/mixer \
+	/work/tools/libreecho/networkd.init "$LE/"
 install -m755 /work/tools/libreecho/lidar-libreecho.sh "$T/initramfs/usr/bin/lidar-libreecho"
 install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
 install -m755 /work/tools/lidar-bluetooth.sh "$T/initramfs/usr/bin/lidar-bluetooth"
@@ -445,7 +450,8 @@ done
 # Amazon's firmware, speaker volume -40 dB.
 alsaucm -c hw:amazonlidar set _boot ''
 # The LibreEcho add-on owns speaker, microphones, LED ring and buttons while
-# it is enabled: lidar's own services for them stay off.
+# it is enabled: lidar's own services for them stay off. thread too: its
+# otbr-agent answers mDNS on port 5353 itself, where LibreEcho runs Avahi.
 LIBREECHO=
 lidar-feature enabled libreecho && LIBREECHO=1
 own() { [ -z "$LIBREECHO" ] && lidar-feature enabled "$1"; }
@@ -520,13 +526,13 @@ fi
 # The EFR32 radio serves Zigbee and Thread at once (multi-PAN RCP): cpcd
 # multiplexes it, zigbee runs zigbeed and its TCP bridge, thread runs
 # otbr-agent; either or both.
-if lidar-feature enabled zigbee || lidar-feature enabled thread; then
+if lidar-feature enabled zigbee || own thread; then
 	echo '::respawn:/usr/bin/lidar-radio cpcd' >> /etc/inittab
 fi
 if lidar-feature enabled zigbee; then
 	echo '::respawn:/usr/bin/lidar-radio zigbee' >> /etc/inittab
 fi
-if lidar-feature enabled thread; then
+if own thread; then
 	echo '::respawn:/usr/bin/lidar-radio thread' >> /etc/inittab
 	# usb: otbr-agent's REST API sits on a unix socket, and only
 	# connections arriving on usb0 reach it (SO_BINDTODEVICE, as telnet)

@@ -138,7 +138,7 @@ decompression.
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
 | `tools/lidar-player.c` | plays the web interface's song library on the speaker, with fades on pause, stop and skip |
-| `tools/libreecho/` | LibreEcho add-on (`libreecho` service): `lidar-libreecho.sh` (install, start, stop), `le-sandbox.c` (namespaces that keep it off the eMMC), `le-adapter.c` (LEDs, mics, mixer placeholders), `amz_privacy/` (privacy-latch module); see its README |
+| `tools/libreecho/` | LibreEcho add-on (`libreecho` service): `lidar-libreecho.sh` (install, start, stop), `le-sandbox.c` (namespaces that keep it off the eMMC), `le-adapter.c` (LEDs, mics, mixer placeholders), `le-netd.c` (LibreEcho's network daemon socket, answered with lidar's Wi-Fi), `networkd.init` (stand-in service inside), `amz_privacy/` (privacy-latch module); see its README |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 | `pogo-jig/` | 3D-printable pogo-pin jig for the USB test points, held by one M4 screw in the bottom insert: OpenSCAD source, STLs, assembly notes and a test-fit checklist |
 | `efr32/` | the EFR32MG12's multi-PAN RCP and `zigbeed` for the Echo (Gecko SDK 4.4.3, their own build container and a GBL packer); see `efr32/README.md` |
@@ -290,7 +290,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
 | `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
 | `visualizer` | extra | off | sound display on the LED ring (below) |
-| `libreecho` | extra | off | runs an owner-supplied [LibreEcho](https://github.com/aslater3/LibreEcho) release (a separate project) in place of the ring, volume, dsp, bluetooth, visualizer, usbaudio and webui services; experimental, see `tools/libreecho/README.md` |
+| `libreecho` | extra | off | runs an owner-supplied [LibreEcho](https://github.com/aslater3/LibreEcho) release (a separate project) in place of the ring, volume, dsp, bluetooth, visualizer, usbaudio, webui and thread services; experimental, see `tools/libreecho/README.md` |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
