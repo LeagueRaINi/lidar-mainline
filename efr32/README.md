@@ -56,13 +56,18 @@ slc 6 notes, all handled in `build.sh`:
 ## Status
 
 - The image builds, the Gecko bootloader accepts it ("Serial upload
-  complete"), and it starts: after a reset it sends valid Spinel frames (its
-  log lines and the reset notification) on PA0 at 115200.
-- **Open:** it does not answer Spinel requests from the host (e.g.
-  `PROP_VALUE_GET NCP_VERSION`), although the bootloader receives over the
-  same pins. Next suspects: the RCP's low-power mode (USART reception stops in
-  EM2; boards with flow control are woken by RTS), and the UART driver's
-  receive set-up without flow control.
+  complete"), and it starts: after a reset it sends its log lines and the
+  reset notification on PA0 at 115200.
+- It answers Spinel requests: `NCP_VERSION` returns
+  `OPENTHREAD/089440d; EFR32; …`, `PROTOCOL_VERSION` 4.3.
+- The bootloader uses the same pins (checked in its code read from
+  0x0FE10000): `GPIO_PinModeSet` PA0 push-pull, PA1 input, PA5 push-pull high,
+  `USART0->ROUTELOC0 = 0`, `ROUTEPEN = 3`.
+- The host side needs the `8250_mtk.c` overlay in
+  `lidar-linux/drivers/tty/serial/8250/`: without it ttyS2 stops transmitting
+  once the EFR32 sends while the port is closed, and only a reboot of the Echo
+  clears that state.
+- Next: `otbr-agent` on the Echo against this RCP.
 
 ## Going back to Amazon's Zigbee firmware
 
