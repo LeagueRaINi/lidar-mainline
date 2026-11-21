@@ -6,7 +6,11 @@
 #   volume <level> <muted 0|1> <max>   arc of white LEDs (dimmed to 15% while
 #                                      the speaker is muted), shown for
 #                                      HOLD seconds after the last change
-# A change of the privacy state ends any overlay at once.
+#   pair on|ok|off                     Bluetooth pairing mode: a blue arc
+#                                      circles until "ok" (two blue
+#                                      flashes) or "off"
+# A change of the privacy state ends any overlay at once; while the mics
+# are muted the pairing arc waits under the red ring.
 # Brightness follows the ambient light sensor, as on stock: full from a lit
 # room down to "ring min_brightness" percent in the dark (setting "ring
 # auto_brightness off" keeps it at full).
@@ -20,6 +24,8 @@ N=12
 HOLD=2
 WHITE=96
 RED=160
+BLUE=160
+SPIN=0.1	# pairing arc: seconds per step
 # Sensor counts at its most sensitive setting: covered reads 0-20, a dimly
 # lit room about 550, a flashlight about 9000. Brightness is interpolated on
 # a log scale between ALS_DARK (minimum) and ALS_BRIGHT (full).
@@ -97,6 +103,28 @@ volume() { # level muted max
 	done
 }
 
+# Pairing arc: a full LED with a fading tail of two, one step per call.
+# Brightness is read once per turn, not at every step.
+spin() {
+	if [ $pos = 0 ]; then
+		level
+		bb=$(scaled $BLUE)
+	fi
+	set_led $(( (pos + 9) % N + 1 )) 0 0 0
+	set_led $(( (pos + 10) % N + 1 )) 0 0 $(( bb / 8 ))
+	set_led $(( (pos + 11) % N + 1 )) 0 0 $(( bb / 3 ))
+	set_led $(( pos + 1 )) 0 0 $bb
+	pos=$(( (pos + 1) % N ))
+}
+
+flash() { # two blue flashes: paired
+	level
+	for i in 1 2; do
+		fill 0 0 $(scaled $BLUE); sleep 0.25
+		fill 0 0 0; sleep 0.15
+	done
+}
+
 # Privacy latch (SW_MUTE_DEVICE on gpio-keys) into the FIFO
 mic_watch() {
 	ev=$(awk '/^N: Name="gpio-keys"/ { k = 1 } k && /^H: / {
@@ -124,6 +152,8 @@ daemon() {
 	while read -t 0.05 _ <&3; do :; done
 	mic_muted=0
 	overlay=
+	pairing=
+	pos=0
 	p_drawn=100
 	dim_min=$(lidar-feature get ring min_brightness 2>/dev/null)
 	dim_min=${dim_min:-15}
@@ -132,14 +162,26 @@ daemon() {
 	trap 'trap "" TERM; kill 0; exit' INT TERM
 	base
 	while :; do
-		if read -t $HOLD cmd a b c <&3; then
+		t=$HOLD
+		[ -n "$pairing" ] && [ -z "$overlay" ] && [ "$mic_muted" != 1 ] && t=$SPIN
+		if read -t $t cmd a b c <&3; then
 			case $cmd in
-			mic) mic_muted=$a; overlay=; base ;;	# privacy state wins at once
+			mic) mic_muted=$a; overlay=; pos=0; base ;;	# privacy state wins at once
 			volume) volume "$a" "$b" "$c"; overlay=1 ;;
+			pair)
+				case $a in
+				on) pairing=1; pos=0; [ -n "$overlay" ] || base ;;
+				ok) pairing=; overlay=; [ "$mic_muted" = 1 ] || flash; base ;;
+				*) pairing=; overlay=; base ;;
+				esac
+				;;
 			esac
 		elif [ -n "$overlay" ]; then
 			overlay=
+			pos=0
 			base
+		elif [ -n "$pairing" ] && [ "$mic_muted" != 1 ]; then
+			spin
 		elif [ "$mic_muted" = 1 ]; then
 			# follow the room light in steps that do not flicker; the end
 			# values are clamped, so reaching them cannot flicker either
@@ -156,7 +198,7 @@ daemon() {
 case $1 in
 daemon) daemon ;;
 *)
-	sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

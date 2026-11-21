@@ -31,7 +31,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
 | **Wireless** | | |
 | Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, MAC from IDME |
-| Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware |
+| Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware. Bluetooth speaker for phones (A2DP, SBC and AAC) with the phone's volume as the system volume, paired by holding the action button (`bluetooth` service) |
 | Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ Zigbee coordinator next to Thread on one radio: `zigbeed` (EmberZNet 7.4.3) on the Echo, EZSP over TCP for Home Assistant (`zigbee` service) |
 | Thread border router (EFR32) | ✅ | ✅ next to Zigbee on one radio: multi-PAN RCP built from this repository (`efr32/`), `otbr-agent` with its REST API for Home Assistant (`thread` service). Fire OS's own dual-PAN image speaks DSR's multiplexing and is not used |
 | **Interface and sensors** | | |
@@ -126,9 +126,10 @@ decompression.
 | `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
 | `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
-| `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes |
+| `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes, the blue arc of Bluetooth pairing mode |
 | `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
 | `tools/lidar-radio.sh` | the EFR32 radio for Zigbee and Thread at once: uploads the multi-PAN RCP if needed and runs `cpcd`, `zigbeed` with its TCP bridge, and `otbr-agent`, with both networks kept on the booted slot |
+| `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
 | `tools/lidar-wifi.sh` | Wi-Fi client from `wireless ssid`/`passphrase`: start, stop, status and scan; used at boot and by the web interface |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
@@ -262,6 +263,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
 | `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
+| `bluetooth` | extra | off | Bluetooth speaker for phones (below); needs `wireless` with `wireless bluetooth on` |
 | `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 | `webui` | extra | off | web interface on port 80 of the USB network (below) |
 
@@ -294,6 +296,9 @@ lidar-feature unset wireless country      # back to the default
 | `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `thread infra` | `wlan0` | `wlan0`, `usb0` | the network Home Assistant is on: the border router routes between it and the Thread network and advertises the Thread network there |
 | `thread listen` | `usb` | `usb`, `any` | `usb`: the REST API sits on a unix socket that `lidar-listen` bridges to port 8081 for connections arriving on `usb0` only (`SO_BINDTODEVICE`, as for telnet); `any`: otbr-agent listens on every address, Wi-Fi included. The API has no authentication and can change the Thread network |
+| `bluetooth name` | `lidar` | 1-48 bytes | name phones show for the Echo |
+| `bluetooth pair_seconds` | 120 | 30-600 | how long pairing mode lasts |
+| `bluetooth sound` | `on` | `on`, `off` | a double blip every 3 s in pairing mode, a chime when a phone pairs or connects, a falling tone when pairing mode ends without one |
 | `webui listen` | `usb` | `usb`, `any` | `usb`: the web interface only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `webui storage_mb` | 256 | 64-512 | RAM for uploaded songs, in MB (about 11 minutes of music per 128 MB), a RAM disk of its own; the library is cleared on reboot |
 
@@ -323,13 +328,15 @@ safety cap. Everything that changes volume feeds the same state:
   whose steps are the codec's steps, so the host's own volume curve applies
   unchanged. Changes made on the Echo are reported back, so the host's slider
   follows them.
+- **Bluetooth phone** (`bluetooth` service): the phone's volume buttons and
+  slider set the level, and changes made on the Echo move the phone's
+  slider (see Bluetooth speaker).
 - **Volume buttons:** 3 dB per press; holding repeats after 0.4 s, one step
   every 0.15 s. A short 520 Hz tone plays at the new level on the press and,
   after a hold, once at the final level, as on stock. Host slider changes
   stay silent: the host plays its own sound.
 - **Command line:** `lidar-volume get | set <percent> | up | down | mute |
-  unmute | toggle`. Other sources, such as Bluetooth absolute volume, can send
-  the same commands later.
+  unmute | toggle`.
 
 With the `ring` service, every change shows as a white arc on the LED ring
 (the leading LED dims in between, so each step is visible; while the speaker
@@ -413,8 +420,10 @@ up:
   a scan list to pick a network from, connect (saved as `wireless ssid` and
   `wireless passphrase` and joined at once, through `lidar-wifi`) and forget.
   Bluetooth power and a scan of nearby devices (name, address, type,
-  signal) through `btmgmt`, without `bluetoothd`. Thread and Zigbee state:
-  role, network, channel, PAN ID, border routing.
+  signal) through `btmgmt`; with the `bluetooth` service, the speaker's
+  state, pairing mode on and off, and the paired phones with a button to
+  forget each. Thread and Zigbee state: role, network, channel, PAN ID,
+  border routing.
 - **Services:** switch services on and off and edit their settings, with
   inputs that only offer the allowed values; then reboot from the page.
 - **Debug:** the kernel log with a filter and live follow, the previous
@@ -449,6 +458,56 @@ curl -X POST -H 'Content-Type: application/json' -d '{}' 'http://169.254.7.2/cgi
 printf 'MyNetwork\nmy passphrase' | curl -X POST -H 'Content-Type: application/octet-stream' \
   --data-binary @- 'http://169.254.7.2/cgi-bin/api?wifi_connect'
 ```
+
+### Bluetooth speaker
+
+With the `bluetooth` service, phones pair with the Echo and play on its
+speaker (A2DP sink, SBC and AAC). `bluetoothd` (BlueZ) runs the stack,
+`bluealsa` the audio transport, and `bluealsa-aplay` plays every connected
+phone into `lidar_speaker`: at the system volume, through the speaker
+tuning, mixed with other sounds (`lidar-bluetooth`).
+
+- **Pairing mode:** hold the action button 3 s (or "Pairing mode" in the
+  web interface, or `lidar-bluetooth pair`). The Echo is then visible and
+  pairable for `bluetooth pair_seconds` (120 s), a blue arc circles on the
+  LED ring and a soft double blip sounds every 3 s. Playback pauses: a
+  connected phone gets an AVRCP Pause, the web interface's player pauses;
+  nothing resumes it afterwards. Pairing needs no PIN. The first phone that
+  pairs (also again, after it forgot the Echo) ends the mode with two blue
+  flashes and a rising chime. Holding the button 3 s again (or "Stop
+  pairing", or `lidar-bluetooth pair stop`) ends it early; that, or nobody
+  pairing in time, ends it with a falling tone. The sounds play at the
+  system volume, not while it is muted, and `bluetooth sound off` turns
+  them off.
+- **Connections:** a paired phone is trusted and can connect at any time,
+  without pairing mode; the chime greets it. Outside pairing mode the Echo
+  is neither visible nor pairable, and a phone that is not trusted is
+  disconnected and removed as soon as it opens an audio stream (the kernel
+  lets a phone that pairs without bonding through, so trust is the gate).
+  The Echo itself never connects to a phone: not at boot, and not after
+  the link was lost (BlueZ's `ReconnectAttempts` is 0).
+- **Volume:** the phone's volume (AVRCP absolute volume) is the system
+  volume. Changes on the phone go to `lidar-volume` (with the volume arc on
+  the ring), and the volume buttons, the web interface and the USB host's
+  slider move the phone's slider. Each slider answers a change with its own
+  rounding of it (an iPhone has 16 steps); `lidar-volume` takes what comes
+  back from a slider within 1.5 s of its own write as that echo, otherwise
+  the phone and the USB host push the level back and forth. A real change
+  on that slider inside those 1.5 s is lost the same way; the next one
+  counts again.
+- Pairing keys live in `/var/lib/bluetooth`, bound from the booted slot
+  (`lidar-feature keep`). Paired phones are listed and removed in the web
+  interface or with `lidar-bluetooth devices` and `lidar-bluetooth forget
+  <address>`.
+- `bluetoothd`, `bluealsa`, `bluealsa-aplay` and the pairing agent
+  (`bt-agent`, NoInputNoOutput) log to the kernel log, prefixed with their
+  names. Remote-control keys a phone sends (AVRCP) reach Linux input through
+  `uinput`.
+- Verified on hardware with an iPhone: pairing with the action button
+  (ring and sounds), ending pairing mode by a second hold and in the web
+  interface, playback paused by pairing mode, the chime on connecting, AAC
+  playback, volume both ways, connecting again after a reboot without
+  pairing mode.
 
 ### Zigbee and Thread
 

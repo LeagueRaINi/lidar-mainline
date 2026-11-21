@@ -21,7 +21,6 @@
 #        lidar-radio thread   run otbr-agent
 #        lidar-radio status
 GBL=/usr/share/lidar/efr32/lidar-mp-rcp.gbl
-SLOT=/media/system
 RUN=/run/lidar-radio
 UP=$RUN.cpcd-up
 PORT=6638
@@ -37,22 +36,9 @@ to_kmsg() {
 	done
 }
 
-# $1 under $SLOT, bound to $1: the only place written on the slot.
+# The networks' data directory, bound from the booted slot
 keep_data() {
-	mountpoint -q "$1" && return 0
-	if [ ! -d $SLOT/etc ]; then
-		log "booted slot not mounted: nowhere to keep $1"
-		return 1
-	fi
-	mount -o remount,rw $SLOT || return 1
-	mkdir -p "$SLOT$1" && chmod 700 "$SLOT$1"
-	ok=$?
-	# back to read-only for this mount only: the filesystem stays writable
-	mount -o remount,bind,ro $SLOT || return 1
-	[ $ok -eq 0 ] &&
-		mkdir -p "$1" &&
-		mount --bind "$SLOT$1" "$1" &&
-		mount -o remount,bind,rw "$1"
+	e=$(lidar-feature keep "$1" 2>&1) || { log "$1: ${e:-cannot bind it}"; return 1; }
 }
 
 # cpcd in the background; true once it reports the RCP connected. The log
@@ -91,10 +77,6 @@ case $1 in
 cpcd)
 	# libcpc's sockets live in /dev/shm
 	mountpoint -q /dev/shm || { mkdir -p /dev/shm && mount -t tmpfs -o mode=1777 shm /dev/shm; }
-	# here, before the clients start: two of them remounting the slot at
-	# once would trip over each other
-	if lidar-feature enabled zigbee; then keep_data /var/lib/zigbee; fi
-	if lidar-feature enabled thread; then keep_data /var/lib/thread; fi
 	stop_cpcd
 	lidar-efr32 run || { log "cannot start the EFR32 application"; sleep 60; exit 1; }
 	if ! start_cpcd; then
@@ -176,7 +158,6 @@ thread)
 		[ -d /sys/class/net/$infra ] && break
 		sleep 1
 	done
-	# cpcd only comes up after it has bound the data directories
 	if [ ! -d /sys/class/net/$infra ] || ! wait_cpcd thread || ! keep_data /var/lib/thread; then
 		[ -d /sys/class/net/$infra ] || log "no $infra"
 		sleep 60

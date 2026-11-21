@@ -22,6 +22,8 @@
 #        lidar-feature get <name> <key>    (prints the value in effect)
 #        lidar-feature set <name> <key> <value>
 #        lidar-feature unset <name> <key>  (back to the default)
+#        lidar-feature keep <dir>  (bind <dir> from the booted slot: where
+#                                   services keep data across reboots)
 #
 # Changes take effect on the next boot.
 CONF=${LIDAR_CONF:-/media/system/etc/lidar.conf}
@@ -37,13 +39,15 @@ webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, vo
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
+bluetooth extra 0 Bluetooth speaker: phones play on the Echo (A2DP, SBC and AAC), paired by holding the action button 3 s; needs wireless with its Bluetooth driver
 dsp extra 0 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter (needs the volume service and Fire OS on system_a)
 '
 
 # feature key default allowed description
 # default "-" is unset. allowed is a|b|c (one of), N-M (integer range),
-# CC (two capital letters), ssid (1-32 bytes, no control characters) or
-# passphrase (8-63 printable ASCII characters, masked in "settings").
+# CC (two capital letters), ssid (1-32 bytes, no control characters),
+# label (1-48 bytes, no control characters) or passphrase (8-63 printable
+# ASCII characters, masked in "settings").
 SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
 wireless bluetooth on on|off off: do not load the Bluetooth driver
@@ -53,6 +57,9 @@ wireless passphrase - passphrase passphrase of that network, kept in plain text 
 zigbee listen usb usb|any usb: accept the coordinator connection on usb0 only; any: on every interface, Wi-Fi included
 thread infra wlan0 wlan0|usb0 network Home Assistant is on: the border router routes between it and the Thread network and advertises there
 thread listen usb usb|any usb: REST API (no authentication) on usb0 only; any: on every interface, Wi-Fi included
+bluetooth name lidar label name phones show for the Echo
+bluetooth pair_seconds 120 30-600 how long the Echo stays visible and pairable after the action button was held 3 s
+bluetooth sound on on|off on: soft sounds while pairing mode runs, a chime when a phone pairs or connects, a falling tone when the mode ends without one
 webui listen usb usb|any usb: accept web connections on usb0 only; any: on every interface, Wi-Fi included
 webui storage_mb 256 64-512 RAM for uploaded songs in MB (about 11 minutes per 128 MB), cleared on reboot
 volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
@@ -77,10 +84,15 @@ conf_get() { # key -> last value in the file, empty if none
 
 # The file may sit on a filesystem mounted read-only (the test image mounts
 # the booted slot that way): open it for writing only around the change. If
-# the filesystem itself is writable underneath (the zigbee and thread
-# services keep their data directories there), only this mount's flag is
-# switched, so the data directories stay writable.
+# the filesystem itself is writable underneath (services keep their data
+# directories there, see keep), only this mount's flag is switched, so the
+# data directories stay writable. Changes to the slot's mounts take a lock:
+# two of them at once would undo each other's remount.
 conf_put() { # key [value]: replace the entry, or remove it without value
+	( flock 9 && conf_put_locked "$@" ) 9> /run/lidar-slot.lock
+}
+
+conf_put_locked() {
 	dir=${CONF%/*}
 	# Without the directory the slot is not mounted; writing would land in
 	# RAM and be lost at reboot.
@@ -112,6 +124,26 @@ conf_put() { # key [value]: replace the entry, or remove it without value
 	[ $rc -eq 0 ] || rm -f "$CONF.new"
 	[ -z "$ro" ] || mount -o "$ro" "$mnt"
 	return $rc
+}
+
+# <dir> of the booted slot, bound to <dir>: the slot's filesystem is made
+# writable underneath while its mount at /media/system stays read-only.
+keep_locked() {
+	slot=/media/system
+	mountpoint -q "$1" && return 0
+	if [ ! -d $slot/etc ]; then
+		echo "booted slot not mounted: nowhere to keep $1" >&2
+		return 1
+	fi
+	mount -o remount,rw $slot || return 1
+	mkdir -p "$slot$1" && chmod 700 "$slot$1"
+	ok=$?
+	# back to read-only for this mount only: the filesystem stays writable
+	mount -o remount,bind,ro $slot || return 1
+	[ $ok -eq 0 ] &&
+		mkdir -p "$1" &&
+		mount --bind "$slot$1" "$1" &&
+		mount -o remount,bind,rw "$1"
 }
 
 value_of() { # name -> 0/1
@@ -155,10 +187,11 @@ valid() { # allowed value
 		case $2 in '' | *[!0-9]* | ?????* | 0?*) return 1 ;; esac
 		[ "$2" -ge "${1%-*}" ] && [ "$2" -le "${1#*-}" ] && return 0
 		;;
-	ssid)
+	ssid | label)
 		case $2 in *[[:cntrl:]]*) return 1 ;; esac
 		n=$(printf %s "$2" | wc -c)
-		[ "$n" -ge 1 ] && [ "$n" -le 32 ] && return 0
+		max=32; [ "$1" = label ] && max=48
+		[ "$n" -ge 1 ] && [ "$n" -le $max ] && return 0
 		;;
 	passphrase)
 		case $2 in *[![:print:]]*) return 1 ;; esac
@@ -226,6 +259,7 @@ set)
 		case $ALLOWED in
 		passphrase) echo "invalid passphrase for $2 $3 (allowed: 8-63 printable ASCII characters)" >&2 ;;
 		ssid) echo "invalid value '$4' for $2 $3 (allowed: 1-32 bytes, no control characters)" >&2 ;;
+		label) echo "invalid value '$4' for $2 $3 (allowed: 1-48 bytes, no control characters)" >&2 ;;
 		*) echo "invalid value '$4' for $2 $3 (allowed: $ALLOWED)" >&2 ;;
 		esac
 		exit 2
@@ -238,8 +272,12 @@ unset)
 	need_setting "$2" "$3"
 	conf_put "$2.$3" && echo "$2 $3: back to default (${DEF:-unset})"
 	;;
+keep)
+	case $2 in /*) ;; *) echo "usage: lidar-feature keep <absolute dir>" >&2; exit 2 ;; esac
+	( flock 9 && keep_locked "$2" ) 9> /run/lidar-slot.lock
+	;;
 *)
-	sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

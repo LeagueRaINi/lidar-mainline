@@ -24,7 +24,13 @@ ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
 curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
 	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod cjson \
-	alsa-ucm-conf bluez-btmgmt
+	alsa-ucm-conf bluez-btmgmt bluez dbus bluez-alsa bluez-alsa-utils bluez-tools
+# Package scripts do not run here: the system bus's own user, which dbus'
+# install script would add
+grep -q '^messagebus:' "$T/initramfs/etc/passwd" ||
+	echo 'messagebus:x:100:101:messagebus:/run/dbus:/sbin/nologin' >> "$T/initramfs/etc/passwd"
+grep -q '^messagebus:' "$T/initramfs/etc/group" ||
+	echo 'messagebus:x:101:messagebus' >> "$T/initramfs/etc/group"
 # fw_printenv/fw_setenv: U-Boot keeps its environment at the top of misc
 cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
@@ -122,6 +128,7 @@ install -m755 "$T/lidar-player" "$T/initramfs/usr/bin/lidar-player"
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
 install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
+install -m755 /work/tools/lidar-bluetooth.sh "$T/initramfs/usr/bin/lidar-bluetooth"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
@@ -266,21 +273,43 @@ if [ -f $ZIGBEED ]; then
 else
 	echo "warning: $ZIGBEED missing (build it with efr32/zigbeed.sh): no Zigbee" >&2
 fi
-# Volume feedback tone: 90 ms at 520 Hz, -10 dBFS, 20 ms raised-cosine
-# fades, in the speaker's native format (48 kHz, 16 bit stereo).
+# Feedback sounds in the speaker's native format (48 kHz, 16 bit stereo).
+# - volume-tone (lidar-volume): 90 ms at 520 Hz, -10 dBFS, 20 ms
+#   raised-cosine fades
+# - bt-* (lidar-bluetooth): bell notes, a fundamental with three fading
+#   overtones, 4 ms attack and an exponential decay; notes (Hz, start s)
+#   may overlap. bt-pairing: two short A5, repeated in pairing mode;
+#   bt-paired: C6 E6 G6 C7 rising; bt-timeout: G5 C5 falling
 mkdir -p "$T/initramfs/usr/share/lidar"
-python3 - "$T/initramfs/usr/share/lidar/volume-tone.wav" <<'EOF'
+python3 - "$T/initramfs/usr/share/lidar" <<'EOF'
 import math, struct, sys, wave
-fs, n, fade, f = 48000, 4320, 960, 520
-with wave.open(sys.argv[1], "wb") as w:
-    w.setnchannels(2); w.setsampwidth(2); w.setframerate(fs)
-    frames = bytearray()
-    for i in range(n):
-        env = min(1.0, i / fade, (n - 1 - i) / fade)
-        env = 0.5 - 0.5 * math.cos(math.pi * env)
-        s = int(0.316 * env * math.sin(2 * math.pi * f * i / fs) * 32767)
-        frames += struct.pack("<hh", s, s)
-    w.writeframes(bytes(frames))
+fs = 48000
+def save(name, x):
+    with wave.open(f"{sys.argv[1]}/{name}.wav", "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(fs)
+        w.writeframes(b"".join(struct.pack("<hh", s, s) for s in (int(v * 32767) for v in x)))
+def tone(f, ms, db, fade_ms):
+    a, n, fade = 10 ** (db / 20), fs * ms // 1000, fs * fade_ms // 1000
+    return [a * (0.5 - 0.5 * math.cos(math.pi * min(1.0, i / fade, (n - 1 - i) / fade)))
+            * math.sin(2 * math.pi * f * i / fs) for i in range(n)]
+def bell(notes, tau, length, db):
+    n, out = int(length * fs), [0.0] * int(length * fs)
+    for f, start in notes:
+        s = int(start * fs)
+        for i in range(n - s):
+            t = i / fs
+            env = min(t / 0.004, 1.0) * math.exp(-t / tau)
+            out[s + i] += env * sum(a * math.exp(-t * (k - 1) * 3) * math.sin(2 * math.pi * f * k * t)
+                                    for k, a in ((1, 1.0), (2, 0.45), (3, 0.2), (4.2, 0.08)))
+    fade = fs // 50
+    for i in range(fade):
+        out[n - fade + i] *= 1 - i / fade
+    g = 10 ** (db / 20) / max(abs(v) for v in out)
+    return [v * g for v in out]
+save("volume-tone", tone(520, 90, -10, 20))
+save("bt-pairing", bell([(880, 0), (880, 0.16)], 0.09, 0.6, -10))
+save("bt-paired", bell([(1047, 0), (1319, 0.1), (1568, 0.2), (2093, 0.3)], 0.3, 1.3, -4))
+save("bt-timeout", bell([(784, 0), (523, 0.22)], 0.25, 1.0, -8))
 EOF
 
 # The card's UCM profile (alsa-ucm-conf layout)
@@ -465,6 +494,18 @@ if lidar-feature enabled thread; then
 		echo '::respawn:/usr/bin/lidar-listen usb0 8081 socat STDIO UNIX-CONNECT:/run/otbr-rest.sock' \
 			>> /etc/inittab
 	fi
+fi
+# Bluetooth speaker: the D-Bus system bus, bluetoothd, bluealsa and its
+# player, and lidar-bluetooth's daemon (pairing, action button, volume);
+# each waits for the one before. Needs the driver the wireless service loads.
+if lidar-feature enabled bluetooth && lidar-feature enabled wireless &&
+   [ "$(lidar-feature get wireless bluetooth)" = on ]; then
+	mkdir -p /run/dbus
+	dbus-uuidgen --ensure
+	for s in 'dbus-daemon --system --nofork --nopidfile' 'lidar-bluetooth bluetoothd' \
+		'lidar-bluetooth bluealsa' 'lidar-bluetooth aplay' 'lidar-bluetooth daemon'; do
+		echo "::respawn:/usr/bin/$s" >> /etc/inittab
+	done
 fi
 # Web interface: the player daemon, and httpd tied to usb0 unless the owner
 # asks for every interface (as for telnet)

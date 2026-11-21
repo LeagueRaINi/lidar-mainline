@@ -243,12 +243,25 @@ bt_json() {
 		printf '{"present": false}'
 		return
 	fi
-	timeout 2 btmgmt info 2>/dev/null | tr '\t' ' ' | jesc | awk '
+	# speaker: lidar-bluetooth's daemon runs; pairing: its pairing mode is on
+	sp=false; [ -p /run/lidar-bluetooth.fifo ] && pgrep -f 'lidar-bluetooth daemon' >/dev/null && sp=true
+	pm=false; [ -e /run/lidar-bluetooth.pairing ] && pm=true
+	timeout 2 btmgmt info 2>/dev/null | tr '\t' ' ' | jesc | awk -v sp=$sp -v pm=$pm '
 		/^[[:space:]]+addr / { addr = $2 }
 		/current settings:/ { pw = / powered( |$)/ }
 		/^[[:space:]]+name / { sub(/^[[:space:]]+name /, ""); name = $0 }
-		END { printf "{\"present\": true, \"powered\": %s, \"address\": \"%s\", \"name\": \"%s\"}",
-			pw ? "true" : "false", addr, name }'
+		END { printf "{\"present\": true, \"powered\": %s, \"address\": \"%s\", \"name\": \"%s\", \"speaker\": %s, \"pairing\": %s}",
+			pw ? "true" : "false", addr, name, sp, pm }'
+}
+
+# Phones paired with the speaker (lidar-bluetooth devices: address,
+# connected, name; tab-separated, the name last)
+bt_devices() {
+	lidar-bluetooth devices 2>/dev/null | jesc | awk -F '\t' 'BEGIN { printf "{\"devices\": [" }
+		NF >= 3 { n = $0; sub(/^[^\t]*\t[^\t]*\t/, "", n); gsub(/\t/, " ", n)
+			printf "%s{\"address\": \"%s\", \"connected\": %s, \"name\": \"%s\"}",
+				c++ ? ", " : "", $1, $2 == "yes" ? "true" : "false", n }
+		END { print "]}" }'
 }
 
 # The first line of the agent's answer to a CLI command. Not ot-ctl: it exits
@@ -440,7 +453,7 @@ case $QUERY_STRING in *'&title='*) title=${QUERY_STRING#*&title=}; title=${title
 
 case $key in
 stats | player | songs | services | network) ;;
-wifi_scan | bt_scan | log | procs | system | settings | ls | file) admin ;;
+wifi_scan | bt_scan | bt_devices | log | procs | system | settings | ls | file) admin ;;
 upload | wifi_connect | set)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/octet-stream ] ||
 		fail "$key needs POST with application/octet-stream"
@@ -449,7 +462,7 @@ upload | wifi_connect | set)
 *)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/json ] ||
 		fail "commands need POST with application/json"
-	case $key in wifi_forget | bt_power | enable | disable | unset | reboot) admin ;; esac
+	case $key in wifi_forget | bt_power | bt_pair | bt_forget | enable | disable | unset | reboot) admin ;; esac
 	;;
 esac
 
@@ -508,6 +521,20 @@ bt_power)
 	ok
 	;;
 bt_scan) bt_scan ;;
+bt_devices) bt_devices ;;
+bt_pair)
+	case $val in '') a= ;; stop) a=stop ;; *) fail "bad pairing command" ;; esac
+	lidar-bluetooth pair $a >/dev/null 2>&1 || fail "Bluetooth speaker not running (service bluetooth)"
+	ok
+	;;
+bt_forget)
+	case $val in
+	[0-9A-F][0-9A-F]:[0-9A-F][0-9A-F]:[0-9A-F][0-9A-F]:[0-9A-F][0-9A-F]:[0-9A-F][0-9A-F]:[0-9A-F][0-9A-F]) ;;
+	*) fail "bad address" ;;
+	esac
+	lidar-bluetooth forget "$val" >/dev/null 2>&1 || fail "cannot remove the phone"
+	ok
+	;;
 log) klog ;;
 procs) printf '{"text": %s}\n' "$(top -b -n 1 | head -n 80 | jtext)" ;;
 system) system_info ;;

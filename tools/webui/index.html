@@ -296,12 +296,16 @@ pre.text { margin: 0; max-height: 60vh; overflow: auto; padding: .6rem; backgrou
       <dt>Controller</dt><dd id="bt-state">–</dd>
       <dt>Name</dt><dd id="bt-name">–</dd>
       <dt>Address</dt><dd id="bt-addr">–</dd>
+      <dt>Speaker</dt><dd id="bt-speaker">–</dd>
     </dl>
     <div class="bar">
       <button id="bt-power" disabled>Turn on</button>
       <button id="bt-scan" disabled>Scan</button>
+      <button id="bt-pair" disabled>Pairing mode</button>
     </div>
+    <ul class="rows" id="bt-paired"></ul>
     <ul class="rows" id="bt-list"></ul>
+    <p class="muted">Pairing mode: also by holding the action button 3 s. Paired phones connect by themselves; the Echo never connects to them.</p>
   </div>
   <div class="card">
     <h2>Thread and Zigbee</h2>
@@ -1052,9 +1056,13 @@ function renderNetwork(n) {
   setText('bt-state', !b.present ? 'not present (Bluetooth driver off?)' : b.powered ? 'on' : 'off');
   setText('bt-name', b.name || DASH);
   setText('bt-addr', b.address || DASH);
+  setText('bt-speaker', !b.speaker ? 'off (service bluetooth)' : b.pairing ? 'pairing mode' : 'ready');
   $('bt-power').disabled = !b.present;
   $('bt-power').textContent = b.powered ? 'Turn off' : 'Turn on';
   $('bt-scan').disabled = !b.present || !b.powered;
+  $('bt-pair').disabled = !b.speaker;
+  $('bt-pair').textContent = b.pairing ? 'Stop pairing' : 'Pairing mode';
+  if (b.speaker) refreshPaired(); else $('bt-paired').replaceChildren();
 
   const t = n.thread, z = n.zigbee, rows = [];
   rows.push(['Thread service', t.enabled ? (t.agent ? 'running' : 'starting or failed') : 'off']);
@@ -1130,6 +1138,28 @@ function btRow(d) {
   return li;
 }
 
+/* Phones paired with the speaker; admin only, so quiet on failure. */
+async function refreshPaired() {
+  let d;
+  try { d = await api('bt_devices'); } catch { return; }
+  $('bt-paired').replaceChildren(...(d.devices.length ? d.devices.map((p) => {
+    const li = el('li');
+    const meta = el('span', 'meta');
+    meta.append(el('span', 'num', p.address), el('span', p.connected ? 'pill on' : 'pill', p.connected ? 'connected' : 'paired'));
+    const stack = el('span', 'stack');
+    stack.append(el('span', 'name', p.name || '(no name)'), meta);
+    const forget = el('button', '', 'Forget');
+    confirmClick(forget, 'Really?', async () => {
+      if (await command('bt_forget=' + p.address)) {
+        toast('Forgotten: ' + (p.name || p.address), true);
+        refreshPaired();
+      }
+    });
+    li.append(stack, forget);
+    return li;
+  }) : [el('li', 'muted', 'No phone paired')]));
+}
+
 async function scanBluetooth() {
   const btn = $('bt-scan');
   btn.disabled = true;
@@ -1180,6 +1210,12 @@ function initNetwork() {
     $('bt-power').disabled = !(bluetooth && bluetooth.present);
   });
   $('bt-scan').addEventListener('click', scanBluetooth);
+  $('bt-pair').addEventListener('click', async () => {
+    const stop = bluetooth && bluetooth.pairing;
+    $('bt-pair').disabled = true;
+    if (await command(stop ? 'bt_pair=stop' : 'bt_pair')) toast(stop ? 'Pairing mode ended' : 'Pairing mode on: pair the phone now', true);
+    refreshNetwork();
+  });
 }
 
 /* ---------- services and settings ---------- */
