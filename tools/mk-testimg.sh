@@ -580,6 +580,17 @@ fi
 exec /bin/busybox init
 EOF
 chmod +x "$T/initramfs/init"
+# Every shell script in the image must parse: one stray quote (an
+# apostrophe in lidar-feature's single-quoted tables, say) stops the boot
+for f in "$T/initramfs/init" "$T"/initramfs/usr/bin/* "$T/initramfs/usr/share/lidar/www/cgi-bin/api"; do
+	[ "$(head -c 9 "$f" 2>/dev/null | tr -d '\0')" = '#!/bin/sh' ] || continue
+	sh -n "$f" || { echo "mk-testimg: syntax error in ${f#$T/initramfs}" >&2; exit 1; }
+done
+# sh -n misses an even number of stray quotes: lidar-feature's tables must
+# not contain any (two of them parse, and silently cut a table in pieces)
+awk '/^(FEATURES|SETTINGS)=\047$/ { t = 1; next } t && /^\047$/ { t = 0; next }
+	t && /\047/ { print "mk-testimg: quote in lidar-feature table, line " NR ": " $0; bad = 1 }
+	END { exit bad }' /work/tools/lidar-feature.sh >&2 || exit 1
 
 (cd "$T/initramfs" && find . | cpio -o -H newc --quiet | gzip -9) > "$T/fs/boot/initramfs.gz"
 cp "$B/arch/arm64/boot/Image.gz" "$T/fs/boot/Image.gz"
