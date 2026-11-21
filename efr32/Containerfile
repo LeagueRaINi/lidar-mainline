@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# Tools for the EFR32MG12 radio firmware (OpenThread RCP, see efr32/README.md):
+# Tools for the EFR32MG12 radio firmware and zigbeed (see efr32/README.md):
 # Arm GNU toolchain 12.2.rel1 as the Gecko SDK 4.4 expects, Silicon Labs'
-# project generator slc-cli, and what ot-efr32's scripts need. The sources
-# (ot-efr32, OpenThread, Gecko SDK) are fetched by efr32/build.sh into a volume.
+# project generator slc-cli, and an aarch64 glibc cross toolchain for
+# zigbeed. The sources (Gecko SDK, cpc-daemon) are fetched by efr32/build.sh
+# and efr32/zigbeed.sh into a volume.
 FROM docker.io/library/debian:trixie
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       python3 python3-jinja2 python3-yaml python3-git \
