@@ -23,13 +23,15 @@
  * DAC comes up with MFP5 high (aic32x4-gpio-func).
  *
  * The amplifier has no status output, so its start-up time is a fixed
- * delay. Measured by ear: unmuting 100 ms after enabling it still clicks,
- * 250 ms and later is silent. Enabling it while muted is silent, and so is
- * disabling it, muted or not; muting it while it runs clicks. So it is
- * enabled muted and unmuted after the delay, and on power-down disabled
- * first and muted afterwards, ready for the next start. The first unmute
- * after boot still makes a faint click (measured with the microphones),
- * whatever the delay.
+ * delay. Measured with a microphone over the speaker: enabled unmuted, it
+ * pops loudly about 0.4 s after the enable; enabled muted it stays silent,
+ * and the unmute is heard about 0.4 s after the MFP5 edge. So it is enabled
+ * muted and unmuted after the delay. Each direction still makes one faint
+ * click that neither the order nor a longer delay (up to 2 s) removes: the
+ * unmute, and on power-down whichever of disabling and muting comes first
+ * (the other one is then silent). Muting the DAC's line drivers first does
+ * not help, that clicks by itself. It is disabled first and muted
+ * afterwards, ready for the next start.
  */
 #define LIDAR_AMP_SETTLE_MS	500
 /* Every microphone ADC fills two 32 bit slots of the TDM frame. */
