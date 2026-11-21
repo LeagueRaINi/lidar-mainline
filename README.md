@@ -126,7 +126,8 @@ decompression.
 | `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
 | `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
-| `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes, the blue arc of Bluetooth pairing mode |
+| `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes, the blue arc of Bluetooth pairing mode; hands the ring to `lidar-viz` in between |
+| `tools/lidar-viz.c` | sound display on the LED ring (`visualizer` service): level arc or spectrum of whatever the speaker plays |
 | `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
 | `tools/lidar-radio.sh` | the EFR32 radio for Zigbee and Thread at once: uploads the multi-PAN RCP if needed and runs `cpcd`, `zigbeed` with its TCP bridge, and `otbr-agent`, with both networks kept on the booted slot |
 | `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
@@ -287,6 +288,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
 | `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
+| `visualizer` | extra | off | sound display on the LED ring (below) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -319,6 +321,7 @@ lidar-feature unset wifi country          # back to the default
 | `bluetooth name` | `lidar` | 1-48 bytes | name phones show for the Echo |
 | `bluetooth pair_seconds` | 120 | 30-600 | how long pairing mode lasts |
 | `bluetooth sound` | `on` | `on`, `off` | a double blip every 3 s in pairing mode, a chime when a phone pairs or connects, a falling tone when pairing mode ends without one |
+| `visualizer style` | `level` | `level`, `spectrum` | `level`: an arc from LED 1 down both sides, green, yellow, red at the end, with a peak mark; longer with louder music and a higher volume. `spectrum`: 7 bands from 50 Hz to 10 kHz, mirrored, bass at LED 1 and treble opposite, red to violet |
 | `webui listen` | `usb` | `usb`, `any` | `usb`: the web interface only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `webui storage_mb` | 256 | 64-512 | RAM for uploaded songs, in MB (about 11 minutes of music per 128 MB), a RAM disk of its own; the library is cleared on reboot |
 
@@ -539,6 +542,37 @@ tuning, mixed with other sounds (`lidar-bluetooth`).
   interface, playback paused by pairing mode, the chime on connecting, AAC
   playback, volume both ways, connecting again after a reboot without
   pairing mode.
+
+### Sound display
+
+With the `visualizer` extra, the LED ring shows what the speaker plays
+(`lidar-viz`). It listens to the AFE's loopback of the DAC input
+(`hw:amazonlidar,2`), so every source counts: Bluetooth, the web player,
+the USB host, system sounds. 40 frames per second.
+
+The loopback is taken after the speaker tuning and before the codec: with
+`dsp`, `lidar-dsp` has already applied the system volume (up to the cap);
+on the direct path the codec applies it afterwards. `lidar-viz` adds what
+is missing from `/run/lidar-volume.state`, so both paths look the same.
+
+- `level` (default) shows the level at the speaker plus half the volume's
+  gain once more, -45 dB dark to -6 dB full: louder music and a higher
+  volume make the arc longer, and it gets short quickly as the volume goes
+  down (dark at low volume).
+- `spectrum` runs a 2048-point FFT and measures each band against its own
+  reference level, which follows the loudest recent level and halves in
+  4 s, so it looks the same at any volume.
+- The ring service's own displays win: while `lidar-ring` shows the privacy
+  red, the volume arc or pairing it holds `/run/lidar-ring.busy`, and
+  `lidar-viz` keeps off the ring. Brightness follows the light sensor as the
+  rest of the ring (`/run/lidar-ring.level`).
+- Dark while the speaker is muted, at volume 0, and while nothing plays
+  (silence is judged before the volume).
+- While the USB host records through the speakerphone (`lidar-usbaudio`'s
+  mic pipe runs, also with `usbaudio aec off`), `lidar-aec` may need the
+  loopback: `lidar-viz` lets go of it and waits.
+- Verified on hardware: both styles with music over Bluetooth, the volume
+  arc, mute, privacy red and pairing taking the ring and handing it back.
 
 ### Zigbee and Thread
 

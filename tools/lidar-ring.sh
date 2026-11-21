@@ -14,11 +14,16 @@
 # Brightness follows the ambient light sensor, as on stock: full from a lit
 # room down to "ring min_brightness" percent in the dark (setting "ring
 # auto_brightness off" keeps it at full).
+# While the ring shows any of this, /run/lidar-ring.busy exists, and
+# /run/lidar-ring.level holds the brightness in percent: the visualizer
+# (lidar-viz) only draws without the first, at the second.
 # Writers should open the FIFO read-write ("exec 5<>/run/lidar-ring.fifo") so
 # a write never blocks.
 #
 # Usage: lidar-ring daemon
 FIFO=/run/lidar-ring.fifo
+BUSY=/run/lidar-ring.busy
+LEVEL=/run/lidar-ring.level
 L=/sys/class/leds
 N=12
 HOLD=2
@@ -58,15 +63,27 @@ als_setup() {
 		> "$als/integration_time"
 }
 
-level() { # -> P, the brightness in percent
+# The ring is ours while BUSY exists: lidar-viz keeps off it. A new claim
+# waits two of lidar-viz's frames, so one it is writing ends before this
+# draws.
+claim() {
+	[ -e $BUSY ] && return
+	: > $BUSY
+	sleep 0.05
+}
+release() { rm -f $BUSY; }
+
+level() { # -> P, the brightness in percent, also published for lidar-viz
 	P=100
-	[ -n "$als" ] || return
-	P=$(awk -v v="$(cat "$als/in_illuminance_raw" 2>/dev/null)" -v min="$dim_min" \
-		-v lo=$ALS_DARK -v hi=$ALS_BRIGHT 'BEGIN {
-		if (v == "" || v >= hi) { print 100; exit }
-		if (v <= lo) { print min; exit }
-		printf "%d\n", min + (100 - min) * (log(v) - log(lo)) / (log(hi) - log(lo))
-	}')
+	if [ -n "$als" ]; then
+		P=$(awk -v v="$(cat "$als/in_illuminance_raw" 2>/dev/null)" -v min="$dim_min" \
+			-v lo=$ALS_DARK -v hi=$ALS_BRIGHT 'BEGIN {
+			if (v == "" || v >= hi) { print 100; exit }
+			if (v <= lo) { print min; exit }
+			printf "%d\n", min + (100 - min) * (log(v) - log(lo)) / (log(hi) - log(lo))
+		}')
+	fi
+	[ "$P" = "$p_pub" ] || { echo "$P" > $LEVEL; p_pub=$P; }
 }
 
 scaled() { # value -> value * P / 100, at least 1 unless 0
@@ -75,10 +92,15 @@ scaled() { # value -> value * P / 100, at least 1 unless 0
 	echo $s
 }
 
+# The resting state: red while the mics are muted, else dark and the ring
+# free for lidar-viz (unless an overlay or pairing goes on). Claimed first in
+# any case: lidar-viz then sees the hand-back and redraws all LEDs.
 base() {
+	claim
 	level
 	p_drawn=$P
 	if [ "$mic_muted" = 1 ]; then fill $(scaled $RED) 0 0; else fill 0 0 0; fi
+	[ "$mic_muted" = 1 ] || [ -n "$pairing$overlay" ] || release
 }
 
 # The arc covers the level in brightness units: full LEDs, then one partly
@@ -87,6 +109,7 @@ base() {
 # it comes back at.
 volume() { # level muted max
 	[ "$3" -gt 0 ] 2>/dev/null && [ "$1" -ge 0 ] 2>/dev/null || return
+	claim
 	level
 	w=$(scaled $WHITE)
 	t=$(( ($1 * N * w + $3 - 1) / $3 ))
@@ -106,6 +129,7 @@ volume() { # level muted max
 # Pairing arc: a full LED with a fading tail of two, one step per call.
 # Brightness is read once per turn, not at every step.
 spin() {
+	claim
 	if [ $pos = 0 ]; then
 		level
 		bb=$(scaled $BLUE)
@@ -118,6 +142,7 @@ spin() {
 }
 
 flash() { # two blue flashes: paired
+	claim
 	level
 	for i in 1 2; do
 		fill 0 0 $(scaled $BLUE); sleep 0.25
@@ -170,7 +195,7 @@ daemon() {
 			volume) volume "$a" "$b" "$c"; overlay=1 ;;
 			pair)
 				case $a in
-				on) pairing=1; pos=0; [ -n "$overlay" ] || base ;;
+				on) pairing=1; pos=0; [ -n "$overlay" ] || { claim; base; } ;;
 				ok) pairing=; overlay=; [ "$mic_muted" = 1 ] || flash; base ;;
 				*) pairing=; overlay=; base ;;
 				esac
@@ -191,6 +216,8 @@ daemon() {
 			   { [ $P = 100 ] || [ $P = "$dim_min" ]; }; }; then
 				base
 			fi
+		else
+			level	# brightness for lidar-viz, every HOLD seconds
 		fi
 	done
 }
@@ -198,7 +225,7 @@ daemon() {
 case $1 in
 daemon) daemon ;;
 *)
-	sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

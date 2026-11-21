@@ -125,6 +125,10 @@ clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness \
 	-s -o "$T/lidar-player" /work/tools/lidar-player.c -lasound
 install -m755 "$T/lidar-player" "$T/initramfs/usr/bin/lidar-player"
+clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=gnu11 -O2 -ffp-contract=fast -Wall -Wextra -Wno-nullability-completeness \
+	-s -o "$T/lidar-viz" /work/tools/lidar-viz.c -lasound -lm
+install -m755 "$T/lidar-viz" "$T/initramfs/usr/bin/lidar-viz"
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
 install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
@@ -481,6 +485,12 @@ if lidar-feature enabled volume; then
 fi
 if lidar-feature enabled ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
 	echo '::respawn:/usr/bin/lidar-ring daemon' >> /etc/inittab
+fi
+# Sound display on the ring: after the boot animation, as lidar-ring; it
+# keeps off the ring while lidar-ring shows something
+if lidar-feature enabled visualizer && [ -e /sys/class/leds/ring1:red/brightness ]; then
+	echo "::respawn:/bin/sh -c 'while [ ! -e /run/boot-done ] || pidof lidar-bootanim >/dev/null; do sleep 0.5; done; exec /usr/bin/lidar-viz -s $(lidar-feature get visualizer style)'" \
+		>> /etc/inittab
 fi
 # The EFR32 radio serves Zigbee and Thread at once (multi-PAN RCP): cpcd
 # multiplexes it, zigbee runs zigbeed and its TCP bridge, thread runs

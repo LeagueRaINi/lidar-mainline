@@ -44,6 +44,7 @@ webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, vo
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
+visualizer extra 0 sound display on the LED ring: spectrum or level of whatever the speaker plays, below the displays of the ring service
 '
 
 # feature key default allowed description
@@ -62,6 +63,7 @@ thread listen usb usb|any usb: REST API (no authentication) on usb0 only; any: o
 bluetooth name lidar label name phones show for the Echo
 bluetooth pair_seconds 120 30-600 how long the Echo stays visible and pairable after the action button was held 3 s
 bluetooth sound on on|off on: soft sounds while pairing mode runs, a chime when a phone pairs or connects, a falling tone when the mode ends without one
+visualizer style level spectrum|level level: arc from LED 1 down both sides, green to red, with a peak mark, longer with louder music and a higher volume; spectrum: 7 bands mirrored, bass at LED 1, treble opposite, red to violet
 webui listen usb usb|any usb: accept web connections on usb0 only; any: on every interface, Wi-Fi included
 webui storage_mb 256 64-512 RAM for uploaded songs in MB (about 11 minutes per 128 MB), cleared on reboot
 volume max_attenuation 0 0-60 cap: full volume is this many dB below the codec 0 dB (0 = Amazon maximum)
