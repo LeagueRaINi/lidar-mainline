@@ -15,7 +15,7 @@ own multiplexer). Both are plain, unsigned GBL v3 files.
 |---|---|---|
 | Chip | EFR32MG12, 1 MB flash, 128 KB RAM | application at 0 (Series 1 with a separate bootloader area); stack top 0x20020000; every MG12 with 128 KB has 1 MB |
 | Host link | USART0, TX PA0, RX PA1, no CTS/RTS | `GPIO_PinModeSet` calls and `USART0->ROUTEPEN = 3` in the RCP image |
-| PA5 | driven high at start-up | same function; VCOM enable on Silicon Labs' BRD4161A/BRD4166A |
+| PA5 | driven high at start-up | `GPIO_PinModeSet` in the RCP image; done here through the SDK's VCOM-enable board control |
 | Crystal | 38.4 MHz | constant in both images |
 | Supply | DC-DC to DVDD | `EMU->PWRCFG = 2` and the SDK's DC-DC init constants |
 | Radio | 2.4 GHz high-power PA from 3.3 V, 10 µs ramp | RAIL TX power config in both images |
@@ -41,8 +41,9 @@ is in this repository; `build.sh` fetches it pinned:
 
 `extension/` is an SLC extension: the board (`lidar_board`, chip variant and
 config files) and the RCP project (ot-efr32's UART RCP plus the bootloader
-application properties, without packet trace). The config headers are
-Silicon Labs' BRD4166A ones, zlib-licensed, with marked changes.
+application properties, without packet trace). Three config headers (HFXO,
+PA, UART) are Silicon Labs' BRD4166A ones, zlib-licensed, with marked
+changes; `sl_board_control_config.h` is our own.
 `mkgbl.py` packs the image as a GBL the way Amazon's files are laid out; it
 reproduces Amazon's RCP image byte for byte in its application and program
 tags.

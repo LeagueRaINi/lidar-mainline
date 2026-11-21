@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 """Pack a flat EFR32 application image into an unsigned, unencrypted GBL v3
 file for the Gecko bootloader on lidar's EFR32MG12 (XMODEM upload, see
-tools/lidar-zigbee.sh).
+tools/lidar-efr32.sh).
 
 Layout, as in the two images Amazon ships for this radio:
   HEADER     version 3.0, type 0 (plain)
@@ -23,6 +23,9 @@ TAG_APPLICATION = 0xF40A0AF4
 TAG_ERASEPROG = 0xFD0303FD
 TAG_END = 0xFC0404FC
 APP_PROPS_MAGIC = bytes.fromhex("13b779fac925ddb7adf3cfe0f1b614b8")
+# EFR32MG12 main flash: the application area. USERDATA, the lock bits and
+# the bootloader sit from 0x0FE00000 up and must never be written.
+FLASH_SIZE = 0x100000
 
 
 def tag(tag_id: int, body: bytes) -> bytes:
@@ -46,6 +49,10 @@ def main() -> None:
     args = ap.parse_args()
 
     image = open(args.image, "rb").read()
+    if len(image) < 56:
+        sys.exit("image too short for a vector table")
+    if args.base < 0 or args.base + len(image) > FLASH_SIZE:
+        sys.exit("image does not fit the application area (main flash)")
     sp, reset = struct.unpack_from("<II", image)
     if not 0x20000000 < sp <= 0x20020000:
         sys.exit(f"initial SP {sp:#x} is outside the EFR32MG12's 128 KB of RAM")

@@ -15,7 +15,7 @@
 set -euo pipefail
 
 GSDK_REV=d95099f4c05b3c40cece93d8a261dd471e642086 # v4.4.3
-OT_EFR32_REV=089440d                               # 2024-07-29, last on Gecko SDK
+OT_EFR32_REV=089440dc0162ca5e2c7b522e33e30a71a299d693 # 2024-07-29, last on Gecko SDK
 SRC=/efr
 S=$SRC/gsdk
 R=$S/extension/ot-efr32
@@ -28,14 +28,16 @@ fetch() {
 	fi
 	if [ "$(git -C "$S" rev-parse HEAD 2>/dev/null)" != "$GSDK_REV" ]; then
 		git -C "$S" checkout -q "$GSDK_REV"
-		git -C "$S" lfs install --local >/dev/null
-		git -C "$S" lfs pull
 	fi
+	# every run: an interrupted pull would otherwise leave LFS pointer stubs
+	# in place of the SDK's libraries for good (it skips what it has)
+	git -C "$S" lfs install --local >/dev/null
+	git -C "$S" lfs pull
 	if [ ! -d "$R/.git" ]; then
 		mkdir -p "$S/extension"
 		git clone -q https://github.com/openthread/ot-efr32.git "$R"
 	fi
-	if [ "$(git -C "$R" rev-parse --short=7 HEAD)" != "$OT_EFR32_REV" ]; then
+	if [ "$(git -C "$R" rev-parse HEAD)" != "$OT_EFR32_REV" ]; then
 		git -C "$R" checkout -q -f "$OT_EFR32_REV"
 	fi
 	git -C "$R" submodule update -q --init --depth 1 openthread

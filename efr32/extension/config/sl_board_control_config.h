@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Board control for lidar's EFR32MG12: no sensors, buttons or SPI flash; the
-// only control line is PA5, which Amazon's firmware drives high at start-up
-// (VCOM enable on Silicon Labs' BRD4161A/BRD4166A, whose USART0 PA0/PA1
-// layout this board shares).
+// only control line is PA5, which Amazon's firmware drives high at start-up.
+// The SDK's VCOM-enable board control does the same here.
 #ifndef SL_BOARD_CONTROL_CONFIG_H
 #define SL_BOARD_CONTROL_CONFIG_H
 
