@@ -15,5 +15,7 @@ snd-soc-tlv320aic32x4-i2c
 snd-aloop
 # usbaudio service: UAC2 gadget function
 usb_f_uac2
-# Bluetooth (wireless service); WLAN is out of tree in extra/
+# Bluetooth (bluetooth service); WLAN is out of tree in extra/
 btmtksdio
+# bluetooth service: AVRCP remote-control keys from phones (bluetoothd)
+uinput

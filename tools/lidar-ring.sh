@@ -6,20 +6,31 @@
 #   volume <level> <muted 0|1> <max>   arc of white LEDs (dimmed to 15% while
 #                                      the speaker is muted), shown for
 #                                      HOLD seconds after the last change
-# A change of the privacy state ends any overlay at once.
+#   pair on|ok|off                     Bluetooth pairing mode: a blue arc
+#                                      circles until "ok" (two blue
+#                                      flashes) or "off"
+# A change of the privacy state ends any overlay at once; while the mics
+# are muted the pairing arc waits under the red ring.
 # Brightness follows the ambient light sensor, as on stock: full from a lit
 # room down to "ring min_brightness" percent in the dark (setting "ring
 # auto_brightness off" keeps it at full).
+# While the ring shows any of this, /run/lidar-ring.busy exists, and
+# /run/lidar-ring.level holds the brightness in percent: the visualizer
+# (lidar-viz) only draws without the first, at the second.
 # Writers should open the FIFO read-write ("exec 5<>/run/lidar-ring.fifo") so
 # a write never blocks.
 #
 # Usage: lidar-ring daemon
 FIFO=/run/lidar-ring.fifo
+BUSY=/run/lidar-ring.busy
+LEVEL=/run/lidar-ring.level
 L=/sys/class/leds
 N=12
 HOLD=2
 WHITE=96
 RED=160
+BLUE=160
+SPIN=0.1	# pairing arc: seconds per step
 # Sensor counts at its most sensitive setting: covered reads 0-20, a dimly
 # lit room about 550, a flashlight about 9000. Brightness is interpolated on
 # a log scale between ALS_DARK (minimum) and ALS_BRIGHT (full).
@@ -52,15 +63,27 @@ als_setup() {
 		> "$als/integration_time"
 }
 
-level() { # -> P, the brightness in percent
+# The ring is ours while BUSY exists: lidar-viz keeps off it. A new claim
+# waits two of lidar-viz's frames, so one it is writing ends before this
+# draws.
+claim() {
+	[ -e $BUSY ] && return
+	: > $BUSY
+	sleep 0.05
+}
+release() { rm -f $BUSY; }
+
+level() { # -> P, the brightness in percent, also published for lidar-viz
 	P=100
-	[ -n "$als" ] || return
-	P=$(awk -v v="$(cat "$als/in_illuminance_raw" 2>/dev/null)" -v min="$dim_min" \
-		-v lo=$ALS_DARK -v hi=$ALS_BRIGHT 'BEGIN {
-		if (v == "" || v >= hi) { print 100; exit }
-		if (v <= lo) { print min; exit }
-		printf "%d\n", min + (100 - min) * (log(v) - log(lo)) / (log(hi) - log(lo))
-	}')
+	if [ -n "$als" ]; then
+		P=$(awk -v v="$(cat "$als/in_illuminance_raw" 2>/dev/null)" -v min="$dim_min" \
+			-v lo=$ALS_DARK -v hi=$ALS_BRIGHT 'BEGIN {
+			if (v == "" || v >= hi) { print 100; exit }
+			if (v <= lo) { print min; exit }
+			printf "%d\n", min + (100 - min) * (log(v) - log(lo)) / (log(hi) - log(lo))
+		}')
+	fi
+	[ "$P" = "$p_pub" ] || { echo "$P" > $LEVEL; p_pub=$P; }
 }
 
 scaled() { # value -> value * P / 100, at least 1 unless 0
@@ -69,10 +92,15 @@ scaled() { # value -> value * P / 100, at least 1 unless 0
 	echo $s
 }
 
+# The resting state: red while the mics are muted, else dark and the ring
+# free for lidar-viz (unless an overlay or pairing goes on). Claimed first in
+# any case: lidar-viz then sees the hand-back and redraws all LEDs.
 base() {
+	claim
 	level
 	p_drawn=$P
 	if [ "$mic_muted" = 1 ]; then fill $(scaled $RED) 0 0; else fill 0 0 0; fi
+	[ "$mic_muted" = 1 ] || [ -n "$pairing$overlay" ] || release
 }
 
 # The arc covers the level in brightness units: full LEDs, then one partly
@@ -81,6 +109,7 @@ base() {
 # it comes back at.
 volume() { # level muted max
 	[ "$3" -gt 0 ] 2>/dev/null && [ "$1" -ge 0 ] 2>/dev/null || return
+	claim
 	level
 	w=$(scaled $WHITE)
 	t=$(( ($1 * N * w + $3 - 1) / $3 ))
@@ -94,6 +123,30 @@ volume() { # level muted max
 		set_led $i $v $v $v
 		t=$((t - w)); [ $t -lt 0 ] && t=0
 		i=$((i + 1))
+	done
+}
+
+# Pairing arc: a full LED with a fading tail of two, one step per call.
+# Brightness is read once per turn, not at every step.
+spin() {
+	claim
+	if [ $pos = 0 ]; then
+		level
+		bb=$(scaled $BLUE)
+	fi
+	set_led $(( (pos + 9) % N + 1 )) 0 0 0
+	set_led $(( (pos + 10) % N + 1 )) 0 0 $(( bb / 8 ))
+	set_led $(( (pos + 11) % N + 1 )) 0 0 $(( bb / 3 ))
+	set_led $(( pos + 1 )) 0 0 $bb
+	pos=$(( (pos + 1) % N ))
+}
+
+flash() { # two blue flashes: paired
+	claim
+	level
+	for i in 1 2; do
+		fill 0 0 $(scaled $BLUE); sleep 0.25
+		fill 0 0 0; sleep 0.15
 	done
 }
 
@@ -124,6 +177,8 @@ daemon() {
 	while read -t 0.05 _ <&3; do :; done
 	mic_muted=0
 	overlay=
+	pairing=
+	pos=0
 	p_drawn=100
 	dim_min=$(lidar-feature get ring min_brightness 2>/dev/null)
 	dim_min=${dim_min:-15}
@@ -132,14 +187,26 @@ daemon() {
 	trap 'trap "" TERM; kill 0; exit' INT TERM
 	base
 	while :; do
-		if read -t $HOLD cmd a b c <&3; then
+		t=$HOLD
+		[ -n "$pairing" ] && [ -z "$overlay" ] && [ "$mic_muted" != 1 ] && t=$SPIN
+		if read -t $t cmd a b c <&3; then
 			case $cmd in
-			mic) mic_muted=$a; overlay=; base ;;	# privacy state wins at once
+			mic) mic_muted=$a; overlay=; pos=0; base ;;	# privacy state wins at once
 			volume) volume "$a" "$b" "$c"; overlay=1 ;;
+			pair)
+				case $a in
+				on) pairing=1; pos=0; [ -n "$overlay" ] || { claim; base; } ;;
+				ok) pairing=; overlay=; [ "$mic_muted" = 1 ] || flash; base ;;
+				*) pairing=; overlay=; base ;;
+				esac
+				;;
 			esac
 		elif [ -n "$overlay" ]; then
 			overlay=
+			pos=0
 			base
+		elif [ -n "$pairing" ] && [ "$mic_muted" != 1 ]; then
+			spin
 		elif [ "$mic_muted" = 1 ]; then
 			# follow the room light in steps that do not flicker; the end
 			# values are clamped, so reaching them cannot flicker either
@@ -149,6 +216,8 @@ daemon() {
 			   { [ $P = 100 ] || [ $P = "$dim_min" ]; }; }; then
 				base
 			fi
+		else
+			level	# brightness for lidar-viz, every HOLD seconds
 		fi
 	done
 }
@@ -156,7 +225,7 @@ daemon() {
 case $1 in
 daemon) daemon ;;
 *)
-	sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

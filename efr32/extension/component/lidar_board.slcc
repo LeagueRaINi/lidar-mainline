@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# lidar's EFR32MG12, as read from Amazon's two firmware images for it:
+# - a 1 MB / 128 KB part (the stack top of Amazon's OpenThread image is
+#   0x20020000; every MG12 with 128 KB of RAM has 1 MB of flash)
+# - host link on USART0, TX PA0 / RX PA1, no flow control; PA5 driven high
+# - 38.4 MHz crystal, DC-DC to DVDD, 2.4 GHz high-power PA from 3.3 V
+# No low-frequency crystal is assumed (not provided: LFRCO is used), and the
+# BRD4166A's sensors, LEDs, buttons and SPI flash do not exist here.
+id: lidar_board
+label: lidar EFR32MG12
+package: platform
+category: Platform|Board
+quality: production
+description: Amazon Echo Plus 2nd gen (lidar) EFR32MG12 radio
+root_path: .
+requires:
+  - name: efr32mg12p232f1024gl125
+provides:
+  - name: lidar_board
+  - name: hardware_board
+  # board_control only builds its GPIO code (PA5) for the SDK's own board
+  # classes and a stub otherwise; nothing else in this project looks at it
+  - name: hardware_board_tb
+  - name: hardware_board_has_vcom
+  - name: hardware_board_has_hfxo
+  - name: hardware_board_has_hfxo_freq_38.4mhz
+  - name: hardware_board_supports_rf_band_2400
+  - name: hardware_board_supports_1_rf_band
+  - name: hardware_board_default_rf_band
+  - name: hardware_board_default_rf_band_2400
+config_file:
+  - override:
+      component: board_control
+      file_id: board_control_config
+    path: config/sl_board_control_config.h
+  - override:
+      component: cpc_secondary_driver_uart_usart
+      file_id: cpc_drv_uart_usart_config
+      instance: vcom
+    path: config/sl_cpc_drv_uart_usart_vcom_config.h
+  - override:
+      component: device_init_hfxo
+      file_id: device_init_hfxo_config
+    path: config/sl_device_init_hfxo_config.h
+  - override:
+      component: rail_util_pa
+      file_id: rail_util_pa_config
+    path: config/sl_rail_util_pa_config.h
+define:
+  - name: SL_BOARD_NAME
+    value: '"lidar"'
+  - name: HFXO_FREQ
+    value: 38400000
+  - name: HARDWARE_BOARD_SUPPORTS_RF_BAND_2400
+  - name: HARDWARE_BOARD_SUPPORTS_1_RF_BAND
+  - name: HARDWARE_BOARD_DEFAULT_RF_BAND_2400

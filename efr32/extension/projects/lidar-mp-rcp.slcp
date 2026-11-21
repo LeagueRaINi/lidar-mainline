@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# The Gecko SDK's multiprotocol RCP (protocol/openthread/sample-apps/ot-ncp/
+# rcp-uart-802154.slcp: OpenThread multi-PAN RCP over CPC, for zigbeed and
+# otbr-agent behind cpcd) for lidar. Differences from that project:
+# - the lidar board, and the application properties the Gecko bootloader
+#   sees in Amazon's images too;
+# - no flow control on the CPC UART (the lines are not connected);
+# - no CPC security (cpcd runs with disable_encryption);
+# - no packet trace (its pins on this board are unknown).
+# The application sources are the SDK's own, used in place.
+project_name: lidar-mp-rcp
+label: lidar multiprotocol RCP
+package: OpenThread
+description: Multiprotocol (OpenThread+Zigbee) RCP over CPC/UART for lidar's EFR32MG12
+category: OpenThread Examples
+quality: production
+component:
+  - id: ot_crash_handler
+  - id: ot_stack_rcp
+  - id: ot_ncp_cpc
+  - id: cpc_secondary_driver_uart_usart
+    instance:
+      - vcom
+  - id: cpc_security_secondary_none
+  - id: bootloader_interface
+  - id: bootloader_app_properties
+  - id: ot_rcp_gp_interface
+  - id: lidar_board
+    from: lidar
+include:
+  - path: ../../../protocol/openthread/sample-apps/ot-ncp
+    file_list:
+      - path: app.h
+  - path: ../../../util/third_party/openthread/src/lib/platform
+    file_list:
+      - path: reset_util.h
+source:
+  - path: ../../../protocol/openthread/sample-apps/ot-ncp/main.c
+  - path: ../../../protocol/openthread/sample-apps/ot-ncp/app.c
+configuration:
+  - name: SL_STACK_SIZE
+    value: 2752
+  - name: SL_BOARD_ENABLE_VCOM
+    value: 1
+  - name: SL_CPC_DRV_UART_VCOM_BAUDRATE
+    value: 115200
+  - name: SL_CPC_DRV_UART_VCOM_FLOW_CONTROL_TYPE
+    value: usartHwFlowControlNone
+  - name: OPENTHREAD_CONFIG_HEAP_EXTERNAL_ENABLE
+    value: 0
+  - name: OPENTHREAD_CONFIG_DIAG_ENABLE
+    value: 1
+  - name: OPENTHREAD_CONFIG_LOG_OUTPUT
+    value: OPENTHREAD_CONFIG_LOG_OUTPUT_NONE
+  - name: OPENTHREAD_CONFIG_MULTIPAN_RCP_ENABLE
+    value: 1
+  - name: OPENTHREAD_CONFIG_PLATFORM_KEY_REFERENCES_ENABLE
+    value: 0
+  - name: OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
+    value: 0
+  - name: OPENTHREAD_CONFIG_MAC_CSL_AUTO_SYNC_ENABLE
+    value: 0
+  - name: SL_CPC_RX_BUFFER_MAX_COUNT
+    value: 15
+  - name: SL_CPC_TX_QUEUE_ITEM_MAX_COUNT
+    value: 15
+  - name: SL_CPC_USER_ENDPOINT_MAX_COUNT
+    value: 0
+sdk_extension:
+  - id: lidar
+    version: 0.0.1

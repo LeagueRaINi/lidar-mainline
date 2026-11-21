@@ -31,9 +31,9 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
 | **Wireless** | | |
 | Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, MAC from IDME |
-| Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware |
-| Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ EmberZNet NCP (the owner's copy of Fire OS's image), EZSP over TCP for Home Assistant (`zigbee` service) |
-| Thread border router (EFR32) | ✅ | 🛠️ Fire OS's Thread image speaks DSR's own multiplexing; needs an OpenThread RCP built for this board |
+| Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware. Bluetooth speaker for phones (A2DP, SBC and AAC) with the phone's volume as the system volume, paired by holding the action button (`bluetooth` service) |
+| Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ Zigbee coordinator next to Thread on one radio: `zigbeed` (EmberZNet 7.4.3) on the Echo, EZSP over TCP for Home Assistant (`zigbee` service) |
+| Thread border router (EFR32) | ✅ | ✅ next to Zigbee on one radio: multi-PAN RCP built from this repository (`efr32/`), `otbr-agent` with its REST API for Home Assistant (`thread` service). Fire OS's own dual-PAN image speaks DSR's multiplexing and is not used |
 | **Interface and sensors** | | |
 | LED ring (12 RGB) | ✅ | ✅ boot animation; red while the mics are muted, volume arc (`ring` service) |
 | Buttons, mic mute, privacy latch | ✅ | ✅ |
@@ -112,7 +112,7 @@ decompression.
 | Path | What |
 |---|---|
 | `lidar-uboot/` | U-Boot v2026.10 overlay: `mt8516_amazon_lidar_defconfig`, board DTS, `MTK_LK_CHAINLOAD` Kconfig, boot environment `board/mediatek/mt8516/amazon_lidar.env`, `drivers/mmc/mtk-sd.c` (upstream copy with DMA for MT8516 and a bounce buffer for unaligned reads; check against upstream on version bumps) |
-| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), `drivers/bluetooth/btmtksdio.c` (upstream copy with an MT7668 LE fix; check against upstream on version bumps), bindings |
+| `lidar-linux/` | Linux v7.3 overlay: board DTS, clock/reset fixes, RT5738 support in `rt5739.c`, LED fix, audio (AFE, machine driver, codec changes), `drivers/bluetooth/btmtksdio.c` (upstream copy with an MT7668 LE fix; check against upstream on version bumps), `drivers/tty/serial/8250/8250_mtk.c` (upstream copy without 16650 sleep mode, which wedges the UART's transmitter when data arrives on a closed port; check against upstream on version bumps), bindings |
 | `lidar-wifi/` | MT7668 gen4 Wi-Fi driver ported from Amazon's GPL release, built out of tree |
 | `lidar.config` | kernel config fragment applied on top of arm64 `defconfig` |
 | `build.sh` | build entry point inside the container (targets listed in its header) |
@@ -126,9 +126,14 @@ decompression.
 | `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
 | `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
 | `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
-| `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes |
+| `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes, the blue arc of Bluetooth pairing mode; hands the ring to `lidar-viz` in between |
+| `tools/lidar-viz.c` | sound display on the LED ring (`visualizer` service): level arc or spectrum of whatever the speaker plays |
 | `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
-| `tools/lidar-zigbee.sh` | Zigbee coordinator: starts the EFR32's EmberZNet NCP (uploading it from Fire OS's partition if needed) and bridges EZSP to TCP port 6638 |
+| `tools/lidar-radio.sh` | the EFR32 radio for Zigbee and Thread at once: uploads the multi-PAN RCP if needed and runs `cpcd`, `zigbeed` with its TCP bridge, and `otbr-agent`, with both networks kept on the booted slot |
+| `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
+| `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
+| `tools/lidar-wifi.sh` | Wi-Fi client from `wifi ssid`/`passphrase` (`wifi` service): start, stop, status and scan; used at boot and by the web interface |
+| `tools/lidar-time.sh` | the clock (no RTC on this board): NTP once the network is up, the last synced time saved on the booted slot and set at the next boot |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
@@ -136,6 +141,7 @@ decompression.
 | `tools/libreecho/` | LibreEcho add-on (`libreecho` service): `lidar-libreecho.sh` (install, start, stop), `le-sandbox.c` (namespaces that keep it off the eMMC), `le-adapter.c` (LEDs, mics, mixer placeholders), `amz_privacy/` (privacy-latch module); see its README |
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 | `pogo-jig/` | 3D-printable pogo-pin jig for the USB test points, held by one M4 screw in the bottom insert: OpenSCAD source, STLs, assembly notes and a test-fit checklist |
+| `efr32/` | the EFR32MG12's multi-PAN RCP and `zigbeed` for the Echo (Gecko SDK 4.4.3, their own build container and a GBL packer); see `efr32/README.md` |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -156,7 +162,13 @@ W="$(pwd -W 2>/dev/null || pwd)"
 run() { podman run --rm -v lidar-src:/src -v "$W:/work" lidar-build bash /work/build.sh "$@"; }
 run uboot               # -> out/lidar-uboot.img
 run linux lidar         # Image.gz, dtbs, modules in /src/build/lidar
-run testimg lidar       # -> out/lidar-test-system.ext4
+# The zigbee and thread services need the EFR32's multi-PAN RCP and zigbeed,
+# built in their own container (Silicon Labs' toolchain; see efr32/README.md)
+# before testimg picks them up:
+podman build -t efr-build -f efr32/Containerfile efr32
+podman run --rm -v efr-src:/efr -v "$W:/work" efr-build bash /work/efr32/build.sh    # -> out/efr32/lidar-mp-rcp.gbl
+podman run --rm -v efr-src:/efr -v "$W:/work" efr-build bash /work/efr32/zigbeed.sh  # -> out/zigbeed/zigbeed
+run testimg lidar       # -> out/lidar-test-system.ext4 (also builds cpcd and ot-br-posix)
 run bootimg lidar       # -> out/lidar-linux-boot.img (kernel booted straight from LK)
 run patches             # -> out/patches/{linux,u-boot}-lidar.diff
 ```
@@ -212,12 +224,32 @@ area.
 
 Services sit on top of the base system, in two groups:
 
-- **Core** services give the stock behaviour: system volume, LED ring,
-  wireless and the boot animation. They are **on by default**. A system that
-  brings its own (its own volume handling or LED daemon, say) turns the
-  matching service off so the two do not fight over the same controls.
-- **Extras** are tools for development and testing: the USB speakerphone
-  and a passwordless telnet shell. They are **off by default**.
+- **Core** services make the device work on its own, as on stock: system
+  volume, LED ring, Wi-Fi, the Bluetooth speaker, the speaker tuning and the
+  boot animation. They are **on by default**. A system that brings its own
+  (its own volume handling or LED daemon, say) turns the matching service
+  off so the two do not fight over the same controls.
+- **Extras** are for development and integration: everything on the USB
+  port beyond the serial shell and network (speakerphone, web interface,
+  telnet) and the Zigbee and Thread radio. They are **off by default**.
+
+Services do not require each other, with one exception: `thread` with
+`thread infra wlan0` (the default) needs `wifi` and does not start without
+it (it says so in the kernel log). Otherwise one that misses another falls
+back and logs it: Bluetooth without `volume` lets the phone's volume scale
+the samples, `dsp` without `volume` (or without Fire OS on `system_a`)
+leaves the speaker untuned. Wi-Fi and Bluetooth share one chip: with either
+on, the Wi-Fi firmware is staged from Fire OS on `system_a` and the WLAN
+driver loads, which Bluetooth needs first; `wifi` off then only means no
+network is joined. Without the staged firmware there is neither, and the
+Bluetooth services wait quietly.
+
+The former `wireless` service is now `wifi`: in `lidar.conf`,
+`feature.wireless` becomes `feature.wifi` and `wireless.ssid`,
+`wireless.passphrase`, `wireless.country` become `wifi.ssid` and so on.
+Its `wireless bluetooth` setting is gone: the `bluetooth` service, now on
+by default, decides (`lidar-feature disable bluetooth` keeps the radio
+off).
 
 The switches and settings live in `/etc/lidar.conf` on the root filesystem
 of the slot that booted, one `key=value` per line: `feature.<name>=0|1` and
@@ -248,14 +280,17 @@ lidar-feature reset usbaudio       # back to the default (off)
 |---|---|---|---|
 | `bootanim` | core | on | light-ring animation while booting |
 | `volume` | core | on | system volume for the speaker (below) |
-| `ring` | core | on | LED ring after boot: red while the mics are muted, volume changes (below) |
-| `wireless` | core | on | stage Wi-Fi firmware from Fire OS and load the Wi-Fi/BT drivers |
+| `ring` | core | on | LED ring after boot: red while the mics are muted, volume changes, Bluetooth pairing mode (below) |
+| `wifi` | core | on | Wi-Fi client: joins the network in the `wifi` settings at boot; the clock comes from NTP once online |
+| `bluetooth` | core | on | Bluetooth speaker for phones (below) |
+| `dsp` | core | on | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 | `usbaudio` | extra | off | USB speakerphone (below) |
-| `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
-| `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below) |
-| `dsp` | extra | off | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
 | `webui` | extra | off | web interface on port 80 of the USB network (below) |
-| `libreecho` | extra | off | runs an owner-supplied [LibreEcho](https://github.com/aslater3/LibreEcho) release (a separate project) in place of ring, volume, dsp, usbaudio and webui; experimental, see `tools/libreecho/README.md` |
+| `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
+| `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
+| `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
+| `visualizer` | extra | off | sound display on the LED ring (below) |
+| `libreecho` | extra | off | runs an owner-supplied [LibreEcho](https://github.com/aslater3/LibreEcho) release (a separate project) in place of the ring, volume, dsp, bluetooth, visualizer, usbaudio and webui services; experimental, see `tools/libreecho/README.md` |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -263,15 +298,16 @@ default.
 ```sh
 lidar-feature settings [feature]          # values in effect, defaults, allowed
 lidar-feature get telnet listen           # prints the value in effect
-lidar-feature set wireless country DE     # takes effect on the next boot
-lidar-feature unset wireless country      # back to the default
+lidar-feature set wifi country DE         # takes effect on the next boot
+lidar-feature unset wifi country          # back to the default
 ```
 
 | Setting | Default | Allowed | What it does |
 |---|---|---|---|
 | `telnet listen` | `usb` | `usb`, `any` | `usb`: only connections arriving on `usb0` are accepted. `any`: every interface, so the passwordless root shell is open to the Wi-Fi network too |
-| `wireless bluetooth` | `on` | `on`, `off` | `off`: the Bluetooth driver (`btmtksdio`) is not loaded |
-| `wireless country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
+| `wifi country` | unset | two capital letters | regulatory domain, requested with `iw reg set` once the WLAN driver is loaded. Unset leaves the driver's and firmware's default |
+| `wifi ssid` | unset | 1-32 bytes | Wi-Fi network (WPA2-Personal) to join at boot, with `wifi passphrase`; the address comes from DHCP (`udhcpc`) |
+| `wifi passphrase` | unset | 8-63 printable ASCII characters | passphrase of that network. Stored in plain text in `lidar.conf`, which only root can read; `lidar-feature settings` shows it as `(set)` |
 | `volume max_attenuation` | 0 | 0-60 | cap in dB: full volume is this far below the codec's 0 dB. 0 is Amazon's maximum; raise it to keep the speaker quieter |
 | `volume initial` | 30 | 0-100 | volume at boot, in percent of the range up to the cap |
 | `volume ring` | `on` | `on`, `off` | show volume changes on the LED ring (needs the `ring` service) |
@@ -282,6 +318,12 @@ lidar-feature unset wireless country      # back to the default
 | `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
 | `usbaudio aec` | `on` | `on`, `off` | `on`: the microphone the host gets is cleaned by `lidar-aec` (echo cancellation, noise suppression); `off`: the plain six-mic mix |
 | `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
+| `thread infra` | `wlan0` | `wlan0`, `usb0` | the network Home Assistant is on: the border router routes between it and the Thread network and advertises the Thread network there. `wlan0` needs the `wifi` service |
+| `thread listen` | `usb` | `usb`, `any` | `usb`: the REST API sits on a unix socket that `lidar-listen` bridges to port 8081 for connections arriving on `usb0` only (`SO_BINDTODEVICE`, as for telnet); `any`: otbr-agent listens on every address, Wi-Fi included. The API has no authentication and can change the Thread network |
+| `bluetooth name` | `lidar` | 1-48 bytes | name phones show for the Echo |
+| `bluetooth pair_seconds` | 120 | 30-600 | how long pairing mode lasts |
+| `bluetooth sound` | `on` | `on`, `off` | a double blip every 3 s in pairing mode, a chime when a phone pairs or connects, a falling tone when pairing mode ends without one |
+| `visualizer style` | `level` | `level`, `spectrum` | `level`: an arc from LED 1 down both sides, green, yellow, red at the end, with a peak mark; longer with louder music and a higher volume. `spectrum`: 7 bands from 50 Hz to 10 kHz, mirrored, bass at LED 1 and treble opposite, red to violet |
 | `webui listen` | `usb` | `usb`, `any` | `usb`: the web interface only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `webui storage_mb` | 256 | 64-512 | RAM for uploaded songs, in MB (about 11 minutes of music per 128 MB), a RAM disk of its own; the library is cleared on reboot |
 
@@ -295,25 +337,41 @@ lidar-feature unset wireless country      # back to the default
   (`lidar-usbaudio start`). Old `usbaudio.speaker_volume` and
   `usbaudio.keepalive` lines in `lidar.conf` are ignored: speaker volume and
   the keep-alive belong to the `volume` service.
-- `wireless country` has not been tried on hardware.
+- `wifi country` has not been tried on hardware.
+- `wifi ssid`/`passphrase`: verified on hardware. The configuration
+  that `wpa_supplicant` gets (SSID as hex, the PSK from `wpa_passphrase`,
+  also for passphrases with `"`, `#` and spaces) and a real join from the
+  web interface: WPA2 on 5 GHz, address, default route and DNS from DHCP.
+- The clock: the board has no real-time clock (no PMIC on it, as on
+  stock), so it starts at 1970 on every boot. `lidar-time` sets the last
+  time it saved before the services start, and BusyBox `ntpd` sets the
+  real time from `pool.ntp.org` once there is a default route and a DNS
+  server; every sync is saved on the booted slot. Verified on hardware:
+  the saved time at 2.7 s after boot, NTP at 10 s over Wi-Fi. The clock
+  runs in UTC.
 
 ### System volume
 
 `lidar-volume` (the `volume` service) owns one speaker volume and mute, applied
-to the codec's `PCM Playback Volume` in 0.5 dB steps from silent up to the
-safety cap. Everything that changes volume feeds the same state:
+to the codec's `PCM Playback Volume` in 0.5 dB steps up to the safety cap.
+Volume 0 is silence: the codec's lowest step (-63.5 dB) is still audible, so
+0 mutes like the mute flag (in `lidar-dsp`'s samples with the speaker tuning,
+otherwise through the codec's DAC-to-driver switches). Everything that
+changes volume feeds the same state:
 
 - **USB host:** the speakerphone offers the host a hardware volume and mute
   whose steps are the codec's steps, so the host's own volume curve applies
   unchanged. Changes made on the Echo are reported back, so the host's slider
   follows them.
+- **Bluetooth phone** (`bluetooth` service): the phone's volume buttons and
+  slider set the level, and changes made on the Echo move the phone's
+  slider (see Bluetooth speaker).
 - **Volume buttons:** 3 dB per press; holding repeats after 0.4 s, one step
   every 0.15 s. A short 520 Hz tone plays at the new level on the press and,
   after a hold, once at the final level, as on stock. Host slider changes
   stay silent: the host plays its own sound.
 - **Command line:** `lidar-volume get | set <percent> | up | down | mute |
-  unmute | toggle`. Other sources, such as Bluetooth absolute volume, can send
-  the same commands later.
+  unmute | toggle`.
 
 With the `ring` service, every change shows as a white arc on the LED ring
 (the leading LED dims in between, so each step is visible; while the speaker
@@ -393,49 +451,209 @@ up:
   them. `lidar-player` plays the library in order, with pause, seek and
   skip. The library lives in RAM (`webui storage_mb`) and is gone after a
   reboot.
-- **Services:** which services are on.
+- **Network:** Wi-Fi status (network, signal, band, bit rate, addresses),
+  a scan list to pick a network from, connect (saved as `wifi ssid` and
+  `wifi passphrase` and joined at once, through `lidar-wifi`) and forget.
+  With the `bluetooth` service (it loads the Bluetooth driver): power and a
+  scan of nearby devices (name, address, type, signal) through `btmgmt`,
+  the speaker's state, pairing mode on and off, and the paired phones with
+  a button to forget each. Thread and Zigbee state: role, network, channel, PAN ID,
+  border routing.
+- **Services:** switch services on and off and edit their settings, with
+  inputs that only offer the allowed values; then reboot from the page.
+- **Debug:** the kernel log with a filter and live follow, the previous
+  boot's log from pstore (after a crash or a warm reboot), processes,
+  storage, mounts and modules, and a reboot button.
+- **Files:** a read-only file browser with text preview (first 256 KB) and
+  download. Device nodes, `/proc/kmsg`, `/proc/kcore`, process memory and
+  debugfs are refused: reading some of them blocks, and debugfs register
+  dumps of clock-gated blocks can stall the bus. Everything else is
+  served, `lidar.conf` with the Wi-Fi passphrase included: the settings
+  view shows it as `(set)`, but the file holds it in plain text.
 
 There is no login: as with telnet, the server (BusyBox `httpd` behind
 `lidar-listen`) only accepts connections that arrive on `usb0` unless
-`webui listen any` is set. Unlike telnet, a web server can also be reached
-by other web pages open in the host's browser, so the API only takes
-commands as POST with `Content-Type: application/json` (uploads with
-`application/octet-stream`), which a foreign page cannot send without a
-CORS preflight that the server never answers, and only when the Echo is
-addressed by IP (no DNS rebinding). Everything on the page comes from
-`/cgi-bin/api` as JSON, so scripts can use it too:
+`webui listen any` is set. Even then, everything that changes the device or
+reads more than its status (Wi-Fi and Bluetooth control, services and
+settings, logs, files, reboot) is only answered for clients on the USB
+network (`169.254.0.0/16`); over Wi-Fi the dashboard, music and the network
+status stay available. Unlike telnet, a web server can also be reached by
+other web pages open in the host's browser, so the API only takes commands
+as POST with `Content-Type: application/json`, or `application/octet-stream`
+for those that carry data (uploads, Wi-Fi credentials, setting values),
+which a foreign page cannot send without a CORS preflight that the server
+never answers, and only when the Echo is addressed by IP (no DNS
+rebinding). Everything on the page comes from `/cgi-bin/api` as JSON, so
+scripts can use it too:
 
 ```sh
 curl 'http://169.254.7.2/cgi-bin/api?stats'
+curl 'http://169.254.7.2/cgi-bin/api?network'
 curl -X POST -H 'Content-Type: application/json' -d '{}' 'http://169.254.7.2/cgi-bin/api?volume=40'
+printf 'MyNetwork\nmy passphrase' | curl -X POST -H 'Content-Type: application/octet-stream' \
+  --data-binary @- 'http://169.254.7.2/cgi-bin/api?wifi_connect'
 ```
 
-### Zigbee coordinator
+### Bluetooth speaker
 
-The `zigbee` service turns the EFR32 into a network Zigbee coordinator, the
-way Silicon Labs USB sticks are used with Home Assistant: the radio runs
-EmberZNet as an NCP, and its EZSP serial protocol is bridged to TCP port
-6638. In Home Assistant, add the ZHA integration with the radio type EZSP and
-the path `socket://169.254.7.2:6638` (verified with `bellows`, ZHA's EZSP
-library: `bellows -d socket://169.254.7.2:6638 info`). The port accepts one
-client at a time.
+With the `bluetooth` service, phones pair with the Echo and play on its
+speaker (A2DP sink, SBC and AAC). `bluetoothd` (BlueZ) runs the stack,
+`bluealsa` the audio transport, and `bluealsa-aplay` plays every connected
+phone into `lidar_speaker`: at the system volume, through the speaker
+tuning, mixed with other sounds (`lidar-bluetooth`).
 
-- The firmware is the owner's own copy of Fire OS's EmberZNet 6.5.3 NCP
-  (`/system/vendor/firmware/silabs/xncp-fw.gbl` on `system_a`); nothing is
-  downloaded or redistributed. The service uploads it through the EFR32's
-  Gecko bootloader only when the application area holds nothing that starts,
-  so it normally runs once.
+- **Pairing mode:** hold the action button 3 s (or "Pairing mode" in the
+  web interface, or `lidar-bluetooth pair`). The Echo is then visible and
+  pairable for `bluetooth pair_seconds` (120 s), a blue arc circles on the
+  LED ring and a soft double blip sounds every 3 s. Playback pauses: a
+  connected phone gets an AVRCP Pause, the web interface's player pauses;
+  nothing resumes it afterwards. Pairing needs no PIN. The first phone that
+  pairs (also again, after it forgot the Echo) ends the mode with two blue
+  flashes and a rising chime. Holding the button 3 s again (or "Stop
+  pairing", or `lidar-bluetooth pair stop`) ends it early; that, or nobody
+  pairing in time, ends it with a falling tone. The sounds play at the
+  system volume, not while it is muted, and `bluetooth sound off` turns
+  them off.
+- **Connections:** a paired phone is trusted and can connect at any time,
+  without pairing mode; the chime greets it. Outside pairing mode the Echo
+  is neither visible nor pairable, and a phone that is not trusted is
+  disconnected and removed as soon as it opens an audio stream (the kernel
+  lets a phone that pairs without bonding through, so trust is the gate).
+  The Echo itself never connects to a phone: not at boot, and not after
+  the link was lost (BlueZ's `ReconnectAttempts` is 0).
+- **Volume:** the phone's volume (AVRCP absolute volume) is the system
+  volume (without the `volume` service, bluealsa scales the phone's audio
+  by it instead). Changes on the phone go to `lidar-volume` (with the volume arc on
+  the ring), and the volume buttons, the web interface and the USB host's
+  slider move the phone's slider. Each slider answers a change with its own
+  rounding of it (an iPhone has 16 steps); `lidar-volume` takes what comes
+  back from a slider within 1.5 s of its own write as that echo, otherwise
+  the phone and the USB host push the level back and forth. A real change
+  on that slider inside those 1.5 s is lost the same way; the next one
+  counts again.
+- Pairing keys live in `/var/lib/bluetooth`, bound from the booted slot
+  (`lidar-feature keep`). Paired phones are listed and removed in the web
+  interface or with `lidar-bluetooth devices` and `lidar-bluetooth forget
+  <address>`.
+- `bluetoothd`, `bluealsa`, `bluealsa-aplay` and the pairing agent
+  (`bt-agent`, NoInputNoOutput) log to the kernel log, prefixed with their
+  names. Remote-control keys a phone sends (AVRCP) reach Linux input through
+  `uinput`.
+- Verified on hardware with an iPhone: pairing with the action button
+  (ring and sounds), ending pairing mode by a second hold and in the web
+  interface, playback paused by pairing mode, the chime on connecting, AAC
+  playback, volume both ways, connecting again after a reboot without
+  pairing mode.
+
+### Sound display
+
+With the `visualizer` extra, the LED ring shows what the speaker plays
+(`lidar-viz`). It listens to the AFE's loopback of the DAC input
+(`hw:amazonlidar,2`), so every source counts: Bluetooth, the web player,
+the USB host, system sounds. 40 frames per second.
+
+The loopback is taken after the speaker tuning and before the codec: with
+`dsp`, `lidar-dsp` has already applied the system volume (up to the cap);
+on the direct path the codec applies it afterwards. `lidar-viz` adds what
+is missing from `/run/lidar-volume.state`, so both paths look the same.
+
+- `level` (default) shows the level at the speaker plus half the volume's
+  gain once more, -45 dB dark to -6 dB full: louder music and a higher
+  volume make the arc longer, and it gets short quickly as the volume goes
+  down (dark at low volume).
+- `spectrum` runs a 2048-point FFT and measures each band against its own
+  reference level, which follows the loudest recent level and halves in
+  4 s, so it looks the same at any volume.
+- The ring service's own displays win: while `lidar-ring` shows the privacy
+  red, the volume arc or pairing it holds `/run/lidar-ring.busy`, and
+  `lidar-viz` keeps off the ring. Brightness follows the light sensor as the
+  rest of the ring (`/run/lidar-ring.level`).
+- Dark while the speaker is muted, at volume 0, and while nothing plays
+  (silence is judged before the volume).
+- While the USB host records through the speakerphone (`lidar-usbaudio`'s
+  mic pipe runs, also with `usbaudio aec off`), `lidar-aec` may need the
+  loopback: `lidar-viz` lets go of it and waits.
+- Verified on hardware: both styles with music over Bluetooth, the volume
+  arc, mute, privacy red and pairing taking the ring and handing it back.
+
+### Zigbee and Thread
+
+The EFR32 serves a Zigbee network and a Thread network at the same time, as
+on Fire OS. It runs a multi-PAN radio co-processor (RCP) built from `efr32/`
+(Silicon Labs' multiprotocol RCP from the Gecko SDK, adapted to this board),
+and both stacks run on the Echo (`lidar-radio`):
+
+- `cpcd` (Silicon Labs' CPC daemon, v4.4.6) shares the radio's serial line
+  (`ttyS2`, 115200, no flow control) between the two stacks.
+- `zigbee` service: `zigbeed` (EmberZNet 7.4.3 for Linux, built by
+  `efr32/zigbeed.sh`) is the coordinator, and its EZSP port is bridged to
+  TCP port 6638, the way Silicon Labs USB sticks are used. In Home Assistant,
+  add the ZHA integration with the radio type EZSP and the path
+  `socket://169.254.7.2:6638`. The port accepts one client at a time; when
+  the client leaves, zigbeed restarts with the bridge.
+- `thread` service: `otbr-agent` (ot-br-posix v2026.11.0 with Silicon Labs'
+  CPC interface, built by `mk-testimg.sh`) is the border router. In Home
+  Assistant, add the OpenThread Border Router integration with the URL
+  `http://169.254.7.2:8081` (or the Wi-Fi address with `thread listen any`).
+  `ot-ctl` is the command line on the device.
+
+Either service runs alone or both together.
+
+- **One channel for both.** The MG12 cannot listen on two channels at once,
+  so the Zigbee and the Thread network must use the same channel: form the
+  Zigbee network on the Thread network's channel (`ot-ctl channel`), or move
+  the Thread network to the Zigbee channel. Their PAN IDs must differ (both
+  stacks pick random ones).
+- The RCP image ships in the test image
+  (`/usr/share/lidar/efr32/lidar-mp-rcp.gbl`). `lidar-radio` uploads it
+  through the EFR32's Gecko bootloader (`lidar-efr32`) only when `cpcd` finds
+  no RCP answering: nothing there, Fire OS's Zigbee NCP or an older image of
+  this project. That takes about 20 s.
 - The bootloader starts the application only while `EFR32_SWCLK` (GPIO1) is
   high; low keeps it in the bootloader. The board holds the line low at
-  power-on, so the EFR32 always comes up in the bootloader; the service then
-  raises the line (`gpioset`) and starts the application with the
-  bootloader's run command. After a reboot without a power cut the NCP keeps
+  power-on, so the EFR32 always comes up in the bootloader; `lidar-radio`
+  then raises the line (`gpioset`) and starts the application with the
+  bootloader's run command. After a reboot without a power cut the RCP keeps
   running.
-- The EFR32 keeps its network settings in its own flash. A unit that ran a
-  Zigbee network under Fire OS reports that network (coordinator, joined)
-  until Home Assistant forms a new one.
-- zigbee2mqtt's current `ember` driver needs EmberZNet 7.4 or newer, which
-  this image is not; ZHA supports it.
+- The networks (keys, frame counters, tables) live in `/var/lib/zigbee`
+  (zigbeed's `host_token.nvm`) and `/var/lib/thread`, bound from the same
+  directories on the booted slot. The slot's filesystem is writable
+  underneath, but its mount at `/media/system` stays read-only, so these
+  directories are the only places written; `lidar-feature` switches only its
+  own mount's flag when it writes.
+- An existing Zigbee network moves with ZHA's backup: back it up (or use
+  "Migrate radio") before the RCP replaces the radio's firmware, then
+  restore it to this coordinator. A network formed by Fire OS has no ZHA
+  backup; its devices have to be paired again.
+- zigbeed restarts itself when ZHA resets it, and ZHA waits only 2.5 s for
+  the answer (then it retries in the wrong EZSP frame format). As built by
+  the SDK, zigbeed answered after 4.1 s here; `efr32/zigbeed.sh` patches its
+  restart down to 1.1 s (see `efr32/README.md`).
+- `zigbeed`, the RCP, `cpcd` and its library (which `otbr-agent` links)
+  are Silicon Labs' software under their license (MSLA). They are built from
+  their sources on your machine and not distributed; neither is the test
+  image that contains them.
+- `thread infra` is the network shared with Home Assistant (`wlan0` by
+  default, which needs the `wifi` service with `wifi ssid` and `wifi passphrase`). The
+  service turns on IPv6 forwarding and keeps router advertisements accepted
+  on that interface, as ot-br-posix's own setup does. mDNS is OpenThread's
+  built-in one; the border agent appears as "lidar-mainline Thread Border
+  Router".
+- Multicast between the Thread network and the LAN is routed by
+  otbr-agent (the kernel has `CONFIG_IPV6_MROUTE` for it). There is no
+  ingress firewall: ot-br-posix's default one runs the `ipset` and
+  `ip6tables` tools with rules from its own setup scripts, which this
+  system does not have, so it is built without (`OT_FIREWALL=OFF`). The Echo
+  then routes between the LAN and the Thread network like any IPv6 router.
+- `cpcd`, `zigbeed` and `otbr-agent` log to the kernel log, one line per
+  record, prefixed with their names.
+- Verified on hardware with `thread infra usb0`: the RCP replaces the
+  previous image, `cpcd`, `zigbeed` and `otbr-agent` run together, ZHA's
+  library (`bellows`) forms a Zigbee network on channel 22 while the Thread
+  network stays `leader` on channel 22, and after a reboot both networks
+  come back by themselves. Not yet verified: devices joining either network,
+  `wlan0` as the infrastructure link, and stability over days (Home
+  Assistant dropped its own zigbeed-based add-on over stability problems).
 
 ### LED ring
 
@@ -549,7 +767,9 @@ From the test system's shell:
 - `dmesg`
 - `/sys/kernel/debug/gpio`
 - `i2cdetect -y 0/1/2`: expect 0x18-0x1b, 0x39, 0x3f, 0x48 on bus 0; 0x57 on
-  bus 1; and 0x18, 0x2e, 0x48, 0x4a on bus 2
+  bus 1; and 0x18, 0x48, 0x4a on bus 2. Addresses with a bound driver show
+  as `UU`, which does not prove the chip is there: 0x2e (MCP4631) shows `UU`
+  too, but every read from it fails with no ACK
 - `cat /sys/class/hwmon/*/temp1_input`
 - LEDs in `/sys/class/leds/ring*:*/brightness`
 - `evtest` for the buttons and the privacy switch
@@ -664,13 +884,24 @@ bound by `lidar-volume`'s cap.
   (`DAC Biquad Coefficients`, `DAC Mono Mix Switch`), refuses the speaker
   route if they cannot be set, and limits playback to 48 kHz, the rate the
   coefficients are designed for. The DAC's MFP5 pin mutes the amplifier,
-  which has no status output of its own. Measured by ear and with the
-  Echo's microphones: enabling it while muted and disabling it are silent,
-  unmuting less than about 250 ms after enabling it clicks, and muting it
-  while it runs clicks. So the amplifier is enabled muted, unmuted 500 ms
-  later, and on power-down disabled first and muted afterwards. The first
-  unmute after boot still makes one faint click, whatever the delay; with
-  the speaker output held open that happens once per boot.
+  which has no status output of its own. Measured with a USB microphone
+  over the Echo: enabled unmuted, the amplifier pops loudly about 0.4 s
+  after the enable; enabled muted it is silent, and an unmute is heard
+  about 0.4 s after the pin changes. So it is enabled muted and unmuted
+  500 ms later. Each direction still makes one faint click (about -40 dBFS
+  at the microphone) that neither the order nor a longer delay (up to 2 s)
+  removes: the unmute, and on power-down whichever of disabling and muting
+  comes first (the other one is then silent). The driver disables first
+  and then mutes, so the amplifier is muted for the next start. With the
+  speaker output held open (`volume keepalive`) that is one click at boot
+  and one at shutdown or reboot. Fire OS uses the same order: its audio HAL
+  (`libalexaaudiohal.so`) enables the amplifier, unmutes it 400 ms later,
+  and on close disables it and then mutes it. The HAL's speaker tables set
+  nothing else on the amplifier, and the stock device tree gives the
+  speaker path only GPIO105 (amplifier enable) and GPIO109 (output mux),
+  with no amplifier supply regulator. The MCP4631 potentiometer at 0x2e on
+  I2C bus 2, also in the stock device tree, does not acknowledge any read
+  on the tested unit, so it plays no part in the amplifier sequence.
 - **Line-out / headphones:** both channels work through the `Output Route`
   control (GPIO109 low = jack, amp off), now from the headphone drivers in
   plain stereo as on stock. Before that change every stream start made a
@@ -689,7 +920,9 @@ bound by `lidar-volume`'s cap.
   ASH/EZSP) and `dsr/zb_mux_rcp.gbl` (DSR's OpenThread "dualpan" RCP), both
   unencrypted. Verified on hardware: with `EFR32_SWCLK` low, a pulse on
   `EFR32_RESET_N` brings up the bootloader menu, and its `2. run` starts the
-  application again.
+  application again. ttyS2 needs the `8250_mtk.c` overlay: without it the
+  UART stops transmitting for good once the EFR32 sends while the port is
+  closed.
 - **TSL2540 ambient light sensor:** new minimal IIO driver (`tsl2540`):
   visible and IR counts, gain and integration time. Verified on hardware:
   chip ID, configuration, and readings from 0 in the dark to about 7000

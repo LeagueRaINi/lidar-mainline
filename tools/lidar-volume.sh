@@ -5,12 +5,14 @@
 # changes feeds the same state:
 #   - the USB host's volume slider and mute (UAC2 gadget, lidar-usbaudio),
 #     which also hears back about changes made here;
+#   - a Bluetooth phone's volume (AVRCP absolute volume, through
+#     lidar-bluetooth: "bt <0-127>"), which also hears back;
 #   - the volume buttons (hold to repeat; a short tone at the new level);
 #   - this command.
-# Other sources (e.g. Bluetooth absolute volume) can send the same commands.
 #
-# The level runs from 0 (codec -63.5 dB, practically silent) to the safety
-# cap set by "lidar-feature set volume max_attenuation <dB>".
+# The level runs from 0 (silent: muted like the mute flag, since the codec's
+# lowest step, -63.5 dB, is still audible) to the safety cap set by
+# "lidar-feature set volume max_attenuation <dB>".
 #
 # With the speaker tuning (dsp feature) the volume is applied by lidar-dsp,
 # before its EQ and compressor as on stock: lidar-volume writes the level to
@@ -35,6 +37,7 @@ REPEAT_DELAY=0.4	# held button: first repeat after this many seconds,
 REPEAT_EVERY=0.15	# then one step every this many seconds
 TONE=/usr/share/lidar/volume-tone.wav
 DSP=/run/lidar-dsp
+ECHO=150	# centiseconds a slider's events after a write count as its echo
 
 a=$(lidar-feature get volume max_attenuation 2>/dev/null)
 VMAX=$((127 - 2 * ${a:-20}))
@@ -43,26 +46,63 @@ ctl_get() { # card name -> first value
 	amixer -c "$1" cget name="$2" 2>/dev/null | sed -n 's/^  : values=\([^,]*\).*/\1/p'
 }
 
-# Codec output, and the gadget's copy so the host slider follows changes
-# made here. Equal values are not written again: that would only echo back
-# as another host event. "show" puts the volume on the LED ring.
+now_cs() { # uptime in centiseconds
+	read -r u _ < /proc/uptime
+	echo $(( ${u%.*} * 100 + 1${u#*.} - 100 ))
+}
+
+# Codec output, and the gadget's and the Bluetooth phone's copy so their
+# sliders follow changes made here. Equal values are not written again;
+# a change that came from the phone does not go back to it. Both sliders
+# answer a write with their own rounding of it (the host to its steps, an
+# iPhone to 16 steps), and passing that on to the other one would make the
+# two push the level back and forth: for ECHO centiseconds after a write,
+# events from that side are taken as its echo and ignored. "show" puts
+# the volume on the LED ring.
 apply() {
+	# Level 0 is silence: the codec's lowest step is -63.5 dB, still audible,
+	# so it counts as muted (the state keeps the level and the mute flag)
+	silent=$mute; [ "$level" = 0 ] && silent=1
 	c=$level
-	[ "$mute" = 1 ] && c=0
+	[ "$silent" = 1 ] && c=0
 	if [ -e $DSP/active ]; then
-		awk -v l="$level" -v m="$VMAX" -v u="$mute" \
+		awk -v l="$level" -v m="$VMAX" -v u="$silent" \
 			'BEGIN { printf "%.1f %.1f %d\n", (l - 127) / 2, (l - m) / 2, u }' > $DSP/volume.new &&
 			mv $DSP/volume.new $DSP/volume
 		# a lidar-dsp killed without cleanup leaves ready behind
 		[ -e $DSP/ready ] && pidof lidar-dsp >/dev/null && c=$VMAX
 	fi
 	amixer -q -c $CODEC cset name='PCM Playback Volume' "$c,$c"
+	# Without lidar-dsp muting the samples, silence takes the output
+	# drivers' mute (DAC to line out and headphone driver, both feed the
+	# amplifier); written only when it changes
+	d=on
+	[ "$silent" = 1 ] && [ "$c" = 0 ] && d=off
+	if [ "$d" != "$drivers" ]; then
+		amixer -q -c $CODEC cset name='LO DAC Playback Switch' "$d,$d"
+		amixer -q -c $CODEC cset name='HP DAC Playback Switch' "$d,$d"
+		drivers=$d
+	fi
 	if [ -e /proc/asound/$GADGET ]; then
-		[ "$(ctl_get $GADGET 'PCM Capture Volume')" = "$level" ] ||
+		if [ "$(ctl_get $GADGET 'PCM Capture Volume')" != "$level" ]; then
 			amixer -q -c $GADGET cset name='PCM Capture Volume' "$level"
+			host_echo=$(( $(now_cs) + ECHO ))
+		fi
 		s=on; [ "$mute" = 1 ] && s=off
-		[ "$(ctl_get $GADGET 'PCM Capture Switch')" = "$s" ] ||
+		if [ "$(ctl_get $GADGET 'PCM Capture Switch')" != "$s" ]; then
 			amixer -q -c $GADGET cset name='PCM Capture Switch' "$s"
+			host_echo=$(( $(now_cs) + ECHO ))
+		fi
+	fi
+	# the phone has no mute: only the level goes there
+	if [ -z "$from_bt" ] && pidof bluealsa >/dev/null; then
+		v=$(( (level * 127 + VMAX / 2) / VMAX ))
+		for p in $(bluealsa-cli list-pcms 2>/dev/null); do
+			case $p in */a2dpsnk/source) ;; *) continue ;; esac
+			bluealsa-cli volume "$p" 2>/dev/null | grep -q "L: $v R: $v" && continue
+			bluealsa-cli volume "$p" "$v" 2>/dev/null
+			bt_echo=$(( $(now_cs) + ECHO ))
+		done
 	fi
 	echo "$level $mute $VMAX" > $RUN.state
 	[ "$1" = show ] && show
@@ -188,6 +228,8 @@ daemon() {
 	p=$(lidar-feature get volume initial 2>/dev/null)
 	level=$(clamp $(( (${p:-30} * VMAX + 50) / 100 )))
 	mute=0
+	host_echo=0
+	bt_echo=0
 	apply
 	buttons &
 	host_watch &
@@ -201,7 +243,15 @@ daemon() {
 		mute) mute=1; apply show ;;
 		unmute) mute=0; apply show ;;
 		toggle) mute=$((1 - mute)); apply show ;;
-		host) from_host ;;
+		host)
+			[ "$(now_cs)" -lt "$host_echo" ] && continue
+			from_host ;;
+		bt)	# the phone's volume, 0-127 (lidar-bluetooth)
+			[ "$(now_cs)" -lt "$bt_echo" ] && continue
+			case $arg in '' | *[!0-9]*) continue ;; esac
+			[ "$arg" -le 127 ] || continue
+			level=$(clamp $(( (arg * VMAX + 63) / 127 ))); mute=0
+			from_bt=1; apply show; from_bt= ;;
 		sync) quiet_until=$(( $(cut -d. -f1 /proc/uptime) + 5 )); apply ;;
 		refresh) apply ;;	# lidar-dsp started or stopped
 		tone)	# release: only if a hold moved the level since the press

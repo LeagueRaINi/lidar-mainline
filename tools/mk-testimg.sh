@@ -24,7 +24,13 @@ ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
 curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
 	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod cjson \
-	alsa-ucm-conf
+	alsa-ucm-conf bluez-btmgmt bluez dbus bluez-alsa bluez-alsa-utils bluez-tools
+# Package scripts do not run here: the system bus's own user, which dbus'
+# install script would add
+grep -q '^messagebus:' "$T/initramfs/etc/passwd" ||
+	echo 'messagebus:x:100:101:messagebus:/run/dbus:/sbin/nologin' >> "$T/initramfs/etc/passwd"
+grep -q '^messagebus:' "$T/initramfs/etc/group" ||
+	echo 'messagebus:x:101:messagebus' >> "$T/initramfs/etc/group"
 # fw_printenv/fw_setenv: U-Boot keeps its environment at the top of misc
 cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
@@ -119,6 +125,10 @@ clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=gnu11 -O2 -Wall -Wextra -Wno-nullability-completeness \
 	-s -o "$T/lidar-player" /work/tools/lidar-player.c -lasound
 install -m755 "$T/lidar-player" "$T/initramfs/usr/bin/lidar-player"
+clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
+	-std=gnu11 -O2 -ffp-contract=fast -Wall -Wextra -Wno-nullability-completeness \
+	-s -o "$T/lidar-viz" /work/tools/lidar-viz.c -lasound -lm
+install -m755 "$T/lidar-viz" "$T/initramfs/usr/bin/lidar-viz"
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
 # LibreEcho add-on (libreecho feature): adapter, sandbox, privacy-latch
@@ -141,28 +151,190 @@ install -D -m644 /work/tools/libreecho/audio-profile "$LE/audio-profile"
 install -D -m644 -t "$LE/default" /work/tools/libreecho/default/*
 install -m755 /work/tools/libreecho/capture /work/tools/libreecho/mixer "$LE/"
 install -m755 /work/tools/libreecho/lidar-libreecho.sh "$T/initramfs/usr/bin/lidar-libreecho"
-install -m755 /work/tools/lidar-zigbee.sh "$T/initramfs/usr/bin/lidar-zigbee"
+install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
+install -m755 /work/tools/lidar-bluetooth.sh "$T/initramfs/usr/bin/lidar-bluetooth"
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
 install -m755 /work/tools/lidar-usbaudio.sh "$T/initramfs/usr/bin/lidar-usbaudio"
 install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
-# Volume feedback tone: 90 ms at 520 Hz, -10 dBFS, 20 ms raised-cosine
-# fades, in the speaker's native format (48 kHz, 16 bit stereo).
+install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
+install -m755 /work/tools/lidar-wifi.sh "$T/initramfs/usr/bin/lidar-wifi"
+install -m755 /work/tools/lidar-time.sh "$T/initramfs/usr/bin/lidar-time"
+# Thread border router: ot-br-posix, pinned, built for musl against the
+# sysroot like the tools above. Its sources (with submodules) are cached in
+# /src. The vendor and product name end up in the border agent's mDNS
+# record; -Wno-error=sign-compare because musl's CMSG_NXTHDR trips clang's
+# -Wsign-compare. No ingress firewall: the default one drives the ipset and
+# ip6tables tools with rules from ot-br-posix's setup scripts, none of which
+# this system has (OTBR_NFTABLES would be the in-process alternative).
+#
+# The radio is shared with Zigbee (multiprotocol RCP), so otbr-agent does
+# not own the UART: cpcd does, and otbr-agent reaches the RCP through
+# libcpc with the Gecko SDK's CPC Spinel interface, plugged in as
+# OpenThread's vendor bus. Radio URL: spinel+cpc://cpcd_0?iid=2&iid-list=0
+# (OT_MULTIPAN_RCP is what makes the URL parser take iid and iid-list).
+# cpc-daemon is built as a subdirectory of the same CMake build, without
+# link encryption, which drops its mbedtls dependency: cpcd itself and
+# libcpc.so.3, which otbr-agent needs at run time. Both keep cpc-daemon's
+# default socket folder, /dev/shm, which has to exist before cpcd starts.
+# cpc-daemon is under Silicon Labs' MSLA, like zigbeed and the RCP below:
+# this image is for your own use, not for passing on.
+CPCD_TAG=v4.4.6
+CPCD_COMMIT=5e10b3e45ace73058327425a3fbedf06b4bcccbb
+CPCD=/src/cpc-daemon
+if [ "$(cat $CPCD/.complete 2>/dev/null)" != $CPCD_COMMIT ]; then
+	rm -rf $CPCD
+	git -c advice.detachedHead=false clone -q --depth 1 --branch $CPCD_TAG https://github.com/SiliconLabs/cpc-daemon.git $CPCD
+	[ "$(git -C $CPCD rev-parse HEAD)" = $CPCD_COMMIT ] ||
+		{ echo "cpc-daemon $CPCD_TAG is no longer $CPCD_COMMIT" >&2; exit 1; }
+	echo $CPCD_COMMIT > $CPCD/.complete
+fi
+# Only the POSIX host glue of the Gecko SDK (v4.4.3, the release the RCP
+# firmware is built from): a sparse, blobless checkout of that directory.
+GSDK_COMMIT=d95099f4c05b3c40cece93d8a261dd471e642086
+GSDK=/src/gecko_sdk
+GSDK_POSIX=protocol/openthread/platform-abstraction/posix
+if [ "$(cat $GSDK/.complete 2>/dev/null)" != $GSDK_COMMIT ]; then
+	rm -rf $GSDK
+	git init -q $GSDK
+	git -C $GSDK remote add origin https://github.com/SiliconLabs/gecko_sdk.git
+	git -C $GSDK sparse-checkout set --no-cone /$GSDK_POSIX/
+	git -C $GSDK fetch -q --depth 1 --filter=blob:none origin $GSDK_COMMIT
+	git -C $GSDK -c advice.detachedHead=false checkout -q FETCH_HEAD
+	echo $GSDK_COMMIT > $GSDK/.complete
+fi
+OTBR_TAG=v2026.11.0
+OTBR_COMMIT=76fb21d666a41050b43f8eaabc30e71d9d75d9fd
+OTBR=/src/ot-br-posix
+if [ "$(cat $OTBR/.complete 2>/dev/null)" != $OTBR_COMMIT ]; then
+	rm -rf $OTBR
+	git clone -q --depth 1 --branch $OTBR_TAG https://github.com/openthread/ot-br-posix.git $OTBR
+	[ "$(git -C $OTBR rev-parse HEAD)" = $OTBR_COMMIT ] ||
+		{ echo "ot-br-posix $OTBR_TAG is no longer $OTBR_COMMIT" >&2; exit 1; }
+	git -C $OTBR submodule update -q --init --recursive --depth 1
+	echo $OTBR_COMMIT > $OTBR/.complete
+fi
+# kept between runs, so ninja only rebuilds what changed
+OB=/src/build/otbr-$OTBR_COMMIT-${SYSROOT##*/}
+mkdir -p "$OB"
+# cpc_interface.cpp was written for a 2024 OpenThread. What this one needs
+# changed, applied to a copy in the build directory:
+#  - US_PER_S is now OT_US_PER_S;
+#  - BigEndian::ReadUint16() left the Encoding namespace, and its header is
+#    no longer pulled in by the other includes;
+#  - OT_ASSERT() is not declared without common/debug.hpp and compiles to
+#    nothing in this build, which leaves a set-but-unused variable (an error
+#    here) and failed endpoint options unnoticed: exit on them instead.
+# The copy is only replaced when it changes, to keep the build incremental.
+mkdir -p "$OB/cpc-vendor"
+sed -e 's/\bUS_PER_S\b/OT_US_PER_S/g' \
+	-e 's/Encoding::BigEndian::/BigEndian::/' \
+	-e 's|^#include "common/code_utils.hpp"|&\n#include "common/encoding.hpp"|' \
+	-e 's/OT_ASSERT(\(.*\));/VerifyOrDie(\1, OT_EXIT_FAILURE);/' \
+	$GSDK/$GSDK_POSIX/cpc_interface.cpp > "$T/cpc_interface.cpp"
+[ "$(grep -c -e OT_US_PER_S -e ' BigEndian::' -e common/encoding.hpp -e 'VerifyOrDie(.*OT_EXIT_FAILURE' \
+	"$T/cpc_interface.cpp")" = 8 ] || { echo "cpc_interface.cpp: the OpenThread port no longer applies" >&2; exit 1; }
+for f in "$T/cpc_interface.cpp" $GSDK/$GSDK_POSIX/cpc_interface.hpp $GSDK/$GSDK_POSIX/posix_vendor_rcp.cmake; do
+	cmp -s "$f" "$OB/cpc-vendor/${f##*/}" || cp "$f" "$OB/cpc-vendor/"
+done
+[ -f "$OB/toolchain.cmake" ] || cat > "$OB/toolchain.cmake" <<EOF
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_SYSROOT $SYSROOT)
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_C_COMPILER_TARGET aarch64-alpine-linux-musl)
+set(CMAKE_CXX_COMPILER_TARGET aarch64-alpine-linux-musl)
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld -s")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+EOF
+# The toolchain file predates the shared libcpc, hence the linker flags
+# here. -Wno-error=cpp: cpc-daemon includes <sys/errno.h>, a #warning in
+# musl, and inherits OpenThread's -Werror. The vendor bus's URL scheme is a
+# plain define without a CMake option.
+cmake -S $OTBR -B "$OB" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$OB/toolchain.cmake" \
+	-DCMAKE_BUILD_TYPE=MinSizeRel "-DCMAKE_C_FLAGS=-Wno-error=sign-compare -Wno-error=cpp" \
+	'-DCMAKE_CXX_FLAGS=-Wno-error=sign-compare -DOPENTHREAD_POSIX_CONFIG_SPINEL_VENDOR_INTERFACE_URL_PROTOCOL_NAME=\"spinel+cpc\"' \
+	"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld -s" -DBUILD_TESTING=OFF \
+	-DOTBR_VENDOR_NAME=lidar-mainline "-DOTBR_PRODUCT_NAME=Thread Border Router" \
+	-DOTBR_REST=ON -DOTBR_NAT64=OFF -DOTBR_NOTIFY_UPSTART=OFF -DOT_FIREWALL=OFF \
+	-DOT_MULTIPAN_RCP=ON -DOT_POSIX_RCP_VENDOR_BUS=ON \
+	-DOT_POSIX_CONFIG_RCP_VENDOR_INTERFACE="$OB/cpc-vendor/cpc_interface.cpp" \
+	-DOT_POSIX_CONFIG_RCP_VENDOR_DEPS_PACKAGE="$OB/cpc-vendor/posix_vendor_rcp.cmake" \
+	-DCPCD_SOURCE_DIR=$CPCD -DENABLE_ENCRYPTION=OFF -DCPCD_CONFIG_FILE_PATH=/etc/cpcd.conf > "$T/otbr.log" 2>&1 &&
+	cmake --build "$OB" >> "$T/otbr.log" 2>&1 || { tail -n 40 "$T/otbr.log" >&2; exit 1; }
+install -m755 "$OB/src/agent/otbr-agent" "$T/initramfs/usr/bin/otbr-agent"
+install -m755 "$OB/third_party/openthread/repo/src/posix/ot-ctl" "$T/initramfs/usr/bin/ot-ctl"
+# posix_vendor_rcp.cmake adds cpc-daemon as subdirectory "build"
+CB="$OB/third_party/openthread/repo/src/posix/platform/build"
+install -m755 "$CB/cpcd" "$T/initramfs/usr/bin/cpcd"
+install -m755 "$CB/libcpc.so.3" "$T/initramfs/usr/lib/libcpc.so.3"
+# cpcd's configuration; what is not set here keeps cpc-daemon's default.
+# The radio's UART has no RTS/CTS and the link is not encrypted.
+cat > "$T/initramfs/etc/cpcd.conf" <<'EOF'
+instance_name: cpcd_0
+bus_type: UART
+uart_device_file: /dev/ttyS2
+uart_device_baud: 115200
+uart_hardflow: false
+disable_encryption: true
+stdout_trace: false
+EOF
+# The multiprotocol RCP image comes from efr32/build.sh and zigbeed, the
+# Zigbee host stack, from efr32/zigbeed.sh (their own container)
+RCP=/work/out/efr32/lidar-mp-rcp.gbl
+if [ -f $RCP ]; then
+	install -D -m644 $RCP "$T/initramfs/usr/share/lidar/efr32/lidar-mp-rcp.gbl"
+else
+	echo "warning: $RCP missing (build it with efr32/build.sh): the radio cannot be flashed" >&2
+fi
+ZIGBEED=/work/out/zigbeed/zigbeed
+if [ -f $ZIGBEED ]; then
+	install -m755 $ZIGBEED "$T/initramfs/usr/bin/zigbeed"
+else
+	echo "warning: $ZIGBEED missing (build it with efr32/zigbeed.sh): no Zigbee" >&2
+fi
+# Feedback sounds in the speaker's native format (48 kHz, 16 bit stereo).
+# - volume-tone (lidar-volume): 90 ms at 520 Hz, -10 dBFS, 20 ms
+#   raised-cosine fades
+# - bt-* (lidar-bluetooth): bell notes, a fundamental with three fading
+#   overtones, 4 ms attack and an exponential decay; notes (Hz, start s)
+#   may overlap. bt-pairing: two short A5, repeated in pairing mode;
+#   bt-paired: C6 E6 G6 C7 rising; bt-timeout: G5 C5 falling
 mkdir -p "$T/initramfs/usr/share/lidar"
-python3 - "$T/initramfs/usr/share/lidar/volume-tone.wav" <<'EOF'
+python3 - "$T/initramfs/usr/share/lidar" <<'EOF'
 import math, struct, sys, wave
-fs, n, fade, f = 48000, 4320, 960, 520
-with wave.open(sys.argv[1], "wb") as w:
-    w.setnchannels(2); w.setsampwidth(2); w.setframerate(fs)
-    frames = bytearray()
-    for i in range(n):
-        env = min(1.0, i / fade, (n - 1 - i) / fade)
-        env = 0.5 - 0.5 * math.cos(math.pi * env)
-        s = int(0.316 * env * math.sin(2 * math.pi * f * i / fs) * 32767)
-        frames += struct.pack("<hh", s, s)
-    w.writeframes(bytes(frames))
+fs = 48000
+def save(name, x):
+    with wave.open(f"{sys.argv[1]}/{name}.wav", "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(fs)
+        w.writeframes(b"".join(struct.pack("<hh", s, s) for s in (int(v * 32767) for v in x)))
+def tone(f, ms, db, fade_ms):
+    a, n, fade = 10 ** (db / 20), fs * ms // 1000, fs * fade_ms // 1000
+    return [a * (0.5 - 0.5 * math.cos(math.pi * min(1.0, i / fade, (n - 1 - i) / fade)))
+            * math.sin(2 * math.pi * f * i / fs) for i in range(n)]
+def bell(notes, tau, length, db):
+    n, out = int(length * fs), [0.0] * int(length * fs)
+    for f, start in notes:
+        s = int(start * fs)
+        for i in range(n - s):
+            t = i / fs
+            env = min(t / 0.004, 1.0) * math.exp(-t / tau)
+            out[s + i] += env * sum(a * math.exp(-t * (k - 1) * 3) * math.sin(2 * math.pi * f * k * t)
+                                    for k, a in ((1, 1.0), (2, 0.45), (3, 0.2), (4.2, 0.08)))
+    fade = fs // 50
+    for i in range(fade):
+        out[n - fade + i] *= 1 - i / fade
+    g = 10 ** (db / 20) / max(abs(v) for v in out)
+    return [v * g for v in out]
+save("volume-tone", tone(520, 90, -10, 20))
+save("bt-pairing", bell([(880, 0), (880, 0.16)], 0.09, 0.6, -10))
+save("bt-paired", bell([(1047, 0), (1319, 0.1), (1568, 0.2), (2093, 0.3)], 0.3, 1.3, -4))
+save("bt-timeout", bell([(784, 0), (523, 0.22)], 0.25, 1.0, -8))
 EOF
 
 # The card's UCM profile (alsa-ucm-conf layout)
@@ -328,6 +500,10 @@ if [ -d /sys/kernel/config/usb_gadget ] && [ -n "$(ls /sys/class/udc 2>/dev/null
 		fi
 	fi
 fi
+# The clock (no RTC on this board): the last saved time now, NTP once the
+# network is up
+lidar-time restore
+echo '::respawn:/usr/bin/lidar-time daemon' >> /etc/inittab
 # System volume and LED ring: init owns the daemons and restarts them
 if own volume; then
 	echo '::respawn:/usr/bin/lidar-volume daemon' >> /etc/inittab
@@ -335,9 +511,40 @@ fi
 if own ring && [ -e /sys/class/leds/ring1:red/brightness ]; then
 	echo '::respawn:/usr/bin/lidar-ring daemon' >> /etc/inittab
 fi
-# Zigbee coordinator: brings the EFR32 NCP up and bridges it to TCP
+# Sound display on the ring: after the boot animation, as lidar-ring; it
+# keeps off the ring while lidar-ring shows something
+if own visualizer && [ -e /sys/class/leds/ring1:red/brightness ]; then
+	echo "::respawn:/bin/sh -c 'while [ ! -e /run/boot-done ] || pidof lidar-bootanim >/dev/null; do sleep 0.5; done; exec /usr/bin/lidar-viz -s $(lidar-feature get visualizer style)'" \
+		>> /etc/inittab
+fi
+# The EFR32 radio serves Zigbee and Thread at once (multi-PAN RCP): cpcd
+# multiplexes it, zigbee runs zigbeed and its TCP bridge, thread runs
+# otbr-agent; either or both.
+if lidar-feature enabled zigbee || lidar-feature enabled thread; then
+	echo '::respawn:/usr/bin/lidar-radio cpcd' >> /etc/inittab
+fi
 if lidar-feature enabled zigbee; then
-	echo '::respawn:/usr/bin/lidar-zigbee daemon' >> /etc/inittab
+	echo '::respawn:/usr/bin/lidar-radio zigbee' >> /etc/inittab
+fi
+if lidar-feature enabled thread; then
+	echo '::respawn:/usr/bin/lidar-radio thread' >> /etc/inittab
+	# usb: otbr-agent's REST API sits on a unix socket, and only
+	# connections arriving on usb0 reach it (SO_BINDTODEVICE, as telnet)
+	if [ "$(lidar-feature get thread listen)" != any ] && [ -e /sys/class/net/usb0 ]; then
+		echo '::respawn:/usr/bin/lidar-listen usb0 8081 socat STDIO UNIX-CONNECT:/run/otbr-rest.sock' \
+			>> /etc/inittab
+	fi
+fi
+# Bluetooth speaker: the D-Bus system bus, bluetoothd, bluealsa and its
+# player, and lidar-bluetooth's daemon (pairing, action button, volume);
+# each waits for the one before, bluetoothd for the driver loaded below.
+if own bluetooth; then
+	mkdir -p /run/dbus
+	dbus-uuidgen --ensure
+	for s in 'dbus-daemon --system --nofork --nopidfile' 'lidar-bluetooth bluetoothd' \
+		'lidar-bluetooth bluealsa' 'lidar-bluetooth aplay' 'lidar-bluetooth daemon'; do
+		echo "::respawn:/usr/bin/$s" >> /etc/inittab
+	done
 fi
 # Web interface: the player daemon, and httpd tied to usb0 unless the owner
 # asks for every interface (as for telnet)
@@ -353,14 +560,17 @@ if own webui; then
 		echo "::respawn:/usr/bin/lidar-listen usb0 80 $www -i" >> /etc/inittab
 	fi
 fi
-# Stage the owner's own Wi-Fi firmware and calibration from Fire OS
-# (system_a, read-only); the ROM patch both functions share is the image's
-# linux-firmware one. Then load WLAN before Bluetooth: btmtksdio must not
-# start while the WLAN driver downloads the patch. The regulatory domain is a
+# Wi-Fi and Bluetooth share one chip (MT7668). For either, stage the owner's
+# own Wi-Fi firmware and calibration from Fire OS (system_a, read-only; the
+# ROM patch both functions share is the image's linux-firmware one) and load
+# the WLAN driver: Bluetooth needs it first too, btmtksdio must not start
+# while the WLAN driver downloads the patch. The regulatory domain is a
 # cfg80211 user hint, so it can be set as soon as the driver has pulled
 # cfg80211 in. Backgrounded so the shell never waits.
 (
-	if lidar-feature enabled wireless; then
+	wifi=; lidar-feature enabled wifi && wifi=1
+	bt=; own bluetooth && bt=1
+	if [ -n "$wifi$bt" ]; then
 		dev=/dev/disk/by-partlabel/system_a
 		fw=/mnt/fireos/system/vendor/firmware
 		mkdir -p /mnt/fireos
@@ -369,18 +579,19 @@ fi
 		      $fw/TxPwrLimit_MT76x8.dat $fw/wifi.cfg /lib/firmware/ &&
 		   modprobe wlan_mt76x8_sdio; then
 			echo "lidar: Wi-Fi firmware staged, WLAN driver loaded" > /dev/kmsg
-			cc=$(lidar-feature get wireless country)
+			cc=$(lidar-feature get wifi country)
 			if [ -n "$cc" ]; then
 				iw reg set "$cc" > /dev/kmsg 2>&1 &&
 					echo "lidar: regulatory domain $cc requested" > /dev/kmsg
 			fi
-			if [ "$(lidar-feature get wireless bluetooth)" = off ]; then
-				echo "lidar: Bluetooth driver not loaded (setting)" > /dev/kmsg
-			elif ! modprobe btmtksdio; then
+			if [ -n "$bt" ] && ! modprobe btmtksdio; then
 				echo "lidar: Bluetooth driver failed to load" > /dev/kmsg
 			fi
+			# join the configured network, if any
+			[ -z "$wifi" ] || lidar-wifi start
 		else
-			echo "lidar: Wi-Fi firmware not staged" > /dev/kmsg
+			echo "lidar: Wi-Fi firmware not staged: no Wi-Fi, no Bluetooth" > /dev/kmsg
+			touch /run/lidar-no-radio-firmware
 		fi
 		umount /mnt/fireos 2>/dev/null
 	fi
@@ -401,6 +612,17 @@ fi
 exec /bin/busybox init
 EOF
 chmod +x "$T/initramfs/init"
+# Every shell script in the image must parse: one stray quote (an
+# apostrophe in lidar-feature's single-quoted tables, say) stops the boot
+for f in "$T/initramfs/init" "$T"/initramfs/usr/bin/* "$T/initramfs/usr/share/lidar/www/cgi-bin/api"; do
+	[ "$(head -c 9 "$f" 2>/dev/null | tr -d '\0')" = '#!/bin/sh' ] || continue
+	sh -n "$f" || { echo "mk-testimg: syntax error in ${f#$T/initramfs}" >&2; exit 1; }
+done
+# sh -n misses an even number of stray quotes: lidar-feature's tables must
+# not contain any (two of them parse, and silently cut a table in pieces)
+awk '/^(FEATURES|SETTINGS)=\047$/ { t = 1; next } t && /^\047$/ { t = 0; next }
+	t && /\047/ { print "mk-testimg: quote in lidar-feature table, line " NR ": " $0; bad = 1 }
+	END { exit bad }' /work/tools/lidar-feature.sh >&2 || exit 1
 
 (cd "$T/initramfs" && find . | cpio -o -H newc --quiet | gzip -9) > "$T/fs/boot/initramfs.gz"
 cp "$B/arch/arm64/boot/Image.gz" "$T/fs/boot/Image.gz"
@@ -425,6 +647,7 @@ cat > "$T/fs/etc/lidar.conf" <<'EOF'
 feature.usbaudio=1
 feature.telnet=1
 EOF
+chmod 600 "$T/fs/etc/lidar.conf"
 
 rm -f "$OUT/lidar-test-system.ext4"
 mke2fs -q -t ext4 -L lidar-test -d "$T/fs" "$OUT/lidar-test-system.ext4" 256M
