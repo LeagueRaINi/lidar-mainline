@@ -10,6 +10,8 @@
 *.img
 *.ext4
 *.bin
+# backups of the files lidar takes from Fire OS (Amazon's; never publish)
+lidar-fireos-backup*.tar
 *.dtb
 
 # Editor and tool noise

@@ -563,6 +563,16 @@ pre.text { margin: 0; max-height: max(320px, calc(100vh - 250px)); overflow: aut
       <p class="muted" id="settings-msg" hidden></p>
     </div>
     <div class="card">
+      <div class="ch"><h3>Fire OS files</h3><span class="pill" id="fireos-state">–</span></div>
+      <p class="muted">Wi-Fi firmware and Amazon's speaker tuning, kept on lidar's slot so a wiped Fire OS does not matter. Keep a backup: an Echo without Fire OS and without this copy needs one. <span id="fireos-src"></span></p>
+      <ul class="rows" id="fireos-files"></ul>
+      <div class="ch flat">
+        <button id="fireos-export">Download backup</button>
+        <button id="fireos-pick">Restore backup…</button>
+        <input type="file" id="fireos-import" accept=".tar,application/x-tar" hidden>
+      </div>
+    </div>
+    <div class="card">
       <div class="ch flat">
         <div class="stack"><h3>Restart</h3><span class="meta">The page reconnects by itself once the Echo is back.</span></div>
         <button id="reboot">Reboot</button>
@@ -878,7 +888,7 @@ function showView(name) {
   scrollTo(0, 0);
   if (view === 'music') { refreshPlayer(); refreshSongs(); }
   if (view === 'network') refreshNetwork();
-  if (view === 'services') { refreshServices(); refreshSettings(); }
+  if (view === 'services') { refreshServices(); refreshSettings(); refreshFireos(); }
   if (view === 'debug') {
     $('log').dataset.shown = '';              /* a hidden pane loses its scroll position */
     refreshLog();
@@ -1670,6 +1680,69 @@ async function refreshSettings() {
 function initServices() {
   confirmClick($('pending-reboot'), 'Really reboot?', reboot);
   confirmClick($('reboot'), 'Really reboot?', reboot);
+  $('fireos-export').addEventListener('click', exportFireos);
+  $('fireos-pick').addEventListener('click', () => $('fireos-import').click());
+  $('fireos-import').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) importFireos(file);
+  });
+}
+
+/* The files lidar takes from Fire OS (lidar-fireos): Wi-Fi firmware and speaker tuning */
+function renderFireos(d) {
+  const files = d.files || [];
+  const kept = (f) => f.size != null;
+  const wifiOk = files.filter((f) => f.group === 'wifi' && f.required).every(kept);
+  const dspOk = files.some((f) => f.group === 'dsp' && f.required && kept(f));
+  const state = $('fireos-state');
+  state.textContent = wifiOk && dspOk ? 'Kept' : 'Incomplete';
+  state.className = 'pill ' + (wifiOk && dspOk ? 'on' : 'warn');
+  $('fireos-src').textContent = d.fireos ? 'Fire OS is on system_a.' : 'No Fire OS on system_a: the Echo runs from this copy.';
+  const rows = [];
+  for (const [g, label] of [['wifi', 'Wi-Fi firmware'], ['dsp', 'Speaker tuning']]) {
+    rows.push(el('li', 'grp', label));
+    for (const f of files.filter((x) => x.group === g)) {
+      const li = el('li');
+      const info = kept(f) ? `${Math.max(1, Math.round(f.size / 1024))} KB · ${f.sha256}` : (f.required ? 'missing' : 'not present (optional)');
+      li.append(stack(f.name, info),
+        el('span', 'pill' + (kept(f) ? ' on' : f.required ? ' warn' : ''), kept(f) ? 'Kept' : f.required ? 'Missing' : '–'));
+      rows.push(li);
+    }
+  }
+  $('fireos-files').replaceChildren(...rows);
+  $('fireos-export').disabled = !(wifiOk || dspOk);
+}
+
+function refreshFireos() { return poll('fireos', renderFireos); }
+
+/* Download through fetch: an error comes back as JSON and shows as a toast, not as a page. */
+async function exportFireos() {
+  try {
+    const res = await fetch(API + '?fireos_export', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if ((res.headers.get('Content-Type') || '').includes('json')) throw new ApiError((await res.json()).error || 'export failed');
+    const a = el('a');
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = 'lidar-fireos-backup.tar';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  } catch (err) {
+    toast(describe(err));
+  }
+}
+
+async function importFireos(file) {
+  try {
+    const r = await api('fireos_import', OCTET(file), 60000);
+    toast(r.message || 'Imported', true);
+    if (r.changed) markPending();
+    refreshFireos();
+  } catch (err) {
+    toast(describe(err));
+  }
 }
 
 /* ---------- debug ---------- */

@@ -30,7 +30,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Echo-cancellation reference | ✅ | ✅ playback loopback capture, bit-exact; used by `lidar-aec` |
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
 | **Wireless** | | |
-| Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, MAC from IDME |
+| Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, kept on lidar's slot (`lidar-fireos`), MAC from IDME |
 | Bluetooth (MT7668) | ✅ | ✅ classic and LE scanning, alongside Wi-Fi; ROM patch from linux-firmware. Bluetooth speaker for phones (A2DP, SBC and AAC) with the phone's volume as the system volume, paired by holding the action button (`bluetooth` service) |
 | Zigbee hub (EFR32) | ✅ Amazon firmware | ✅ Zigbee coordinator next to Thread on one radio: `zigbeed` (EmberZNet 7.4.3) on the Echo, EZSP over TCP for Home Assistant (`zigbee` service) |
 | Thread border router (EFR32) | ✅ | ✅ next to Zigbee on one radio: multi-PAN RCP built from this repository (`efr32/`), `otbr-agent` with its REST API for Home Assistant (`thread` service). Fire OS's own dual-PAN image speaks DSR's multiplexing and is not used |
@@ -133,6 +133,7 @@ decompression.
 | `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
 | `tools/lidar-wifi.sh` | Wi-Fi client from `wifi ssid`/`passphrase` (`wifi` service): start, stop, status and scan; used at boot and by the web interface |
+| `tools/lidar-fireos.sh` | the files lidar takes from Fire OS (Wi-Fi firmware, speaker tuning): kept on the booted slot, staged at boot, backup export and import |
 | `tools/lidar-time.sh` | the clock (no RTC on this board): NTP once the network is up, the last synced time saved on the booted slot and set at the next boot |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
@@ -236,12 +237,13 @@ Services do not require each other, with one exception: `thread` with
 `thread infra wlan0` (the default) needs `wifi` and does not start without
 it (it says so in the kernel log). Otherwise one that misses another falls
 back and logs it: Bluetooth without `volume` lets the phone's volume scale
-the samples, `dsp` without `volume` (or without Fire OS on `system_a`)
+the samples, `dsp` without `volume` (or without Amazon's tuning files)
 leaves the speaker untuned. Wi-Fi and Bluetooth share one chip: with either
-on, the Wi-Fi firmware is staged from Fire OS on `system_a` and the WLAN
-driver loads, which Bluetooth needs first; `wifi` off then only means no
-network is joined. Without the staged firmware there is neither, and the
-Bluetooth services wait quietly.
+on, the Wi-Fi firmware is staged (from Fire OS on `system_a`, or lidar's
+copy of it: see Files from Fire OS) and the WLAN driver loads, which
+Bluetooth needs first; `wifi` off then only means no network is joined.
+Without the firmware there is neither, and the Bluetooth services wait
+quietly.
 
 The former `wireless` service is now `wifi`: in `lidar.conf`,
 `feature.wireless` becomes `feature.wifi` and `wireless.ssid`,
@@ -282,7 +284,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `ring` | core | on | LED ring after boot: red while the mics are muted, volume changes, Bluetooth pairing mode (below) |
 | `wifi` | core | on | Wi-Fi client: joins the network in the `wifi` settings at boot; the clock comes from NTP once online |
 | `bluetooth` | core | on | Bluetooth speaker for phones (below) |
-| `dsp` | core | on | speaker tuning as on Fire OS (below); needs the `volume` service and Fire OS on `system_a`, takes effect on reboot |
+| `dsp` | core | on | speaker tuning as on Fire OS (below); needs the `volume` service and Amazon's tuning files (Fire OS on `system_a`, or lidar's copy), takes effect on reboot |
 | `usbaudio` | extra | off | USB speakerphone (below) |
 | `webui` | extra | off | web interface on port 80 of the USB network (below) |
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
@@ -395,7 +397,7 @@ Fire OS does not play audio flat: its audio library (`libasp.so`) runs every
 speaker stream through a chain configured by
 `/system/vendor/etc/audio-algorithms/AFE.cfg`. The `dsp` service runs the
 same chain, reverse engineered from that library, on the owner's own copy of
-these files (staged from `system_a` at boot; nothing is redistributed):
+these files (from `system_a` or lidar's copy of them, at boot; nothing is redistributed):
 
 1. the volume, applied digitally before everything else, as on stock;
 2. a 2048-tap FIR equalizer chosen by the level (`EQ_50/90/100.cfg`): the
@@ -424,7 +426,7 @@ output is live, so a stopped DSP can only make the speaker quieter. While
 it is stopped, sound clients wait; init restarts it. `lidar-dsp` holds the
 codec open all the time, so `volume keepalive off` makes no difference with
 it. It adds about 60 ms of latency and takes about 13% of one core at
-1.3 GHz. Without the `volume` service or the Fire OS files the speaker stays
+1.3 GHz. Without the `volume` service or the tuning files the speaker stays
 on the plain path. Toggling the service takes effect on the next boot.
 
 Verified: the impulse response at low level matches the stock FIR and EQ
@@ -433,6 +435,32 @@ limiter keeps full-scale noise below 1.0, and on the device the processed
 stream arrives at the codec as computed offline. By ear, against the plain
 path at the same volume: clearly fuller, closer to stock, without
 distortion, clicks or dropouts.
+
+### Files from Fire OS
+
+Two things lidar cannot ship, because they are Amazon's and not
+redistributable, come from the owner's Fire OS: the Wi-Fi firmware (which
+Bluetooth needs too) and the speaker tuning. `lidar-fireos` keeps a copy of
+both on the booted slot (`/var/lib/lidar-fireos`, like the pairing keys):
+at every boot it refreshes the copy from `system_a`, writing only what
+changed, and stages the copy. Once it exists, a wiped `system_a` no longer
+matters.
+
+- **Back it up.** An Echo whose Fire OS is gone and that has no copy has no
+  Wi-Fi, no Bluetooth and no tuning until a backup is imported: `lidar-fireos
+  export <file>` / `import <file>`, or "Download backup" / "Restore backup"
+  under System in the web interface (USB network only). Never publish it.
+- **What is needed** (tested on hardware by removing files): of the Wi-Fi
+  files only the two RAM code images. Without `EEPROM_MT7668.bin` the driver
+  uses the chip's own eFuse calibration; without `wifi.cfg` its defaults;
+  without `TxPwrLimit_MT76x8.dat` power is limited by the kernel's
+  regulatory database alone (set `wifi country`). Each of these still gave
+  the same 5 GHz link at 866 Mbit/s. The tuning needs `AFE.cfg`.
+- **Import checks:** only the known file names as plain files (no links,
+  no paths), the RAM code images at plausible sizes, and a tuning that
+  `lidar-dsp` accepts; otherwise nothing is written.
+- The copy lives on one slot: a new slot starts from Fire OS again, or from
+  an import.
 
 ### Web interface
 
@@ -841,9 +869,9 @@ bound by `lidar-volume`'s cap.
   a prefetch abort and a core dump streamed as packet type 0x80. The test
   image therefore ships the redistributable `mediatek/mt7668pr2h.bin` from
   linux-firmware (pinned by SHA-256) and uses it for Wi-Fi too. The Wi-Fi RAM
-  code, calibration and settings stay owner-local: the test system copies
-  them from the device's own Fire OS partition at boot. Never commit them.
-  See `lidar-wifi/README.md`.
+  code, calibration and settings stay owner-local: they come from the
+  device's own Fire OS partition, and lidar keeps a copy on its slot (Files
+  from Fire OS). Never commit them. See `lidar-wifi/README.md`.
 - **Bluetooth LE:** linux-firmware's patch leaves octets 25-28 of Read Local
   Supported Commands empty, i.e. all Bluetooth 4.0 LE commands, although it
   executes them. The core then never enables the LE Advertising Report and

@@ -36,9 +36,9 @@ FEATURES='
 bootanim core 1 light-ring animation while booting
 volume core 1 system volume for the speaker: volume buttons, Bluetooth phones, USB host slider, lidar-volume
 ring core 1 LED ring after boot: red while the mics are muted, volume changes, Bluetooth pairing mode
-wifi core 1 Wi-Fi client: joins the network in the wifi settings at boot (DHCP); the clock comes from NTP once online. Needs the Wi-Fi firmware from Fire OS on system_a
-bluetooth core 1 Bluetooth speaker: phones play on the Echo (A2DP, SBC and AAC), paired by holding the action button 3 s. Needs the Wi-Fi firmware from Fire OS on system_a; without the volume service the phone volume scales the samples
-dsp core 1 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter. Needs Fire OS on system_a and the volume service, untuned without them
+wifi core 1 Wi-Fi client: joins the network in the wifi settings at boot (DHCP); the clock comes from NTP once online. Needs the Wi-Fi firmware from Fire OS or the copy lidar keeps (lidar-fireos)
+bluetooth core 1 Bluetooth speaker: phones play on the Echo (A2DP, SBC and AAC), paired by holding the action button 3 s. Needs the Wi-Fi firmware from Fire OS or the copy lidar keeps (lidar-fireos); without the volume service the phone volume scales the samples
+dsp core 1 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter. Needs the tuning from Fire OS or the copy lidar keeps (lidar-fireos) and the volume service, untuned without them
 usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
 webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, music, Wi-Fi/Bluetooth, services, logs, files
 telnet extra 0 root shell without authentication on port 23 of the USB network

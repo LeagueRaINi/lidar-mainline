@@ -141,6 +141,7 @@ install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
 install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
 install -m755 /work/tools/lidar-wifi.sh "$T/initramfs/usr/bin/lidar-wifi"
+install -m755 /work/tools/lidar-fireos.sh "$T/initramfs/usr/bin/lidar-fireos"
 install -m755 /work/tools/lidar-time.sh "$T/initramfs/usr/bin/lidar-time"
 # Thread border router: ot-br-posix, pinned, built for musl against the
 # sysroot like the tools above. Its sources (with submodules) are cached in
@@ -425,26 +426,22 @@ done
 # Amazon's firmware, speaker volume -40 dB.
 alsaucm -c hw:amazonlidar set _boot ''
 # Speaker tuning (dsp): decided once, here, before any sound client starts.
-# The owner's own Fire OS tuning files are staged from system_a (read-only);
-# without them, or without snd-aloop, the speaker stays on the direct path.
-# lidar-dsp takes the volume from lidar-volume, so it needs the volume service.
+# Amazon's tuning for this speaker comes from the owner's Fire OS, or the
+# copy lidar keeps of it (lidar-fireos); without it, or without snd-aloop,
+# the speaker stays on the direct path. lidar-dsp takes the volume from
+# lidar-volume, so it needs the volume service.
 if lidar-feature enabled dsp && ! lidar-feature enabled volume; then
 	echo "lidar: speaker tuning needs the volume service, speaker untuned" > /dev/kmsg
 elif lidar-feature enabled dsp; then
 	d=/run/lidar-dsp
-	src=/mnt/fireos-dsp/system/vendor/etc/audio-algorithms
-	mkdir -p $d /mnt/fireos-dsp
-	if mount -o ro -t ext4 /dev/disk/by-partlabel/system_a /mnt/fireos-dsp; then
-		cp $src/AFE.cfg $src/EQ_*.cfg $src/ParametricEQ.cfg $src/MBCL*.cfg $d/ 2>/dev/null
-		umount /mnt/fireos-dsp
-	fi
+	lidar-fireos stage dsp $d
 	if lidar-dsp -c $d -k 2>/dev/kmsg &&
 	   modprobe snd-aloop pcm_substreams=1 timer_source=amazonlidar.0.0; then
 		cp /usr/share/lidar/asound-dsp.conf /etc/asound.conf
 		touch $d/active
 		echo '::respawn:/usr/bin/lidar-dsp' >> /etc/inittab
 	else
-		echo "lidar: no Fire OS speaker tuning, speaker untuned" > /dev/kmsg
+		echo "lidar: no speaker tuning, speaker untuned" > /dev/kmsg
 	fi
 fi
 # USB gadget on the pogo-pin port: serial shell + NCM network (169.254.7.2)
@@ -535,24 +532,18 @@ if lidar-feature enabled webui; then
 		echo "::respawn:/usr/bin/lidar-listen usb0 80 $www -i" >> /etc/inittab
 	fi
 fi
-# Wi-Fi and Bluetooth share one chip (MT7668). For either, stage the owner's
-# own Wi-Fi firmware and calibration from Fire OS (system_a, read-only; the
-# ROM patch both functions share is the image's linux-firmware one) and load
-# the WLAN driver: Bluetooth needs it first too, btmtksdio must not start
-# while the WLAN driver downloads the patch. The regulatory domain is a
-# cfg80211 user hint, so it can be set as soon as the driver has pulled
-# cfg80211 in. Backgrounded so the shell never waits.
+# Wi-Fi and Bluetooth share one chip (MT7668). For either, stage its Wi-Fi
+# firmware (lidar-fireos: from Fire OS on system_a, read-only, or the copy
+# lidar keeps of it; the ROM patch both functions share is the image's
+# linux-firmware one) and load the WLAN driver: Bluetooth needs it first
+# too, btmtksdio must not start while the WLAN driver downloads the patch.
+# The regulatory domain is a cfg80211 user hint, so it can be set as soon as
+# the driver has pulled cfg80211 in. Backgrounded so the shell never waits.
 (
 	wifi=; lidar-feature enabled wifi && wifi=1
 	bt=; lidar-feature enabled bluetooth && bt=1
 	if [ -n "$wifi$bt" ]; then
-		dev=/dev/disk/by-partlabel/system_a
-		fw=/mnt/fireos/system/vendor/firmware
-		mkdir -p /mnt/fireos
-		if [ -b "$dev" ] && mount -o ro -t ext4 "$dev" /mnt/fireos &&
-		   cp $fw/WIFI_RAM_CODE*MT7668.bin $fw/EEPROM_MT7668.bi[n] \
-		      $fw/TxPwrLimit_MT76x8.dat $fw/wifi.cfg /lib/firmware/ &&
-		   modprobe wlan_mt76x8_sdio; then
+		if lidar-fireos stage wifi /lib/firmware && modprobe wlan_mt76x8_sdio; then
 			echo "lidar: Wi-Fi firmware staged, WLAN driver loaded" > /dev/kmsg
 			cc=$(lidar-feature get wifi country)
 			if [ -n "$cc" ]; then
@@ -565,10 +556,9 @@ fi
 			# join the configured network, if any
 			[ -z "$wifi" ] || lidar-wifi start
 		else
-			echo "lidar: Wi-Fi firmware not staged: no Wi-Fi, no Bluetooth" > /dev/kmsg
+			echo "lidar: no Wi-Fi firmware or WLAN driver: no Wi-Fi, no Bluetooth" > /dev/kmsg
 			touch /run/lidar-no-radio-firmware
 		fi
-		umount /mnt/fireos 2>/dev/null
 	fi
 	if lidar-feature enabled usbaudio; then
 		lidar-usbaudio start > /dev/kmsg 2>&1

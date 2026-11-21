@@ -434,6 +434,39 @@ get_file() {
 	esac
 }
 
+# The files lidar takes from Fire OS (lidar-fireos): what the copy on the
+# slot holds, the copy as a backup to download, a backup to upload
+fireos_status() {
+	out=$(lidar-fireos status 2>/dev/null) || fail "booted slot not mounted"
+	f=false; case $out in *fireos=yes*) f=true ;; esac
+	printf '{"fireos": %s, "files": [' $f
+	printf '%s\n' "$out" | grep -v '^fireos=' | jesc | awk -F '\t' '{
+		printf "%s{\"group\": \"%s\", \"name\": \"%s\", \"required\": %s, \"size\": %s, \"sha256\": \"%s\"}",
+			c++ ? ", " : "", $1, $2, $3 == "required" ? "true" : "false", $4 == "" ? "null" : $4, $5 }'
+	printf ']}\n'
+}
+
+fireos_export() { # writes its own headers
+	t=/run/lidar-fireos-export.$$
+	trap 'rm -f "$t"' EXIT
+	lidar-fireos export "$t" >/dev/null 2>&1 || fail "nothing to export yet"
+	printf 'Content-Type: application/x-tar\r\nContent-Disposition: attachment; filename="lidar-fireos-backup.tar"\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: no-store\r\n\r\n'
+	cat "$t"
+}
+
+fireos_import() {
+	body_len 16777216
+	[ "$len" -gt 0 ] || fail "empty upload"
+	t=/run/lidar-fireos-import.$$
+	trap 'rm -f "$t"' EXIT
+	head -c "$len" > "$t"
+	[ "$(stat -c %s "$t")" = "$len" ] || fail "incomplete upload"
+	out=$(lidar-fireos import "$t" 2>&1) || fail "$(esc "${out#lidar-fireos: }")"
+	hdr
+	c=false; case $out in *imported*) c=true ;; esac
+	printf '{"ok": true, "changed": %s, "message": "%s"}\n' $c "$(esc "${out#lidar-fireos: }")"
+}
+
 # the server is reached by its address, never by a name: a.b.c.d[:port] or
 # [IPv6][:port]
 case $HTTP_HOST in
@@ -450,12 +483,12 @@ title=
 case $QUERY_STRING in *'&title='*) title=${QUERY_STRING#*&title=}; title=${title%%&*} ;; esac
 
 # downloads write their own headers
-[ "$key" = file ] || hdr
+case $key in file | fireos_export) ;; *) hdr ;; esac
 
 case $key in
 stats | player | songs | services | network) ;;
-wifi_scan | bt_scan | bt_devices | log | procs | system | settings | ls | file) admin ;;
-upload | wifi_connect | set)
+wifi_scan | bt_scan | bt_devices | log | procs | system | settings | ls | file | fireos | fireos_export) admin ;;
+upload | wifi_connect | set | fireos_import)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/octet-stream ] ||
 		fail "$key needs POST with application/octet-stream"
 	[ "$key" = upload ] || admin
@@ -553,6 +586,9 @@ unset)
 	;;
 ls) ls_dir ;;
 file) get_file ;;
+fireos) fireos_status ;;
+fireos_export) fireos_export ;;
+fireos_import) fireos_import ;;
 reboot)
 	(sleep 1; reboot) >/dev/null 2>&1 &
 	ok
