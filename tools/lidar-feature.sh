@@ -51,7 +51,7 @@ telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
 visualizer extra 0 sound display on the LED ring: spectrum or level of whatever the speaker plays, below the displays of the ring service
-assistant extra 0 voice assistant: timers, alarms, volume, music, time and date by command (English or German), as text on /run/lidar-assistant.fifo until speech recognition is part of the image. Needs the volume service; alarms and the time need the clock from the network (wifi)
+assistant extra 0 voice assistant: timers, alarms, volume, music, time and date (English or German), spoken after the wake word and answered aloud with a local Piper voice (needs the voice service and a speech model from lidar-models; recognition and voice keep about 370 MB of RAM), or as text on /run/lidar-assistant.fifo. Needs the volume service; alarms and the time need the clock from the network (wifi)
 voice extra 0 wake word: listens for "Hey Jarvis" with the beamformer on the seven microphones (lidar-wake), shows the direction on the LED ring and plays a chime; about one CPU core. Silent while the mics are muted
 '
 

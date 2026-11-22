@@ -28,7 +28,8 @@ echo "$ROOTFS_SUM  $T/$ROOTFS" | sha256sum -c --quiet
 tar -xzf "$T/$ROOTFS" -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
 	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod cjson \
-	alsa-ucm-conf bluez-btmgmt bluez dbus bluez-alsa bluez-alsa-utils bluez-tools e2fsprogs-extra
+	alsa-ucm-conf bluez-btmgmt bluez dbus bluez-alsa bluez-alsa-utils bluez-tools e2fsprogs-extra \
+	onnxruntime
 # Package scripts do not run here: the system bus's own user, which dbus'
 # install script would add
 grep -q '^messagebus:' "$T/initramfs/etc/passwd" ||
@@ -112,7 +113,7 @@ install -m755 "$T/lidar-listen" "$T/initramfs/usr/bin/lidar-listen"
 # for musl against an Alpine sysroot, cached per Alpine release in /src and
 # rebuilt when the package list or the lock changes.
 SYSROOT=/src/alpine-sysroot-$ALPINE
-SYSPKGS="musl-dev libstdc++-dev gcc alsa-lib-dev webrtc-audio-processing-2-dev cjson-dev"
+SYSPKGS="musl-dev libstdc++-dev gcc alsa-lib-dev webrtc-audio-processing-2-dev cjson-dev openssl-dev onnxruntime-dev"
 SYSKEY="$SYSPKGS $(sha256sum < $LOCK | cut -c1-16)"
 if [ "$(cat "$SYSROOT/.complete" 2>/dev/null)" != "$SYSKEY" ]; then
 	rm -rf "$SYSROOT"
@@ -154,6 +155,25 @@ install -D -m644 -t "$T/initramfs/usr/share/licenses/lidar-wakeword" "$T"/wakewo
 bash /work/tools/lidar-assistant/build.sh "$T/assistant" "$SYSROOT"
 install -m755 "$T/assistant/lidar-assistant" "$T/initramfs/usr/bin/lidar-assistant"
 install -D -m644 -t "$T/initramfs/usr/share/lidar/assistant" /work/tools/lidar-assistant/lang/*.txt
+# Claude for what the grammar does not understand (lidar-assistant -c)
+bash /work/tools/lidar-claude/build.sh "$T/claude" "$SYSROOT"
+install -m755 "$T/claude/lidar-claude" "$T/initramfs/usr/bin/lidar-claude"
+# Speech recognition: lidar-stt on sherpa-onnx (fetched pinned, built against
+# the sysroot's onnxruntime, which the image has as a package); lidar-tee
+# gives it a copy of lidar-voice's audio. The licence texts of sherpa-onnx
+# and of what it compiles in go with the library.
+bash /work/tools/lidar-stt/build.sh "$T/stt" "$SYSROOT"
+install -m755 "$T/stt/lidar-stt" "$T/stt/lidar-tee" "$T/initramfs/usr/bin/"
+install -m755 "$T/stt/libsherpa-onnx-c-api.so" "$T/initramfs/usr/lib/libsherpa-onnx-c-api.so"
+install -D -m644 -t "$T/initramfs/usr/share/licenses/sherpa-onnx" "$T"/stt/licenses/*
+# The assistant's voice: lidar-tts (Piper voices on sherpa-onnx; phonemes
+# from espeak-ng, fetched pinned and linked in) and lidar-say, which queues
+# an answer for it. espeak-ng's data for English and German (about 1 MB)
+# and its licence texts go beside it.
+bash /work/tools/lidar-tts/build.sh "$T/tts" "$SYSROOT"
+install -m755 "$T/tts/lidar-tts" "$T/tts/lidar-say" "$T/initramfs/usr/bin/"
+cp -r "$T/tts/espeak-ng-data" "$T/initramfs/usr/share/espeak-ng-data"
+install -D -m644 -t "$T/initramfs/usr/share/licenses/espeak-ng" "$T"/tts/licenses/*
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
 install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
@@ -580,7 +600,11 @@ lidar-feature keep /var/lib/lidar-models >/dev/null 2>&1 ||
 if lidar-feature enabled assistant; then
 	lidar-feature keep /var/lib/lidar-assistant >/dev/null 2>&1 ||
 		echo "lidar: /var/lib/lidar-assistant not kept: alarms are lost at reboot" > /dev/kmsg
-	echo '::respawn:/bin/sh -c '\''export TZ=$(lidar-feature get voice timezone); exec /usr/bin/lidar-assistant -l $(lidar-feature get voice language) -m $(lidar-feature get voice ring_volume) >/dev/null'\''' \
+	# its voice (lidar-tts, see Speech output) once the boot is done; the
+	# assistant and Claude hand it the answers through lidar-say
+	echo "::respawn:/bin/sh -c 'while [ ! -e /run/boot-done ]; do sleep 0.5; done; exec /usr/bin/lidar-tts'" \
+		>> /etc/inittab
+	echo '::respawn:/bin/sh -c '\''export TZ=$(lidar-feature get voice timezone); exec /usr/bin/lidar-assistant -l $(lidar-feature get voice language) -m $(lidar-feature get voice ring_volume) -y /usr/bin/lidar-say -c /usr/bin/lidar-claude >/dev/null'\''' \
 		>> /etc/inittab
 fi
 # The EFR32 radio serves Zigbee and Thread at once (multi-PAN RCP): cpcd

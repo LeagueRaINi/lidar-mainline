@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Web UI backend (BusyBox httpd CGI): device statistics, volume, the song
 # library and the player, network and radio status and control, logs, files
-# and the services. One query per request, JSON out; see the README.
+# and the services. One query per request, JSON out; see docs/webui.md.
 #
 # Reads are GET. Commands must be POST with Content-Type application/json,
 # and those that carry data (uploads, Wi-Fi credentials, setting values) POST
@@ -139,6 +139,8 @@ stats() {
 		"$u" "$n" "$s" "$i" "$w" "$q" "$sq" "$f" "$mx" "$(esc "$gov")"
 	awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 }
 		END { printf " \"mem\": {\"total_kb\": %d, \"available_kb\": %d},\n", t, a }' /proc/meminfo
+	# the voice of the assistant: busy preparing its phrases after an install
+	jfile /run/lidar-tts.json; printf ' "tts": %s,\n' "$j"
 	# board temperature sensors: "<chip> <bus-addr> <millidegrees>" per line
 	t=
 	for h in /sys/class/hwmon/hwmon*; do
@@ -487,10 +489,13 @@ jfile() {
 }
 
 # What the microphones hear (lidar-voice: the beams and the one chosen), the
-# last wake word and the assistant's state (timers, alarms, last utterance)
+# last wake word, speech recognition and output, and the assistant's state
+# (timers, alarms, last utterance)
 voice_state() {
 	jfile /run/lidar-voice.json; printf '{"voice": %s, ' "$j"
 	jfile /run/lidar-wake.json; printf '"wake": %s, ' "$j"
+	jfile /run/lidar-stt.json; printf '"stt": %s, ' "$j"
+	jfile /run/lidar-tts.json; printf '"tts": %s, ' "$j"
 	jfile /run/lidar-assistant.json; printf '"assistant": %s}\n' "$j"
 }
 

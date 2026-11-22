@@ -4,13 +4,17 @@
 # seven microphones) into lidar-wakeword, restarted if either dies. At each
 # detection:
 #   - the LED ring shows where the voice came from ("wake <led>" to
-#     lidar-ring, the beam angle from /run/lidar-voice.json)
+#     lidar-ring, the talker direction "doa" from /run/lidar-voice.json)
 #   - a short, quiet two-note chime plays at the system volume (not while
 #     the speaker is muted); the sound display keeps off it
 #   - /run/lidar-wake.events gets a line "wake <seconds since boot> <angle>"
 #     (the last 20 are kept), /run/lidar-wake.json holds
 #     {"last": <seconds since boot>, "angle": <degrees>, "count": <n>}
 #   - /run/lidar-wake.listening exists for 5 s: the time to say something
+#     (lidar-stt, with the assistant service on, turns what is said then into
+#     a line on /run/lidar-assistant.fifo; it reads its copy of the audio from
+#     /run/lidar-stt.pcm, which lidar-tee fills without waiting for it)
+#   - lidar-tts stops talking ("stop" on /run/lidar-tts.fifo)
 # While the microphones are muted by the privacy button they deliver
 # silence, so nothing is detected.
 # Settings: voice sensitivity (low, medium, high: the detector's cutoff).
@@ -22,6 +26,8 @@ RING=/run/lidar-ring.fifo
 EVENTS=/run/lidar-wake.events
 STATE=/run/lidar-wake.json
 LISTENING=/run/lidar-wake.listening
+TTS=/run/lidar-tts.fifo
+PCM=/run/lidar-stt.pcm
 CHIME=/run/lidar-wake.wav
 CODEC=amazonlidar
 KEEP=20		# lines in $EVENTS
@@ -109,13 +115,21 @@ on_wake() {
 	case $t in
 	'' | *[!0-9.]*) read -r t _ < /proc/uptime ;;
 	esac
-	angle=$(field $VOICE_STATE angle)
+	# first: lidar-stt starts listening when this file changes
+	echo "$t" > $LISTENING
+	# the Echo stops talking when addressed: lidar-tts drops what it was
+	# going to say. Read-write: never waits, whether lidar-tts runs or not
+	[ -p $TTS ] && echo stop 1<> $TTS
+	# the talker direction (SRP-PHAT, 10 degree steps); the beam's angle
+	# only if lidar-voice has heard no speech yet
+	angle=$(field $VOICE_STATE doa)
+	[ -n "$angle" ] || angle=$(field $VOICE_STATE angle)
 	case $angle in
 	'' | *[!0-9]*) angle= ;;
 	esac
-	# Beam angle (0 at mic 0, clockwise) to LED: ((angle - 210) / 30 mod 12) + 1
+	# Angle (0 at mic 0, clockwise) to the nearest LED: round((angle - 210) / 30) mod 12 + 1
 	if [ -n "$angle" ] && [ -p $RING ]; then
-		echo "wake $(( ((angle + 150) / 30) % 12 + 1 ))" 1<> $RING
+		echo "wake $(( ((angle + 165) / 30) % 12 + 1 ))" 1<> $RING
 	fi
 	chime < /dev/null > /dev/null 2>&1 &
 	n=$(field $STATE count)
@@ -125,7 +139,6 @@ on_wake() {
 	echo "{\"last\": $t, \"angle\": ${angle:-null}, \"count\": $n}" > $STATE.new &&
 		mv $STATE.new $STATE
 	# A later detection takes the file over: only the last one removes it.
-	echo "$t" > $LISTENING
 	(
 		sleep $LISTEN
 		read -r l < $LISTENING && [ "$l" = "$t" ] && rm -f $LISTENING
@@ -144,15 +157,33 @@ daemon() {
 	# The pipeline runs in the background: a shell waiting for a foreground
 	# command would run the trap only once that has ended.
 	trap 'trap "" TERM; kill 0; exit' INT TERM
+	# Speech recognition beside the wake word, in a loop of its own: its
+	# model takes half a minute to load and outlives pipeline restarts.
+	stt=
+	if [ -x /usr/bin/lidar-stt ] && lidar-feature enabled assistant; then
+		stt=1
+		[ -p $PCM ] || { rm -f $PCM; mkfifo -m 600 $PCM; }
+		(
+			while :; do
+				lidar-stt <> $PCM > /dev/null 2>&1
+				echo "lidar-wake: lidar-stt ended, starting again in 10 s" > /dev/kmsg
+				sleep 10
+			done
+		) < /dev/null &
+	fi
 	pause=2
 	while :; do
 		read -r t0 _ < /proc/uptime
-		# $cutoff unquoted: two words or none
-		lidar-voice 2>/dev/null | lidar-wakeword $cutoff 2>/dev/null |
-			while read -r w _ _ t; do
+		# $cutoff unquoted: two words or none. Only the pipeline is waited
+		# for: a bare wait would also wait for the lidar-stt loop.
+		if [ -n "$stt" ]; then
+			lidar-voice 2>/dev/null | lidar-tee $PCM | lidar-wakeword $cutoff 2>/dev/null
+		else
+			lidar-voice 2>/dev/null | lidar-wakeword $cutoff 2>/dev/null
+		fi | while read -r w _ _ t; do
 				[ "$w" = wake ] && on_wake "$t"
 			done &
-		wait
+		wait $!
 		read -r t1 _ < /proc/uptime
 		ran=$(( ${t1%.*} - ${t0%.*} ))
 		# a pipeline that ran a while starts again after 2 s; one that keeps
@@ -164,7 +195,7 @@ daemon() {
 			echo "lidar-wake: lidar-voice or lidar-wakeword fails at start, retrying with growing pauses" > /dev/kmsg
 		fi
 		sleep $pause &
-		wait
+		wait $!
 		[ $ran -ge 10 ] || { pause=$((pause * 2)); [ $pause -le 60 ] || pause=60; }
 	done
 }

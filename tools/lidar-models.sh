@@ -226,6 +226,29 @@ fetch() {
 	PCT=$((GOT * 95 / TOTAL))
 }
 
+# The voice's phrase cache from the release this image is (mk-voicecache.sh
+# made it then): lidar-tts would otherwise spend 15-20 minutes on it.
+# Optional: whatever fails, lidar-tts prepares the phrases itself.
+RELEASES=https://github.com/LeagueRaINi/lidar-mainline/releases/download
+voicecache() { # directory of the language being installed
+	ver=$(cat /etc/lidar-release 2>/dev/null)
+	pack=lidar-voicecache-$VOICE.tar
+	case $ver in v[0-9]*.[0-9]*.[0-9]*) ;; *) return 0 ;; esac
+	progress download "$pack"
+	if wget -q -T 30 -O "$1/SHA256SUMS" "$RELEASES/$ver/SHA256SUMS" 9>&- &&
+		sum=$(awk -v f="$pack" '$2 == f { print $1; exit }' "$1/SHA256SUMS") && [ -n "$sum" ] &&
+		wget -q -T 30 -O "$1/$pack" "$RELEASES/$ver/$pack" 9>&- && [ "$(sum_of "$1/$pack")" = "$sum" ] &&
+		! tar -tf "$1/$pack" | grep -qv '^[0-9a-f]\{16\}$' &&
+		mkdir "$1/cache" && tar -xf "$1/$pack" -C "$1/cache"; then
+		log "install: phrase cache of $VOICE from $ver"
+	else
+		rm -rf "$1/cache"
+		log "install: no phrase cache of $VOICE from $ver: lidar-tts prepares it"
+	fi
+	rm -f "$1/$pack" "$1/SHA256SUMS"
+	return 0
+}
+
 meta() { # key value -> one metadata_props entry of an ONNX ModelProto
 	# field 14, a message of two strings (fields 1 and 2); all lengths < 128
 	printf "\\162\\$(printf %03o $((${#1} + ${#2} + 4)))\\012\\$(printf %03o ${#1})%s\\022\\$(printf %03o ${#2})%s" "$1" "$2"
@@ -351,6 +374,14 @@ install() {
 		need=$((stt + a + MARGIN))
 	fi
 	rm -rf "$NEW" "$DIR/.current"
+	# The image's filesystem is smaller than its partition: take all of it
+	# first, so the models never crowd out what an update of the image on
+	# the same filesystem needs (a full one did: 15 MB left beside 129 MB of
+	# models, too little for the next initramfs).
+	if fs_size "$DIR" 2>/dev/null && [ $((PART - FS)) -ge "$MARGIN" ]; then
+		# no progress lines from it: a failure here is not the install's
+		(INSTALLING=; grow_fs) || log "install: growing the filesystem failed; going on with $(($(free_bytes "$DIR") >> 20)) MB free"
+	fi
 	free=$(free_bytes "$DIR")
 	if [ "$free" -lt "$need" ]; then
 		hint=
@@ -392,6 +423,7 @@ EOF
 	printf '%s\n' "lang=$LNG" "voice=$VOICE" "espeak_voice=$ESPEAK" "sample_rate=$RATE" \
 		"noise_scale=$NOISE" "noise_w=$NOISE_W" "length_scale=$LENGTH" > "$NEW/info" || fail "$DIR: write failed"
 	check "$STT" "$NEW/stt" && check "$TTS" "$NEW/tts" || die "the installed files do not match their pins"
+	voicecache "$NEW"
 	sync
 
 	# Switch. A damaged copy under the same name moves out of the way first;

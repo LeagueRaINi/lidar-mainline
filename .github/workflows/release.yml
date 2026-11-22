@@ -9,7 +9,7 @@
 # by hand. "Run workflow" builds any branch the same way without a release;
 # its images are kept as a workflow artifact for two weeks.
 #
-# The build is the one from the README, in the container from Containerfile:
+# The build is the one from docs/building.md, in the container from Containerfile:
 # build.sh fetch, uboot, linux, testimg. LIDAR_NO_SILABS=1 leaves Silicon
 # Labs' software (MSLA) out of the image, and tools/mk-release.sh refuses to
 # go on if it, a Fire OS file or anything private is in there after all.
@@ -68,13 +68,13 @@ jobs:
           cat >> "$notes" <<'EOF'
 
           ---
-          Install: see the README of this tag. `lidar-uboot.img` goes to `boot_a`, `lidar-test-system.ext4` to `system_b`; check both against `SHA256SUMS` first. `lidar-release.txt` lists what the system image is made of.
+          Install: see `docs/install.md` of this tag. `lidar-uboot.img` goes to `boot_a`, `lidar-test-system.ext4` to `system_b`; check both against `SHA256SUMS` first. `lidar-release.txt` lists what the system image is made of.
 
           Not in these images:
           - Zigbee and Thread: the radio firmware, `zigbeed` and `cpcd` are Silicon Labs' software under their MSLA and are only in images you build yourself (`efr32/README.md`).
           - The MT7668 Wi-Fi firmware and the speaker tuning: taken from your own unit's Fire OS on first boot, never distributed.
 
-          Source: this tag, on top of the Linux and U-Boot releases named in `build.sh`; Alpine Linux packages as listed in `lidar-release.txt`, with their sources in Alpine's aports tree.
+          Source: this tag, on top of the Linux and U-Boot releases named in `build.sh`; Alpine Linux packages as listed in `lidar-release.txt`, with their sources in Alpine's aports tree. Linked into the voice tools at the commits pinned in `tools/lidar-stt/build.sh` and `tools/lidar-tts/build.sh`: sherpa-onnx v2.0.2 (Apache-2.0) and espeak-ng 724808c5 (GPL-3.0-or-later); their licence texts are in the image under `/usr/share/licenses`.
           EOF
           echo "LIDAR_VERSION=$version" >> "$GITHUB_ENV"
           echo "version $version"
@@ -83,7 +83,7 @@ jobs:
       - name: Fetch Linux and U-Boot
         run: |
           mkdir "$RUNNER_TEMP/src"
-          # The container as in the README, with a directory in place of the
+          # The container as in docs/building.md, with a directory in place of the
           # lidar-src volume
           cat > "$RUNNER_TEMP/lidar-build" <<'EOF'
           #!/bin/sh
@@ -101,6 +101,14 @@ jobs:
       - name: System image
         run: |
           "$RUNNER_TEMP/lidar-build" /work/build.sh testimg
+      - name: Voice caches
+        run: |
+          # one script for the container: its variables expand in there
+          # shellcheck disable=SC2016
+          "$RUNNER_TEMP/lidar-build" -c 'sh /work/tools/lidar-models.sh -d /tmp/m status |
+            sed -n "s/^available=//p" | while read -r l v _; do
+              bash /work/tools/mk-voicecache.sh "$l" "$v" "/work/out/lidar-voicecache-$v.tar" || exit 1
+            done'
       - name: Check and collect the release files
         env:
           LIDAR_COMMIT: ${{ github.sha }}
@@ -150,4 +158,4 @@ jobs:
           case $TAG in *-*) pre=--prerelease ;; esac
           gh release create "$TAG" --draft --verify-tag ${pre:+"$pre"} --title "lidar-mainline $TAG" \
             --notes-file notes.md \
-            lidar-uboot.img lidar-test-system.ext4 lidar-release.txt SHA256SUMS
+            lidar-uboot.img lidar-test-system.ext4 lidar-release.txt lidar-voicecache-*.tar SHA256SUMS

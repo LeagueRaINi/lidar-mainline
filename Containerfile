@@ -5,6 +5,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
       python3 python3-dev python3-setuptools python3-pyelftools python3-libfdt swig \
       device-tree-compiler git ca-certificates cpio kmod rsync xz-utils file \
       curl e2fsprogs libc6-dev-arm64-cross clang lld cmake ninja-build \
+      libasound2-dev libcjson-dev wget bzip2 \
     && rm -rf /var/lib/apt/lists/*
 ENV ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
 WORKDIR /src

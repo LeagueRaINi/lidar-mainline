@@ -9,11 +9,20 @@
 #   pair on|ok|off                     Bluetooth pairing mode: a blue arc
 #                                      circles until "ok" (two blue
 #                                      flashes) or "off"
-#   wake <led 1-12>|off                the wake word was heard: the LED towards
+#   wake <led 1-12>|think|speak|off   the voice assistant: the LED towards
 #                                      the speaker and, dimmer, its two
-#                                      neighbours in cyan, for WAKE_HOLD
-#                                      seconds or until "off"; not while the
-#                                      mics are muted
+#                                      neighbours in cyan while it listens
+#                                      (WAKE_HOLD s at most), pulsing while
+#                                      the answer is worked out (THINK_STEPS),
+#                                      steady while it speaks (SPEAK_HOLD s
+#                                      after the last "speak"), until "off";
+#                                      think and speak only follow a wake;
+#                                      not while the mics are muted
+#   busy <reason> on|off               background work keeps the CPU busy
+#                                      (e.g. "busy prepare on" while the
+#                                      voice renders its phrases): an orange
+#                                      arc circles while any reason is on,
+#                                      below every other display
 # A change of the privacy state ends any overlay at once; while the mics
 # are muted the pairing arc waits under the red ring.
 # Brightness follows the ambient light sensor, as on stock: full from a lit
@@ -33,10 +42,16 @@ LEVEL=/run/lidar-ring.level
 L=/sys/class/leds
 N=12
 HOLD=2
-WAKE_HOLD=3
+WAKE_HOLD=12	# listening: speech recognition ends or gives up before this
+THINK_STEPS=250	# thinking: pulse steps of PULSE s (Claude has 20 s at most)
+SPEAK_HOLD=60
+PULSE=0.1
 WHITE=96
 RED=160
 BLUE=160
+ORANGE_R=160	# busy: the arc's red and green
+ORANGE_G=56
+BUSY_SPIN=0.15	# busy: seconds per step, calmer than pairing
 WAKE_G=70	# listening: cyan, green and blue of the middle LED
 WAKE_B=160
 SPIN=0.1	# pairing arc: seconds per step
@@ -112,14 +127,15 @@ scaled() { # value -> value * P / 100, at least 1 unless 0
 }
 
 # The resting state: red while the mics are muted, else dark and the ring
-# free for lidar-viz (unless an overlay or pairing goes on). Claimed first in
-# any case: lidar-viz then sees the hand-back and redraws all LEDs.
+# free for lidar-viz (unless an overlay, pairing or busy arc goes on).
+# Claimed first in any case: lidar-viz then sees the hand-back and redraws
+# all LEDs.
 base() {
 	claim
 	level
 	p_drawn=$P
 	if [ "$mic_muted" = 1 ]; then fill $(scaled $RED) 0 0; else fill 0 0 0; fi
-	[ "$mic_muted" = 1 ] || [ -n "$pairing$overlay" ] || release
+	[ "$mic_muted" = 1 ] || [ -n "$pairing$overlay$work" ] || release
 }
 
 # The arc covers the level in brightness units: full LEDs, then one partly
@@ -145,32 +161,47 @@ volume() { # level muted max
 	done
 }
 
-# Pairing arc: a full LED with a fading tail of two, one step per call.
-# Brightness is read once per turn, not at every step.
-spin() {
+# Circling arc: a full LED with a fading tail of two, one step per call;
+# blue for pairing, orange while busy. Brightness is read once per turn
+# (and when the colour changes), not at every step.
+spin() { # blue|orange
 	claim
-	if [ $pos = 0 ]; then
+	if [ $pos = 0 ] || [ "$1" != "$spun" ]; then
+		spun=$1
 		level
-		bb=$(scaled $BLUE)
+		if [ "$1" = orange ]; then
+			sr=$(scaled $ORANGE_R) sg=$(scaled $ORANGE_G) sb=0
+		else
+			sr=0 sg=0 sb=$(scaled $BLUE)
+		fi
 	fi
 	set_led $(( (pos + 9) % N + 1 )) 0 0 0
-	set_led $(( (pos + 10) % N + 1 )) 0 0 $(( bb / 8 ))
-	set_led $(( (pos + 11) % N + 1 )) 0 0 $(( bb / 3 ))
-	set_led $(( pos + 1 )) 0 0 $bb
+	set_led $(( (pos + 10) % N + 1 )) $(( sr / 8 )) $(( sg / 8 )) $(( sb / 8 ))
+	set_led $(( (pos + 11) % N + 1 )) $(( sr / 3 )) $(( sg / 3 )) $(( sb / 3 ))
+	set_led $(( pos + 1 )) $sr $sg $sb
 	pos=$(( (pos + 1) % N ))
 }
 
-# Listening: the LED towards the speaker, its neighbours at a fifth
-wake() { # led
+# The voice assistant: the LED towards the speaker, its neighbours at a
+# fifth. wake_at picks the LED and reads the brightness once (level forks);
+# wake_draw draws at a percentage of that, for the pulse while thinking.
+wake_at() { # led
 	claim
 	level
+	wake_led=$1
 	wg=$(scaled $WAKE_G)
 	wb=$(scaled $WAKE_B)
+	wake_draw 100
+}
+
+wake_draw() { # percent
+	g=$((wg * $1 / 100))
+	b=$((wb * $1 / 100))
 	i=1
 	while [ $i -le $N ]; do
-		case $(( (i - $1 + N) % N )) in
-		0) set_led $i 0 $wg $wb ;;
-		1 | $((N - 1))) set_led $i 0 $((wg / 5)) $((wb / 5)) ;;
+		case $(( (i - wake_led + N) % N )) in
+		0) set_led $i 0 $g $b ;;
+		1 | $((N - 1))) set_led $i 0 $((g / 5)) $((b / 5)) ;;
 		*) set_led $i 0 0 0 ;;
 		esac
 		i=$((i + 1))
@@ -215,6 +246,7 @@ daemon() {
 	overlay=
 	pairing=
 	pos=0
+	work=		# reasons for the busy arc, space-separated
 	p_drawn=100
 	als_setup
 	mic_watch &
@@ -222,16 +254,23 @@ daemon() {
 	base
 	while :; do
 		t=$HOLD
-		[ "$overlay" = wake ] && t=$WAKE_HOLD
+		case $overlay in
+		wake) t=$WAKE_HOLD ;;
+		think) t=$PULSE ;;
+		speak) t=$SPEAK_HOLD ;;
+		esac
 		[ -n "$pairing" ] && [ -z "$overlay" ] && [ "$mic_muted" != 1 ] && t=$SPIN
+		[ -z "$pairing" ] && [ -n "$work" ] && [ -z "$overlay" ] && [ "$mic_muted" != 1 ] && t=$BUSY_SPIN
 		if read -t $t cmd a b c <&3; then
 			case $cmd in
 			mic) mic_muted=$a; overlay=; pos=0; base ;;	# privacy state wins at once
 			volume) volume "$a" "$b" "$c"; overlay=1 ;;
 			wake)
 				case $a in
-				[1-9] | 1[0-2]) [ "$mic_muted" = 1 ] || { wake "$a"; overlay=wake; } ;;
-				off) [ "$overlay" != wake ] || { overlay=; pos=0; base; } ;;
+				[1-9] | 1[0-2]) [ "$mic_muted" = 1 ] || { wake_at "$a"; overlay=wake; } ;;
+				think) case $overlay in wake | speak) overlay=think; step=0; steps=0 ;; esac ;;
+				speak) case $overlay in wake | think | speak) overlay=speak; wake_draw 100 ;; esac ;;
+				off) case $overlay in wake | think | speak) overlay=; pos=0; base ;; esac ;;
 				esac
 				;;
 			pair)
@@ -241,13 +280,31 @@ daemon() {
 				*) pairing=; overlay=; base ;;
 				esac
 				;;
+			busy)
+				case $a in *[!a-z0-9_-]* | '') a= ;; esac
+				if [ -n "$a" ]; then
+					work=$(echo "$work" | tr ' ' '\n' | grep -vx -e "$a" -e '' | tr '\n' ' ')
+					[ "$b" = on ] && work="$work$a "
+					work=${work# }
+					[ -n "$work" ] || [ -n "$pairing$overlay" ] || { pos=0; base; }
+				fi
+				;;
 			esac
+		elif [ "$overlay" = think ] && [ $steps -lt $THINK_STEPS ]; then
+			# breathe between 100 and 30 % in 1.2 s
+			step=$(( (step + 1) % 12 ))
+			steps=$((steps + 1))
+			d=$((step - 6))
+			[ $d -lt 0 ] && d=$((-d))
+			wake_draw $((30 + d * 70 / 6))
 		elif [ -n "$overlay" ]; then
 			overlay=
 			pos=0
 			base
 		elif [ -n "$pairing" ] && [ "$mic_muted" != 1 ]; then
-			spin
+			spin blue
+		elif [ -n "$work" ] && [ "$mic_muted" != 1 ]; then
+			spin orange
 		elif [ "$mic_muted" = 1 ]; then
 			# follow the room light in steps that do not flicker; the end
 			# values are clamped, so reaching them cannot flicker either

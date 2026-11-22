@@ -15,6 +15,10 @@
 //   -y <cmd>    program that speaks an answer: <cmd> <language> <text>, the
 //               parts of the text in LIDAR_SAY_PARTS, separated by "|"
 //               (default: print "say <language> <text>")
+//   -c <cmd>    program that answers what the grammar does not understand
+//               (lidar-claude): <cmd> -r <run dir> -- <language> <text>, in
+//               the background, with -y's command in LIDAR_SAY_COMMAND; the
+//               next utterance ends it if it is still answering
 //   -w <file>   WAV file an alarm or timer rings with (default:
 //               <data dir>/alarm.wav if there is one, else a chime)
 //   -o <pcm>    ALSA device it rings on (default lidar_speaker)
@@ -33,7 +37,12 @@
 //   -T <sec>    write the chime to stdout (48 kHz S16 stereo), and exit
 //
 // Input (the FIFO): one utterance per line. "!stop" stops the ringing and
-// nothing else; that is what a button sends.
+// nothing else; that is what a button sends. "!tool <reply FIFO> <action>
+// [<name>=<value>]..." is an action a language model asks for (values
+// percent-encoded, %XX): checked like every action, carried out without
+// speaking, its result JSON written as one line to the reply FIFO, which
+// has to be <run dir>/lidar-claude.<number>[.<number>] (lidar-claude makes
+// one per call: <pid>.<call>).
 //
 // Output, one line each: "action <name> <arguments>", then "unmatched
 // <text>" or "result <JSON>" and, unless -y, "say <language> <text>".
@@ -73,6 +82,8 @@ static std::string lang_dir = "/usr/share/lidar/assistant";
 static std::string data_dir = "/var/lib/lidar-assistant", run_dir = "/run";
 static bool data_dir_given;
 static std::string say_command, sound_file, speaker = "lidar_speaker", button = "auto";
+static std::string claude_command;
+static std::vector<pid_t> claude_pids;	// the last one may still be answering
 static int ring_volume = 30;
 
 struct Timer {
@@ -1127,8 +1138,20 @@ static void speak(const Reply &r)
 {
 	std::string text = r.text(), parts;
 
-	if (text.empty())
+	if (text.empty()) {
+		// a silent action ("stop"): nothing will be spoken, so nothing
+		// else ends the ring's "thinking" that lidar-stt started
+		if (!say_command.empty()) {
+			int fd = open((run_dir + "/lidar-ring.fifo").c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+
+			if (fd >= 0) {
+				ssize_t n = write(fd, "wake off\n", 9);
+				(void)n;
+				close(fd);
+			}
+		}
 		return;
+	}
 	if (say_command.empty()) {
 		printf("say %s %s\n", LANG_NAMES[lang], text.c_str());
 		return;
@@ -1193,23 +1216,102 @@ static void tick()
 		else if (!test_mode && waitpid(ring_pid, nullptr, WNOHANG) != 0)
 			start_player();	// it ended (no sound device just now?)
 	}
+	// a lidar-claude that has ended
+	for (auto p = claude_pids.begin(); p != claude_pids.end();)
+		p = waitpid(*p, nullptr, WNOHANG) != 0 ? claude_pids.erase(p) : p + 1;
 	if (dirty)
 		write_state();
 }
 
-// Carries the action out, reports the result and speaks the answer
-static Result perform(const Action &a)
+// Carries the action out, reports the result and, if spoken, speaks the
+// answer; *result: the result as JSON
+static Result perform(const Action &a, bool spoken = true, std::string *result = nullptr)
 {
 	Result res = execute(a);
-	std::string args;
+	std::string args, line;
 
 	for (const auto &given : a.args)
 		args += (args.empty() ? "" : ",") + json(given.first) + ":" + json(given.second);
-	printf("result {\"action\":%s,\"arguments\":{%s},\"ok\":%s,\"code\":%s,\"say\":%s}\n",
-	       json(a.name).c_str(), args.c_str(), res.ok ? "true" : "false",
-	       json(res.code).c_str(), json(res.say.text()).c_str());
-	speak(res.say);
+	line = "{\"action\":" + json(a.name) + ",\"arguments\":{" + args + "},\"ok\":" +
+	       (res.ok ? "true" : "false") + ",\"code\":" + json(res.code) + ",\"say\":" +
+	       json(res.say.text()) + "}";
+	printf("result %s\n", line.c_str());
+	if (spoken)
+		speak(res.say);
+	if (result)
+		*result = line;
 	return res;
+}
+
+static std::string percent_decode(const std::string &s)
+{
+	std::string out;
+
+	for (size_t i = 0; i < s.size(); i++)
+		if (s[i] == '%' && i + 2 < s.size() && isxdigit((unsigned char)s[i + 1]) &&
+		    isxdigit((unsigned char)s[i + 2])) {
+			out += (char)strtol(s.substr(i + 1, 2).c_str(), nullptr, 16);
+			i += 2;
+		} else {
+			out += s[i];
+		}
+	return out;
+}
+
+// "!tool <reply FIFO> <action> [<name>=<value>]...": an action a language
+// model asks for (lidar-claude), its result to the reply FIFO. Only a FIFO
+// <run dir>/lidar-claude.<number>[.<number>] is written to, and only if
+// someone reads it.
+static void tool_request(const std::string &args)
+{
+	std::vector<std::string> words;
+	std::string prefix = run_dir + "/lidar-claude.", result;
+	Action a;
+	struct stat st;
+
+	for (size_t from = 0, to; from < args.size(); from = to + 1) {
+		to = std::min(args.find(' ', from), args.size());
+		if (to > from)
+			words.push_back(args.substr(from, to - from));
+	}
+	std::string tag = words.empty() || words[0].compare(0, prefix.size(), prefix) ? "" :
+			  words[0].substr(prefix.size());
+	size_t dot = tag.find('.');
+	if (words.size() < 2 || tag.empty() || tag.find_first_not_of("0123456789.") != std::string::npos ||
+	    dot == 0 || (dot != std::string::npos && (dot + 1 == tag.size() || tag.find('.', dot + 1) !=
+						     std::string::npos)))
+		return;
+	a.name = words[1];
+	for (size_t i = 2; i < words.size(); i++) {
+		size_t eq = words[i].find('=');
+
+		a.args[words[i].substr(0, eq)] = eq == std::string::npos ? "" : utf8(percent_decode(words[i].substr(eq + 1)));
+	}
+	perform(a, false, &result);
+	result += '\n';
+	int fd = open(words[0].c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd >= 0 && !fstat(fd, &st) && S_ISFIFO(st.st_mode) &&
+	    write(fd, result.data(), result.size()) != (ssize_t)result.size())
+		fprintf(stderr, "lidar-assistant: %s: %s\n", words[0].c_str(), strerror(errno));
+	if (fd >= 0)
+		close(fd);
+}
+
+// What the grammar does not understand, to the language model's program
+// (-c), in the background
+static void claude_ask(const std::string &utterance)
+{
+	fflush(stdout);
+	pid_t pid = fork();
+	if (!pid) {
+		if (!say_command.empty())
+			setenv("LIDAR_SAY_COMMAND", say_command.c_str(), 1);
+		execlp(claude_command.c_str(), claude_command.c_str(), "-r", run_dir.c_str(), "--",
+		       LANG_NAMES[lang], utterance.c_str(), (char *)nullptr);
+		_exit(127);
+	}
+	if (pid > 0)
+		claude_pids.push_back(pid);
 }
 
 static void handle(const std::string &line)
@@ -1253,16 +1355,23 @@ static void handle(const std::string &line)
 		}
 		free(text);
 		perform(a);
+	} else if (!line.compare(0, 6, "!tool ")) {
+		tool_request(line.substr(6));
 	} else if (line[0] != '!') {
 		Action a = parse(lang, line);
 
 		printf("action %s\n", a.str().c_str());
 		if (parse_only)
 			return;
+		// a new utterance: the answer to the one before is over
+		for (pid_t pid : claude_pids)
+			kill(pid, SIGTERM);
 		Result res;
 		if (a.name == "unmatched") {
 			printf("unmatched %s\n", line.c_str());
 			res.ok = false;
+			if (!test_mode && !claude_command.empty())
+				claude_ask(utf8(line));
 		} else {
 			res = perform(a);
 		}
@@ -1332,6 +1441,8 @@ static int timeout()
 		within(5);
 	else if (!alarms.empty())	// alarms are due on the minute
 		within(60 - (long)(wall_now() % 60));
+	if (!claude_pids.empty())	// reaped when it ends
+		within(1);
 	return wait < 0 ? -1 : (int)(wait * 1000 + 20);
 }
 
@@ -1342,7 +1453,7 @@ int main(int argc, char **argv)
 	std::string error;
 	int c;
 
-	while ((c = getopt(argc, argv, "l:L:d:r:y:w:o:m:b:tnPST:")) != -1) {
+	while ((c = getopt(argc, argv, "l:L:d:r:y:c:w:o:m:b:tnPST:")) != -1) {
 		switch (c) {
 		case 'l':
 			if (strcmp(optarg, "en") && strcmp(optarg, "de")) {
@@ -1358,6 +1469,7 @@ int main(int argc, char **argv)
 			break;
 		case 'r': run_dir = optarg; break;
 		case 'y': say_command = optarg; break;
+		case 'c': claude_command = optarg; break;
 		case 'w': sound_file = optarg; break;
 		case 'o': speaker = optarg; break;
 		case 'm': ring_volume = std::max(0, std::min(100, atoi(optarg))); break;
@@ -1369,7 +1481,7 @@ int main(int argc, char **argv)
 		case 'T': chime_seconds = atof(optarg); break;
 		default:
 			fprintf(stderr, "usage: lidar-assistant [-l en|de] [-L <language dir>] [-d <data dir>] "
-					"[-r <run dir>] [-y <say command>] [-w <wav>] [-o <pcm>] "
+					"[-r <run dir>] [-y <say command>] [-c <command>] [-w <wav>] [-o <pcm>] "
 					"[-m <percent>] [-b <input device>|none] [-t [-n]] [-P] [-S] "
 					"[-T <seconds>]\n");
 			return 2;
@@ -1464,6 +1576,8 @@ int main(int argc, char **argv)
 		tick();
 	}
 	stop_ringing();
+	for (pid_t pid : claude_pids)
+		kill(pid, SIGTERM);
 	unlink((run_dir + "/lidar-assistant.json").c_str());
 	return 0;
 }

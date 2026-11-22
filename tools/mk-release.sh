@@ -9,8 +9,9 @@
 #
 # Output in /work/out/release:
 #   lidar-uboot.img, lidar-test-system.ext4   the images, under the names the
-#                                             README and the installer use
+#                                             docs/install.md and the installer use
 #   lidar-release.txt                         version, kernel, Alpine packages
+#   lidar-voicecache-<voice>.tar              the phrase cache of each voice
 #   SHA256SUMS
 #
 # It looks into the system image itself, not at the build's loose copies, and
@@ -36,6 +37,12 @@ SYSTEM=$OUT/lidar-test-system.ext4
 	{ echo "mk-release: '$VER' is not a version like v1.2.0 or v1.3.0-rc.1" >&2; exit 1; }
 for f in "$UBOOT" "$SYSTEM"; do
 	[ -s "$f" ] || { echo "mk-release: $f missing (build.sh uboot, linux, testimg)" >&2; exit 1; }
+done
+# the phrase caches of the voices lidar-models offers (mk-voicecache.sh)
+VOICES=$(sh /work/tools/lidar-models.sh -d /tmp/m status | sed -n 's/^available=[^ ]* \([^ ]*\).*/\1/p')
+for v in $VOICES; do
+	[ -s "$OUT/lidar-voicecache-$v.tar" ] ||
+		{ echo "mk-release: $OUT/lidar-voicecache-$v.tar missing (mk-voicecache.sh)" >&2; exit 1; }
 done
 
 # a failed check must not leave an older release behind
@@ -88,6 +95,7 @@ fi
 
 mkdir -p "$REL"
 cp "$UBOOT" "$SYSTEM" "$REL/"
+for v in $VOICES; do cp "$OUT/lidar-voicecache-$v.tar" "$REL/"; done
 {
 	echo "lidar-mainline $VER"
 	[ -z "${LIDAR_COMMIT:-}" ] || echo "commit $LIDAR_COMMIT"
@@ -104,5 +112,5 @@ cp "$UBOOT" "$SYSTEM" "$REL/"
 			"$W/root/lib/apk/db/installed"
 	} | awk '!seen[$1]++' | sort
 } > "$REL/lidar-release.txt"
-(cd "$REL" && sha256sum lidar-uboot.img lidar-test-system.ext4 lidar-release.txt > SHA256SUMS)
+(cd "$REL" && sha256sum lidar-uboot.img lidar-test-system.ext4 lidar-release.txt lidar-voicecache-*.tar > SHA256SUMS)
 ls -la "$REL"
