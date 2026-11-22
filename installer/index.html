@@ -1,0 +1,277 @@
+<!-- SPDX-License-Identifier: GPL-2.0-only -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>lidar installer</title>
+<script>
+/* Theme before the first paint: the stored choice, else the system's. */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem('theme'); } catch (e) {}
+  if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+})();
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></symbol>
+</svg>
+
+<aside id="side">
+  <div class="brand">
+    <svg class="logo" id="logo" viewBox="0 0 30 30" role="img" aria-labelledby="logo-title"><title id="logo-title">Progress</title><circle cx="15" cy="15" r="11.5"/><circle class="arc" id="logo-arc" cx="15" cy="15" r="11.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 15 15)"/></svg>
+    <div>
+      <h1>lidar installer</h1>
+      <p>Echo Plus 2nd gen</p>
+    </div>
+  </div>
+  <nav aria-label="Steps">
+    <button data-step="1"><span class="n">1</span><span>Browser</span></button>
+    <button data-step="2"><span class="n">2</span><span>Before you start</span></button>
+    <button data-step="3"><span class="n">3</span><span>Images</span></button>
+    <button data-step="4"><span class="n">4</span><span>U-Boot</span></button>
+    <button data-step="5"><span class="n">5</span><span>System</span></button>
+    <button data-step="6"><span class="n">6</span><span>Done</span></button>
+  </nav>
+  <div class="side-foot">
+    <button id="theme" class="ghost"><svg class="i" aria-hidden="true"><use href="#i-theme"/></svg><span id="theme-label">Theme</span></button>
+  </div>
+</aside>
+
+<main>
+  <noscript><p class="msg bad">This installer needs JavaScript.</p></noscript>
+  <p class="msg bad" id="boot-msg" hidden></p>
+
+  <!-- 1: browser -->
+  <section id="step-1" hidden>
+    <header>
+      <h2>Browser check</h2>
+      <p class="lead">The installer talks to the Echo's fastboot over USB, straight from this page (WebUSB). Nothing is uploaded anywhere.</p>
+    </header>
+    <div class="card">
+      <ul class="rows">
+        <li><div class="stack"><span class="name">WebUSB</span><span class="meta">Chrome, Edge, Brave or Opera on a desktop computer. Firefox and Safari do not have it.</span></div><span class="pill" id="chk-usb">…</span></li>
+        <li><div class="stack"><span class="name">Secure page</span><span class="meta">WebUSB only works on https pages or on localhost.</span></div><span class="pill" id="chk-ctx">…</span></li>
+      </ul>
+      <p class="msg bad" id="browser-msg" hidden></p>
+    </div>
+    <div class="card">
+      <details id="win-driver">
+        <summary>Windows: the Echo needs the WinUSB driver</summary>
+        <p>On Windows a browser can only open a USB device that is bound to the <b>WinUSB</b> driver. If you have used
+          <code>fastboot</code> with this Echo from this PC, that driver is normally in place already; U-Boot's fastboot uses the
+          same USB IDs as Kaeru's, so one driver serves both phases.</p>
+        <p>If the Echo does not appear in the browser's device list, or connecting fails with "Access denied":</p>
+        <ol class="steps">
+          <li>Put the Echo into fastboot (hold <b>Action</b> while plugging in power) and open the Device Manager. The Echo
+            shows up as <i>Android Bootloader Interface</i>, <i>Android ADB Interface</i>, or as an unknown <i>Android</i> device
+            (USB ID <code>0BB4:0C01</code>).</li>
+          <li>Either install the Google USB Driver (from Android Studio's SDK Manager or
+            <a href="https://developer.android.com/studio/run/win-usb" target="_blank" rel="noopener">developer.android.com</a>),
+            then: right-click the device → Update driver → Browse my computer → Let me pick → Have Disk → the driver's
+            <code>android_winusb.inf</code> → <i>Android Bootloader Interface</i>.<br>
+            Or run <a href="https://zadig.akeo.ie/" target="_blank" rel="noopener">Zadig</a>, pick the device with USB ID
+            <code>0BB4 0C01</code>, choose <b>WinUSB</b> and press Install Driver.</li>
+          <li>Unplug and plug in again. Close anything else that holds the device, such as a running <code>fastboot</code> command.</li>
+        </ol>
+      </details>
+      <details>
+        <summary>Linux: USB permissions</summary>
+        <p>If connecting fails with "Access denied", allow your user to open the device with a udev rule, then replug:</p>
+        <pre class="text">SUBSYSTEM=="usb", ATTR{idVendor}=="0bb4", ATTR{idProduct}=="0c01", TAG+="uaccess"</pre>
+        <p class="note">Save it as <code>/etc/udev/rules.d/51-fastboot.rules</code> and run <code>sudo udevadm control --reload</code>.</p>
+      </details>
+    </div>
+    <div class="bar"><span class="grow"></span><button class="pri" data-go="2" id="next-1" disabled>Next</button></div>
+  </section>
+
+  <!-- 2: prerequisites -->
+  <section id="step-2" hidden>
+    <header>
+      <h2>Before you start</h2>
+      <p class="lead">This installs U-Boot and the lidar test system, as described under "Installing" in the project README.</p>
+    </header>
+    <div class="card">
+      <h3>What you need</h3>
+      <ul class="plain">
+        <li>An Echo Plus 2nd gen that is <b>already unlocked and has Kaeru fastboot</b>: holding <b>Action</b> while plugging in
+          power starts it. This page does not unlock anything; see
+          <a id="link-prereq" target="_blank" rel="noopener">Prerequisites in the README</a>.</li>
+        <li>Your own eMMC dump from the unlock, at least <code>boot_a</code>. It is the way back to the stock boot path.</li>
+        <li>The pogo-pin USB: a USB cable on the Echo's USB test points (D+ on TM4, D− on TM5, GND on TM37), for example with the project's pogo-pin jig.</li>
+        <li>The two images, <code>lidar-uboot.img</code> and <code>lidar-test-system.ext4</code> (next step).</li>
+      </ul>
+      <pre class="text" aria-label="Wiring">  PC ═══ pogo-pin USB ═══ test points TM4 / TM5 / TM37      Echo ═══ its own power adapter
+                                                          (plug in power last, while holding a button)</pre>
+    </div>
+    <div class="card">
+      <h3>What gets written</h3>
+      <ul class="rows">
+        <li><div class="stack"><span class="name"><code>boot_a</code> ← lidar-uboot.img</span><span class="meta">Replaces the boot image LK starts. Restore your own <code>boot_a</code> dump through Kaeru fastboot to undo it.</span></div></li>
+        <li><div class="stack"><span class="name"><code>system_b</code> ← lidar-test-system.ext4</span><span class="meta">Erases <code>system_b</code>. Fire OS on <code>system_a</code> stays as it is.</span></div></li>
+      </ul>
+      <p class="note">Nothing else is written, and the installer refuses any other partition. Kaeru's fastboot lives in partitions this
+        project never touches, so it stays available for recovery: hold <b>Action</b> while plugging in power.</p>
+      <p class="callout">If your Fire OS runs from slot b, do not use this page: it would erase it. Follow the README by hand with
+        <code>system_a</code> instead.</p>
+    </div>
+    <div class="card">
+      <label class="check"><input type="checkbox" id="pre-ok"><span>My Echo Plus 2nd gen is unlocked and has Kaeru fastboot, I have my own
+        <code>boot_a</code> dump, and I accept that <code>system_b</code> is erased. I do this at my own risk.</span></label>
+    </div>
+    <div class="bar"><button data-go="1">Back</button><span class="grow"></span><button class="pri" data-go="3" id="next-2" disabled>Next</button></div>
+  </section>
+
+  <!-- 3: images -->
+  <section id="step-3" hidden>
+    <header>
+      <h2>Images</h2>
+      <p class="lead">Pick the two images you built (<code>out/</code> in the source tree) or downloaded. They stay on this computer.</p>
+    </header>
+    <div class="card">
+      <ul class="rows">
+        <li><div class="stack"><span class="name">U-Boot: <code>lidar-uboot.img</code></span>
+          <input type="file" id="file-uboot" accept=".img" aria-label="lidar-uboot.img">
+          <span class="meta" id="img-uboot-meta">Not chosen</span></div><span class="pill" id="img-uboot-pill">missing</span></li>
+        <li><div class="stack"><span class="name">System: <code>lidar-test-system.ext4</code></span>
+          <input type="file" id="file-system" accept=".ext4,.img" aria-label="lidar-test-system.ext4">
+          <span class="meta" id="img-system-meta">Not chosen</span></div><span class="pill" id="img-system-pill">missing</span></li>
+        <li><div class="stack"><span class="name">Checksums: <code>SHA256SUMS</code> <span class="muted">(optional)</span></span>
+          <input type="file" id="file-sums" aria-label="SHA256SUMS">
+          <span class="meta" id="sums-meta">With it, both images are verified before anything is flashed. Without it, compare the SHA-256 values shown here with the published ones yourself.</span></div></li>
+      </ul>
+    </div>
+    <div class="card" id="mirror-card">
+      <h3>Or download them</h3>
+      <p class="muted" id="mirror-note"></p>
+      <div class="bar"><button id="mirror-btn">Download images</button></div>
+      <div class="prog" id="mirror-prog" hidden><progress max="1" value="0"></progress><span></span></div>
+    </div>
+    <p class="msg bad" id="img-msg" hidden></p>
+    <div class="bar"><button data-go="2">Back</button><span class="grow"></span><button class="pri" data-go="4" id="next-3" disabled>Next</button></div>
+  </section>
+
+  <!-- 4: phase 1, Kaeru fastboot -> boot_a -->
+  <section id="step-4" hidden>
+    <header>
+      <h2>U-Boot</h2>
+      <p class="lead">Phase 1 of 2: flash <code>lidar-uboot.img</code> to <code>boot_a</code> through Kaeru's fastboot.</p>
+    </header>
+    <div class="card">
+      <h3>Start Kaeru fastboot</h3>
+      <ol class="steps">
+        <li>Unplug the Echo's power. Keep the pogo-pin USB connected.</li>
+        <li>Hold the <b>Action</b> button (the one with the dot, circled below) and plug in power. Keep holding for a few seconds.</li>
+        <li>Press Connect and choose the device in the browser's list.</li>
+      </ol>
+      <figure class="echo-top">
+        <img src="echo-top.webp" width="720" height="720" alt="Top of the Echo: the Action button, the one with the dot, is circled">
+        <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="49.96" cy="70.45" r="8.5"/></svg>
+        <figcaption>Hold <b>Action</b> (●), then plug in power.</figcaption>
+      </figure>
+      <div class="bar"><button class="pri" id="p1-connect">Connect</button><span class="pill" id="p1-pill">not connected</span></div>
+    </div>
+    <div class="card">
+      <h3>Flash</h3>
+      <p class="muted" id="p1-image"></p>
+      <div class="bar"><button class="pri" id="p1-flash" disabled>Flash U-Boot to boot_a</button></div>
+      <div class="prog" id="p1-prog" hidden><progress max="1" value="0"></progress><span></span></div>
+    </div>
+    <p class="msg" id="p1-msg" hidden></p>
+    <div class="bar"><button data-go="3">Back</button><button class="link" id="p1-skip">U-Boot is already installed: skip this phase</button>
+      <span class="grow"></span><button class="pri" data-go="5" id="next-4" disabled>Next</button></div>
+  </section>
+
+  <!-- 5: phase 2, U-Boot fastboot -> system_b -->
+  <section id="step-5" hidden>
+    <header>
+      <h2>System</h2>
+      <p class="lead">Phase 2 of 2: flash <code>lidar-test-system.ext4</code> to <code id="p2-part">system_b</code> through U-Boot's fastboot and make it the boot slot.</p>
+    </header>
+    <div class="card">
+      <h3>Start U-Boot fastboot</h3>
+      <p>With an empty or unbootable system slot, U-Boot enters its fastboot by itself after the reboot. Otherwise:</p>
+      <ol class="steps">
+        <li>Unplug the Echo's power. Keep the pogo-pin USB connected.</li>
+        <li>Hold <b>Volume Up</b> (+, circled below) and plug in power. Keep holding for a few seconds.</li>
+        <li>Press Connect and choose the device in the browser's list.</li>
+      </ol>
+      <figure class="echo-top">
+        <img src="echo-top.webp" width="720" height="720" alt="Top of the Echo: the Volume Up button, marked +, is circled">
+        <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="70.68" cy="49.57" r="8.5"/></svg>
+        <figcaption>Hold <b>Volume Up</b> (+), then plug in power.</figcaption>
+      </figure>
+      <div class="bar"><button class="pri" id="p2-connect">Connect</button><span class="pill" id="p2-pill">not connected</span></div>
+    </div>
+    <div class="card">
+      <h3>Flash</h3>
+      <p class="muted" id="p2-image"></p>
+      <p class="bar" id="p2-slot-row" hidden><label for="p2-slot">Slot</label><select id="p2-slot"></select></p>
+      <div class="bar"><button class="pri" id="p2-flash" disabled>Flash the system</button></div>
+      <div class="prog" id="p2-prog" hidden><progress max="1" value="0"></progress><span></span></div>
+    </div>
+    <p class="msg" id="p2-msg" hidden></p>
+    <div class="bar"><button data-go="4">Back</button><span class="grow"></span><button class="pri" data-go="6" id="next-5" disabled>Next</button></div>
+  </section>
+
+  <!-- 6: done -->
+  <section id="step-6" hidden>
+    <header>
+      <h2>Done</h2>
+      <p class="lead">The Echo is booting lidar.</p>
+    </header>
+    <div class="card">
+      <h3>Open the web interface</h3>
+      <ol class="steps">
+        <li>Leave the pogo-pin USB connected. The Echo now appears as a USB network adapter (and a serial port).</li>
+        <li>The Echo is <code>169.254.7.2/16</code>. Give the computer's new USB network interface any other link-local
+          address, for example <code>169.254.7.1</code> with netmask <code>255.255.0.0</code>. Many systems pick one
+          by themselves after a short wait.</li>
+        <li>Open <a href="http://169.254.7.2/" target="_blank" rel="noopener">http://169.254.7.2/</a>. The setup wizard runs
+          there.</li>
+      </ol>
+      <pre class="text" aria-label="USB network">  PC  169.254.x.y ═══ USB network ═══ 169.254.7.2  Echo      →  http://169.254.7.2/</pre>
+    </div>
+    <div class="card">
+      <h3>If something is wrong</h3>
+      <ul class="plain">
+        <li><b>U-Boot fastboot:</b> hold <b>Volume Up</b> while plugging in power, then repeat the System step here.</li>
+        <li><b>Kaeru fastboot:</b> hold <b>Action</b> while plugging in power. <code>fastboot flash boot_a &lt;your boot_a dump&gt;</code>
+          restores the stock boot path.</li>
+        <li>More in the <a id="link-install" target="_blank" rel="noopener">README</a>.</li>
+      </ul>
+    </div>
+    <div class="bar"><button data-go="5">Back</button></div>
+  </section>
+
+  <footer>
+    <p>An independent community project, not affiliated with or endorsed by Amazon or any other company. Product names belong to
+      their owners. No warranty; you flash your own device at your own risk.
+      <a id="link-repo" target="_blank" rel="noopener">Source code</a> (GPL-2.0-only); USB access by
+      <a href="https://github.com/kdrag0n/fastboot.js" target="_blank" rel="noopener">fastboot.js</a> (MIT).</p>
+  </footer>
+</main>
+
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <h3 id="confirm-title"></h3>
+  <dl class="kv" id="confirm-kv"></dl>
+  <p class="callout" id="confirm-warn"></p>
+  <div class="bar"><button id="confirm-no" autofocus>Cancel</button><button class="armed" id="confirm-yes">Flash</button></div>
+</dialog>
+
+<script>
+/* Modules do not load from file://, so say so instead of showing an empty page. */
+if (location.protocol === 'file:') {
+  var m = document.getElementById('boot-msg');
+  m.textContent = 'Open this page over https or from a local web server (for example "python -m http.server" in this folder, then http://localhost:8000/). It cannot run from a file.';
+  m.hidden = false;
+}
+</script>
+<script type="module" src="installer.js"></script>
+</body>
+</html>

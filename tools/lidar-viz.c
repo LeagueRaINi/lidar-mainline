@@ -3,8 +3,8 @@
  * lidar-viz: the LED ring as a sound display (visualizer service).
  *
  * Listens to what the speaker plays: the AFE's loopback of the DAC input
- * (hw:amazonlidar,2), so every source counts (Bluetooth, the web player, the
- * USB host, system sounds). 40 frames per second.
+ * (hw:amazonlidar,2), so every source counts (Bluetooth, the web player,
+ * system sounds). 40 frames per second.
  *
  * The loopback is taken after the speaker tuning and before the codec. With
  * the tuning (lidar-dsp ready) the system volume is already in it up to the
@@ -23,9 +23,8 @@
  * (/run/lidar-ring.busy: privacy red, volume arc, pairing) and takes that
  * service's brightness (/run/lidar-ring.level, percent, from the light
  * sensor). The ring stays dark while the speaker is muted or at volume 0
- * and while nothing plays. While lidar-usbaudio's mic pipe runs (the USB
- * host records, /run/lidar-usbaudio.mic), lidar-aec may need the loopback:
- * lidar-viz lets go of it and waits, also with "usbaudio aec off".
+ * and while nothing plays. It reads the loopback through the shared lidar_ref
+ * device (dsnoop), so lidar-voice listens to it at the same time.
  *
  * Usage: lidar-viz [-s spectrum|level] [-d capture-device]
  */
@@ -53,7 +52,6 @@
 #define LEVEL	"/run/lidar-ring.level"
 #define VOLUME	"/run/lidar-volume.state"
 #define DSP	"/run/lidar-dsp/ready"
-#define AEC	"/run/lidar-usbaudio.mic"
 
 static volatile sig_atomic_t quit;
 static int kmsg = -1;
@@ -347,7 +345,7 @@ static void on_signal(int sig) { (void)sig; quit = 1; }
 
 int main(int argc, char **argv)
 {
-	const char *dev = "hw:amazonlidar,2";
+	const char *dev = "lidar_ref";
 	int style_level = 0, opt;
 
 	while ((opt = getopt(argc, argv, "s:d:")) != -1) {
@@ -400,16 +398,6 @@ usage:
 				dark = 0;		/* no volume service */
 				vol_db = in_loop_db = 0;
 			}
-		}
-		if (exists(AEC)) {	/* the speakerphone's echo canceller */
-			if (pcm) {
-				snd_pcm_close(pcm);
-				pcm = NULL;
-			}
-			if (mine())
-				leds_dark(percent);
-			usleep(200000);
-			continue;
 		}
 		if (!pcm) {
 			pcm = capture_open(dev);

@@ -3,8 +3,6 @@
 # System volume for the Echo speaker: one level and a mute flag, applied to
 # the codec's PCM Playback Volume (0.5 dB steps). Every source of volume
 # changes feeds the same state:
-#   - the USB host's volume slider and mute (UAC2 gadget, lidar-usbaudio),
-#     which also hears back about changes made here;
 #   - a Bluetooth phone's volume (AVRCP absolute volume, through
 #     lidar-bluetooth: "bt <0-127>"), which also hears back;
 #   - the volume buttons (hold to repeat; a short tone at the new level);
@@ -26,9 +24,8 @@
 #
 # Usage: lidar-volume daemon
 #        lidar-volume get
-#        lidar-volume set <percent> | up | down | mute | unmute | toggle | sync
+#        lidar-volume set <percent> | up | down | mute | unmute | toggle
 CODEC=amazonlidar
-GADGET=UAC2Gadget
 RUN=/run/lidar-volume
 FIFO=$RUN.fifo
 RING_FIFO=/run/lidar-ring.fifo	# lidar-ring draws the volume arc
@@ -37,28 +34,22 @@ REPEAT_DELAY=0.4	# held button: first repeat after this many seconds,
 REPEAT_EVERY=0.15	# then one step every this many seconds
 TONE=/usr/share/lidar/volume-tone.wav
 DSP=/run/lidar-dsp
-ECHO=150	# centiseconds a slider's events after a write count as its echo
+ECHO=150	# centiseconds the phone's events after a write count as its echo
 
 a=$(lidar-feature get volume max_attenuation 2>/dev/null)
 VMAX=$((127 - 2 * ${a:-20}))
-
-ctl_get() { # card name -> first value
-	amixer -c "$1" cget name="$2" 2>/dev/null | sed -n 's/^  : values=\([^,]*\).*/\1/p'
-}
 
 now_cs() { # uptime in centiseconds
 	read -r u _ < /proc/uptime
 	echo $(( ${u%.*} * 100 + 1${u#*.} - 100 ))
 }
 
-# Codec output, and the gadget's and the Bluetooth phone's copy so their
-# sliders follow changes made here. Equal values are not written again;
-# a change that came from the phone does not go back to it. Both sliders
-# answer a write with their own rounding of it (the host to its steps, an
-# iPhone to 16 steps), and passing that on to the other one would make the
-# two push the level back and forth: for ECHO centiseconds after a write,
-# events from that side are taken as its echo and ignored. "show" puts
-# the volume on the LED ring.
+# Codec output, and the Bluetooth phone's copy so its slider follows changes
+# made here. Equal values are not written again; a change that came from
+# the phone does not go back to it. The phone answers a write with its own
+# rounding of it (an iPhone to 16 steps): for ECHO centiseconds after a
+# write, its events are taken as that echo and ignored. "show" puts the
+# volume on the LED ring.
 apply() {
 	# Level 0 is silence: the codec's lowest step is -63.5 dB, still audible,
 	# so it counts as muted (the state keeps the level and the mute flag)
@@ -82,17 +73,6 @@ apply() {
 		amixer -q -c $CODEC cset name='LO DAC Playback Switch' "$d,$d"
 		amixer -q -c $CODEC cset name='HP DAC Playback Switch' "$d,$d"
 		drivers=$d
-	fi
-	if [ -e /proc/asound/$GADGET ]; then
-		if [ "$(ctl_get $GADGET 'PCM Capture Volume')" != "$level" ]; then
-			amixer -q -c $GADGET cset name='PCM Capture Volume' "$level"
-			host_echo=$(( $(now_cs) + ECHO ))
-		fi
-		s=on; [ "$mute" = 1 ] && s=off
-		if [ "$(ctl_get $GADGET 'PCM Capture Switch')" != "$s" ]; then
-			amixer -q -c $GADGET cset name='PCM Capture Switch' "$s"
-			host_echo=$(( $(now_cs) + ECHO ))
-		fi
 	fi
 	# the phone has no mute: only the level goes there
 	if [ -z "$from_bt" ] && pidof bluealsa >/dev/null; then
@@ -124,24 +104,6 @@ clamp() { # value -> 0..VMAX
 	if [ "$1" -lt 0 ]; then echo 0
 	elif [ "$1" -gt $VMAX ]; then echo $VMAX
 	else echo "$1"; fi
-}
-
-# The host changed its slider or mute: take its values. Right after the
-# gadget appears (or a sync) the host is only reporting its stored setting,
-# not a change by the user, so the ring stays dark until quiet_until.
-from_host() {
-	v=$(ctl_get $GADGET 'PCM Capture Volume')
-	s=$(ctl_get $GADGET 'PCM Capture Switch')
-	[ -n "$v" ] && [ -n "$s" ] || return
-	old="$level $mute"
-	level=$(clamp "$v")
-	mute=0; [ "$s" = off ] && mute=1
-	if [ "$old" = "$level $mute" ] ||
-	   [ "$(cut -d. -f1 /proc/uptime)" -lt "$quiet_until" ]; then
-		apply
-	else
-		apply show
-	fi
 }
 
 # Volume buttons: a press steps once, holding repeats until release. The
@@ -201,18 +163,6 @@ keepalive() { # silence into dmix holds the codec output open
 	done
 }
 
-host_watch() { # the gadget's card comes and goes with lidar-usbaudio
-	while :; do
-		if [ -e /proc/asound/$GADGET ]; then
-			echo sync >&3	# start from our level, not the gadget default
-			alsactl monitor hw:$GADGET 2>/dev/null | while read -r line; do
-				case $line in *'PCM Capture'*) echo host >&3 ;; esac
-			done
-		fi
-		sleep 1
-	done
-}
-
 # Producers write to fd 3, inherited from the daemon: if a daemon dies, its
 # leftover producers write into its own FIFO handle, never into a new
 # daemon's. On TERM the whole process group goes.
@@ -224,15 +174,12 @@ daemon() {
 	sound_on=$(lidar-feature get volume sound 2>/dev/null)
 	tp=
 	last_tone=
-	quiet_until=0
 	p=$(lidar-feature get volume initial 2>/dev/null)
 	level=$(clamp $(( (${p:-30} * VMAX + 50) / 100 )))
 	mute=0
-	host_echo=0
 	bt_echo=0
 	apply
 	buttons &
-	host_watch &
 	[ "$(lidar-feature get volume keepalive 2>/dev/null)" = off ] || keepalive &
 	trap 'trap "" TERM; kill 0; exit' INT TERM
 	while read -r cmd arg <&3; do
@@ -243,16 +190,12 @@ daemon() {
 		mute) mute=1; apply show ;;
 		unmute) mute=0; apply show ;;
 		toggle) mute=$((1 - mute)); apply show ;;
-		host)
-			[ "$(now_cs)" -lt "$host_echo" ] && continue
-			from_host ;;
 		bt)	# the phone's volume, 0-127 (lidar-bluetooth)
 			[ "$(now_cs)" -lt "$bt_echo" ] && continue
 			case $arg in '' | *[!0-9]*) continue ;; esac
 			[ "$arg" -le 127 ] || continue
 			level=$(clamp $(( (arg * VMAX + 63) / 127 ))); mute=0
 			from_bt=1; apply show; from_bt= ;;
-		sync) quiet_until=$(( $(cut -d. -f1 /proc/uptime) + 5 )); apply ;;
 		refresh) apply ;;	# lidar-dsp started or stopped
 		tone)	# release: only if a hold moved the level since the press
 			[ "$level" != "$last_tone" ] && tone && last_tone=$level ;;
@@ -280,7 +223,7 @@ set)
 	[ "$2" -le 100 ] || { echo "usage: lidar-volume set <0-100>" >&2; exit 2; }
 	send set "$2"
 	;;
-up | down | mute | unmute | toggle | sync) send "$1" ;;
+up | down | mute | unmute | toggle) send "$1" ;;
 *)
 	sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2

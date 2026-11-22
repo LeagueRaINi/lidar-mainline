@@ -21,9 +21,11 @@
 #        lidar-feature enable|disable|reset <name>
 #        lidar-feature settings [--raw] [<name>]
 #                  (--raw: tab-separated feature, key, value, default,
-#                   allowed, description; passphrases as "(set)")
+#                   allowed, description; passphrases and secrets as "(set)")
 #        lidar-feature get <name> <key>    (prints the value in effect)
-#        lidar-feature set <name> <key> <value>
+#        lidar-feature set <name> <key> [<value>]
+#                  (without <value>: the first line of standard input, which
+#                   keeps a secret out of the process list)
 #        lidar-feature unset <name> <key>  (back to the default)
 #        lidar-feature keep <dir>  (bind <dir> from the booted slot: where
 #                                   services keep data across reboots)
@@ -34,13 +36,12 @@ CONF=${LIDAR_CONF:-/media/system/etc/lidar.conf}
 # name category default description
 FEATURES='
 bootanim core 1 light-ring animation while booting
-volume core 1 system volume for the speaker: volume buttons, Bluetooth phones, USB host slider, lidar-volume
+volume core 1 system volume for the speaker: volume buttons, Bluetooth phones, lidar-volume
 ring core 1 LED ring after boot: red while the mics are muted, volume changes, Bluetooth pairing mode
 wifi core 1 Wi-Fi client: joins the network in the wifi settings at boot (DHCP); the clock comes from NTP once online. Needs the Wi-Fi firmware from Fire OS or the copy lidar keeps (lidar-fireos)
 bluetooth core 1 Bluetooth speaker: phones play on the Echo (A2DP, SBC and AAC), paired by holding the action button 3 s. Needs the Wi-Fi firmware from Fire OS or the copy lidar keeps (lidar-fireos); without the volume service the phone volume scales the samples
 dsp core 1 speaker tuning as on Fire OS: loudness EQ by volume, bass EQ, multiband compressor and limiter. Needs the tuning from Fire OS or the copy lidar keeps (lidar-fireos) and the volume service, untuned without them
-usbaudio extra 0 USB speakerphone: the Echo appears as a sound card on the USB host
-webui extra 0 web interface on port 80 of the USB network: sensors, LED ring, volume, music, Wi-Fi/Bluetooth, services, logs, files
+webui core 1 web interface on port 80 of the USB network: first-run setup, sensors, LED ring, volume, music, Wi-Fi/Bluetooth, services, logs, files
 telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
@@ -48,10 +49,12 @@ visualizer extra 0 sound display on the LED ring: spectrum or level of whatever 
 '
 
 # feature key default allowed description
-# default "-" is unset. allowed is a|b|c (one of), N-M (integer range),
-# CC (two capital letters), ssid (1-32 bytes, no control characters),
-# label (1-48 bytes, no control characters) or passphrase (8-63 printable
-# ASCII characters, masked in "settings").
+# feature is a service above, or a group of settings without a switch (voice:
+# its service is not part of the image yet). default "-" is unset. allowed is
+# a|b|c (one of), N-M (integer range), CC (two capital letters), ssid (1-32
+# bytes, no control characters), label (1-48 bytes, no control characters),
+# passphrase (8-63 printable ASCII characters, masked in "settings") or
+# secret (16-200 printable ASCII characters without spaces, masked too).
 SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
 wifi country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
@@ -73,8 +76,12 @@ volume sound on on|off on: a short tone at the new level when the volume buttons
 volume keepalive on on|off on: speaker output stays open, as stock (no clicks, sounds start at once, faint hiss); off: opens per sound
 ring auto_brightness on on|off on: ring brightness follows the light sensor, as stock does; off: always full
 ring min_brightness 15 5-100 ring brightness in the dark, percent of full
-usbaudio mic_gain 70 0-80 ADC PGA Capture Volume, 0.5 dB steps, 70 = +35 dB
-usbaudio aec on on|off on: the host gets the mics with the echo of the speaker and background noise removed (lidar-aec); off: the plain mic mix
+webui setup_done no no|yes yes: the first-run setup of the web interface was finished; no: the web interface opens it for clients on the USB network
+webui fireos_image_saved no no|yes yes: the owner confirmed in the setup that the full Fire OS image (system_a) was downloaded and saved
+voice wake_word hey_jarvis hey_jarvis word the voice assistant listens for (hey_jarvis is the only one for now)
+voice language en en|de language the voice assistant understands and speaks: en English, de German
+voice sensitivity medium low|medium|high how readily the wake word triggers: low misses more, high triggers more often by mistake
+voice api_key - secret Claude API key of the voice assistant, kept in plain text in lidar.conf (readable by root only) and never shown
 '
 
 default_of() {
@@ -170,8 +177,12 @@ setting_of() { # feature key -> "default allowed"
 		'$1 == f && $2 == k { print $3, $4; found = 1 } END { exit !found }'
 }
 
+has_settings() { # a service or a group of settings without one
+	echo "$SETTINGS" | awk -v f="$1" '$1 == f { found = 1 } END { exit !found }'
+}
+
 need_setting() { # feature key; sets DEF and ALLOWED
-	need_name "$1"
+	has_settings "$1" || need_name "$1"
 	s=$(setting_of "$1" "$2") && [ -n "$2" ] || {
 		echo "unknown setting '$2' of $1 (see: lidar-feature settings $1)" >&2
 		exit 2
@@ -200,6 +211,10 @@ valid() { # allowed value
 	passphrase)
 		case $2 in *[![:print:]]*) return 1 ;; esac
 		[ ${#2} -ge 8 ] && [ ${#2} -le 63 ] && return 0
+		;;
+	secret)
+		case $2 in *[![:graph:]]*) return 1 ;; esac
+		[ ${#2} -ge 16 ] && [ ${#2} -le 200 ] && return 0
 		;;
 	*)
 		case $2 in '' | *'|'*) return 1 ;; esac
@@ -238,13 +253,13 @@ enable | disable | reset)
 settings)
 	raw=
 	[ "$2" != --raw ] || { raw=1; shift; }
-	[ -z "$2" ] || need_name "$2"
+	[ -z "$2" ] || has_settings "$2" || need_name "$2"
 	echo "$SETTINGS" | while read -r f k d a desc; do
 		[ -n "$f" ] || continue
 		[ -z "$2" ] || [ "$f" = "$2" ] || continue
 		[ "$d" != - ] || d=
 		v=$(setting_value "$f" "$k" "$d" "$a")
-		[ "$a" != passphrase ] || [ -z "$v" ] || v='(set)'
+		case $a in passphrase | secret) [ -z "$v" ] || v='(set)' ;; esac
 		if [ -n "$raw" ]; then
 			printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$k" "$v" "$d" "$a" "$desc"
 		else
@@ -259,18 +274,21 @@ get)
 	;;
 set)
 	need_setting "$2" "$3"
-	valid "$ALLOWED" "$4" || {
+	val=$4
+	[ $# -ge 4 ] || IFS= read -r val || :
+	valid "$ALLOWED" "$val" || {
 		case $ALLOWED in
 		passphrase) echo "invalid passphrase for $2 $3 (allowed: 8-63 printable ASCII characters)" >&2 ;;
-		ssid) echo "invalid value '$4' for $2 $3 (allowed: 1-32 bytes, no control characters)" >&2 ;;
-		label) echo "invalid value '$4' for $2 $3 (allowed: 1-48 bytes, no control characters)" >&2 ;;
-		*) echo "invalid value '$4' for $2 $3 (allowed: $ALLOWED)" >&2 ;;
+		secret) echo "invalid secret for $2 $3 (allowed: 16-200 printable ASCII characters without spaces)" >&2 ;;
+		ssid) echo "invalid value '$val' for $2 $3 (allowed: 1-32 bytes, no control characters)" >&2 ;;
+		label) echo "invalid value '$val' for $2 $3 (allowed: 1-48 bytes, no control characters)" >&2 ;;
+		*) echo "invalid value '$val' for $2 $3 (allowed: $ALLOWED)" >&2 ;;
 		esac
 		exit 2
 	}
-	shown=$4
-	[ "$ALLOWED" != passphrase ] || shown='(set)'
-	conf_put "$2.$3" "$4" && echo "$2 $3: $shown (takes effect on next boot)"
+	shown=$val
+	case $ALLOWED in passphrase | secret) shown='(set)' ;; esac
+	conf_put "$2.$3" "$val" && echo "$2 $3: $shown (takes effect on next boot)"
 	;;
 unset)
 	need_setting "$2" "$3"
@@ -281,7 +299,7 @@ keep)
 	( flock 9 && keep_locked "$2" ) 9> /run/lidar-slot.lock
 	;;
 *)
-	sed -n '3,31p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

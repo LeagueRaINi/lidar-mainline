@@ -12,8 +12,10 @@
 # out.
 #
 # There is no login. Everything that changes the device or reads more than
-# its status (radios, services, settings, logs, files, reboot) is "admin" and
-# only answered for clients on the USB network, even with "webui listen any".
+# its status (radios, services, settings, logs, files, the Fire OS image,
+# reboot) is "admin" and only answered for clients on the USB network, even
+# with "webui listen any". Secrets (Wi-Fi passphrase, API key) go in only:
+# no request returns them.
 LIB=/run/lidar-player
 FIFO=/run/lidar-player.fifo
 
@@ -31,11 +33,13 @@ ok() { hdr; printf '{"ok": true}\n'; exit 0; }
 # route is usb0. Replies to it then only ever leave through usb0, so a Wi-Fi
 # host that fakes such a source cannot complete a connection; without usb0
 # ("webui listen any") they would follow the default route, hence the check.
-admin() {
+usb_client() {
 	a=${REMOTE_ADDR#[}; a=${a%]}; a=${a#::ffff:}
-	case $a in 169.254.*) ;; *) fail "only over the USB network" ;; esac
-	ip route get "$a" 2>/dev/null | grep -q ' dev usb0 ' || fail "only over the USB network"
+	case $a in 169.254.*) ;; *) return 1 ;; esac
+	ip route get "$a" 2>/dev/null | grep -q ' dev usb0 '
 }
+
+admin() { usb_client || fail "only over the USB network"; }
 
 # JSON string body: backslash and quote escaped, control characters dropped
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\000-\037'; }
@@ -318,7 +322,8 @@ wifi_connect() {
 		fail "invalid passphrase (8-63 printable ASCII characters)"
 	lidar-feature enabled wifi || fail "the wifi service is off (enable it, then reboot)"
 	lidar-feature set wifi ssid "$ssid" >/dev/null 2>&1 || fail "invalid SSID (1-32 bytes)"
-	lidar-feature set wifi passphrase "$pass" >/dev/null 2>&1 ||
+	# on standard input, as in set_setting: not in the process list
+	printf '%s\n' "$pass" | lidar-feature set wifi passphrase >/dev/null 2>&1 ||
 		fail "invalid passphrase (8-63 printable ASCII characters)"
 	lidar-wifi restart >/dev/null 2>&1 || fail "Wi-Fi did not start (see the kernel log)"
 	ok
@@ -381,13 +386,52 @@ setting_name() { # $val = <feature>.<key> -> $sf, $sk
 	case $sf$sk in '' | *[!a-z0-9_]*) fail "bad setting" ;; esac
 }
 
-# body: the new value
+# body: the new value, handed on as standard input: a secret must not show
+# in the process list
 set_setting() {
 	setting_name
 	body_len 256
-	v=$(head -c "$len")
-	msg=$(lidar-feature set "$sf" "$sk" "$v" 2>&1 >/dev/null) || fail "$(esc "$msg")"
+	msg=$(head -c "$len" | lidar-feature set "$sf" "$sk" 2>&1 >/dev/null) || fail "$(esc "$msg")"
 	ok
+}
+
+# First-run setup: whether it was finished, and whether this client may run
+# it (the page opens it by itself for those who can)
+setup_state() {
+	d=false; [ "$(lidar-feature get webui setup_done 2>/dev/null)" = yes ] && d=true
+	u=false; usb_client && u=true
+	printf '{"done": %s, "admin": %s}\n' $d $u
+}
+
+# The API key of the voice assistant: whether one is set and its last four
+# characters, never more
+voice_key() {
+	k=$(lidar-feature get voice api_key 2>/dev/null)
+	if [ -n "$k" ]; then
+		rest=${k%????}
+		printf '{"set": true, "last4": "%s"}\n' "$(esc "${k#"$rest"}")"
+	else
+		printf '{"set": false, "last4": null}\n'
+	fi
+}
+
+# Tries the stored key: the model list of the Anthropic API, over TLS with
+# the image's CA bundle. The request, key included, reaches socat on its
+# standard input (printf is the shell's own): never an argument, a URL or a
+# log line. Only the status line of the answer is read.
+voice_key_test() {
+	k=$(lidar-feature get voice api_key 2>/dev/null)
+	[ -n "$k" ] || fail "no API key set"
+	h=api.anthropic.com
+	r=$(printf 'GET /v1/models?limit=1 HTTP/1.1\r\nHost: %s\r\nx-api-key: %s\r\nanthropic-version: 2023-06-01\r\nConnection: close\r\n\r\n' "$h" "$k" |
+		timeout 20 socat -t 10 - "OPENSSL:$h:443,verify=1,cafile=/etc/ssl/certs/ca-certificates.crt" 2>/dev/null |
+		head -n 1 | tr -d '\r')
+	case $r in
+	'HTTP/1.1 200'*) printf '{"result": "ok"}\n' ;;
+	'HTTP/1.1 401'* | 'HTTP/1.1 403'*) printf '{"result": "invalid"}\n' ;;
+	'HTTP/1.1 '[0-9]*) printf '{"result": "error", "status": "%s"}\n' "$(esc "${r#HTTP/1.1 }")" ;;
+	*) printf '{"result": "offline"}\n' ;;
+	esac
 }
 
 # ---------- files (read-only) ----------
@@ -416,8 +460,8 @@ ls_dir() {
 get_file() {
 	fpath "$val"
 	case $p in
-	/dev/* | /proc/kmsg | /proc/kcore | /proc/*/mem | /proc/*/pagemap | /sys/kernel/debug/*)
-		fail "not readable from here" ;;
+	/dev/* | /proc/kmsg | /proc/kcore | /proc/*/mem | /proc/*/pagemap | /sys/kernel/debug/* | /media/system/etc/lidar.conf*)
+		fail "not readable from here" ;;	# the last: it holds the secrets
 	esac
 	[ -f "$p" ] || fail "not a regular file"
 	[ -r "$p" ] || fail "not readable"
@@ -434,12 +478,28 @@ get_file() {
 	esac
 }
 
+# Fire OS as a whole, for the owner to keep: system_a, where lidar-fireos
+# looks for it, while lidar runs from system_b. Sets $dev, empty otherwise.
+fireos_image_dev() {
+	dev=/dev/disk/by-partlabel/system_a
+	case " $(cat /proc/cmdline) " in *' lidar.slot=b '*) ;; *) dev= ;; esac
+	[ -z "$dev" ] || [ -b $dev ] || dev=
+}
+
 # The files lidar takes from Fire OS (lidar-fireos): what the copy on the
-# slot holds, the copy as a backup to download, a backup to upload
+# slot holds, the copy as a backup to download, a backup to upload; and the
+# size of the Fire OS partition if its image can be downloaded
 fireos_status() {
 	out=$(lidar-fireos status 2>/dev/null) || fail "booted slot not mounted"
 	f=false; case $out in *fireos=yes*) f=true ;; esac
-	printf '{"fireos": %s, "files": [' $f
+	ib=null
+	fireos_image_dev
+	if [ $f = true ] && [ -n "$dev" ]; then
+		d=$(readlink -f $dev)
+		rdv "/sys/class/block/${d##*/}/size" 0
+		ib=$((v * 512))
+	fi
+	printf '{"fireos": %s, "image_bytes": %s, "files": [' $f $ib
 	printf '%s\n' "$out" | grep -v '^fireos=' | jesc | awk -F '\t' '{
 		printf "%s{\"group\": \"%s\", \"name\": \"%s\", \"required\": %s, \"size\": %s, \"sha256\": \"%s\"}",
 			c++ ? ", " : "", $1, $2, $3 == "required" ? "true" : "false", $4 == "" ? "null" : $4, $5 }'
@@ -452,6 +512,17 @@ fireos_export() { # writes its own headers
 	lidar-fireos export "$t" >/dev/null 2>&1 || fail "nothing to export yet"
 	printf 'Content-Type: application/x-tar\r\nContent-Disposition: attachment; filename="lidar-fireos-backup.tar"\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: no-store\r\n\r\n'
 	cat "$t"
+}
+
+# The Fire OS partition, compressed, straight from the block device: opened
+# for reading only, never mounted here, nothing on the device changes. No
+# length is known in advance, and it takes minutes: no timeout.
+fireos_image() { # writes its own headers
+	fireos_image_dev
+	[ -n "$dev" ] && lidar-fireos status 2>/dev/null | grep -q '^fireos=yes$' ||
+		fail "no Fire OS on system_a"
+	printf 'Content-Type: application/gzip\r\nContent-Disposition: attachment; filename="fireos-system_a.img.gz"\r\nX-Content-Type-Options: nosniff\r\nCross-Origin-Resource-Policy: same-origin\r\nCache-Control: no-store\r\n\r\n'
+	nice gzip -1 -c < $dev
 }
 
 fireos_import() {
@@ -483,11 +554,11 @@ title=
 case $QUERY_STRING in *'&title='*) title=${QUERY_STRING#*&title=}; title=${title%%&*} ;; esac
 
 # downloads write their own headers
-case $key in file | fireos_export) ;; *) hdr ;; esac
+case $key in file | fireos_export | fireos_image) ;; *) hdr ;; esac
 
 case $key in
-stats | player | songs | services | network) ;;
-wifi_scan | bt_scan | bt_devices | log | procs | system | settings | ls | file | fireos | fireos_export) admin ;;
+stats | player | songs | services | network | setup) ;;
+wifi_scan | bt_scan | bt_devices | log | procs | system | settings | ls | file | fireos | fireos_export | fireos_image | voice_key) admin ;;
 upload | wifi_connect | set | fireos_import)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/octet-stream ] ||
 		fail "$key needs POST with application/octet-stream"
@@ -496,7 +567,7 @@ upload | wifi_connect | set | fireos_import)
 *)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/json ] ||
 		fail "commands need POST with application/json"
-	case $key in wifi_forget | bt_power | bt_pair | bt_forget | enable | disable | unset | reboot) admin ;; esac
+	case $key in wifi_forget | bt_power | bt_pair | bt_forget | enable | disable | unset | reboot | voice_key_test) admin ;; esac
 	;;
 esac
 
@@ -589,6 +660,10 @@ file) get_file ;;
 fireos) fireos_status ;;
 fireos_export) fireos_export ;;
 fireos_import) fireos_import ;;
+fireos_image) fireos_image ;;
+setup) setup_state ;;
+voice_key) voice_key ;;
+voice_key_test) voice_key_test ;;
 reboot)
 	(sleep 1; reboot) >/dev/null 2>&1 &
 	ok

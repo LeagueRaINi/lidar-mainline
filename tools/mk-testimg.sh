@@ -97,7 +97,7 @@ aarch64-linux-gnu-gcc -O2 -static -o "$T/devmem" /work/tools/devmem.c
 install -m755 "$T/devmem" "$T/initramfs/usr/bin/devmem"
 aarch64-linux-gnu-gcc -O2 -Wall -static -o "$T/lidar-listen" /work/tools/lidar-listen.c
 install -m755 "$T/lidar-listen" "$T/initramfs/usr/bin/lidar-listen"
-# lidar-aec and lidar-dsp link against Alpine libraries: clang builds them
+# lidar-voice and lidar-dsp link against Alpine libraries: clang builds them
 # for musl against an Alpine sysroot, cached per Alpine release in /src and
 # rebuilt when the package list changes.
 SYSROOT=/src/alpine-sysroot-$(cat "$T/initramfs/etc/alpine-release")
@@ -110,11 +110,11 @@ if [ "$(cat "$SYSROOT/.complete" 2>/dev/null)" != "$SYSPKGS" ]; then
 	echo "$SYSPKGS" > "$SYSROOT/.complete"
 fi
 clang++ --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
-	-std=c++17 -O2 -Wall -Wextra -Wno-nullability-completeness \
+	-std=c++17 -O2 -ffp-contract=fast -Wall -Wextra -Wno-nullability-completeness \
 	-isystem "$SYSROOT/usr/include/webrtc-audio-processing-2" \
-	-DWEBRTC_POSIX -DWEBRTC_LIBRARY_IMPL -s -o "$T/lidar-aec" /work/tools/lidar-aec.cc \
+	-DWEBRTC_POSIX -DWEBRTC_LIBRARY_IMPL -s -o "$T/lidar-voice" /work/tools/lidar-voice.cc \
 	-lwebrtc-audio-processing-2 -lasound
-install -m755 "$T/lidar-aec" "$T/initramfs/usr/bin/lidar-aec"
+install -m755 "$T/lidar-voice" "$T/initramfs/usr/bin/lidar-voice"
 clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=gnu11 -O2 -ffp-contract=fast -Wall -Wextra -Wno-nullability-completeness \
 	-s -o "$T/lidar-dsp" /work/tools/lidar-dsp.c -lcjson -lasound -lm
@@ -129,6 +129,15 @@ clang --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=gnu11 -O2 -ffp-contract=fast -Wall -Wextra -Wno-nullability-completeness \
 	-s -o "$T/lidar-viz" /work/tools/lidar-viz.c -lasound -lm
 install -m755 "$T/lidar-viz" "$T/initramfs/usr/bin/lidar-viz"
+# Wake word detector and its "Hey Jarvis" model: mk-wakeword.sh fetches the
+# model and the sources of TensorFlow Lite Micro, pinned, and builds
+# lidar-wakeword against the sysroot like the tools above. The licence texts
+# go with the binary (Apache-2.0 and BSD-3-Clause parts) and the model.
+bash /work/tools/mk-wakeword.sh "$T/wakeword" "$SYSROOT"
+install -m755 "$T/wakeword/lidar-wakeword" "$T/initramfs/usr/bin/lidar-wakeword"
+install -D -m644 -t "$T/initramfs/usr/share/lidar/wakeword" \
+	"$T/wakeword/hey_jarvis.tflite" "$T/wakeword/hey_jarvis.json"
+install -D -m644 -t "$T/initramfs/usr/share/licenses/lidar-wakeword" "$T"/wakeword/licenses/*
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
 install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
@@ -136,7 +145,6 @@ install -m755 /work/tools/lidar-bluetooth.sh "$T/initramfs/usr/bin/lidar-bluetoo
 install -m755 /work/tools/lidar-regdump.sh "$T/initramfs/usr/bin/lidar-regdump"
 install -m755 /work/tools/lidar-bootanim.sh "$T/initramfs/usr/bin/lidar-bootanim"
 install -m755 /work/tools/lidar-feature.sh "$T/initramfs/usr/bin/lidar-feature"
-install -m755 /work/tools/lidar-usbaudio.sh "$T/initramfs/usr/bin/lidar-usbaudio"
 install -m755 /work/tools/lidar-volume.sh "$T/initramfs/usr/bin/lidar-volume"
 install -m755 /work/tools/lidar-ring.sh "$T/initramfs/usr/bin/lidar-ring"
 install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
@@ -324,12 +332,10 @@ install -D -m644 -t "$U/MediaTek/amazon-lidar" /work/ucm2/MediaTek/amazon-lidar/
 mkdir -p "$U/conf.d/amazon-lidar"
 ln -sf ../../MediaTek/amazon-lidar/amazon-lidar.conf "$U/conf.d/amazon-lidar/amazon-lidar.conf"
 
-# Named ALSA devices: the speaker, and mics 1-6 summed to mono at 0.5 each
-# (+9.5 dB for coherent speech). Mic 7 (capture channel 6) is left out: it
-# picks up narrow interference tones.
+# Named ALSA devices: the speaker, the microphones and the speaker reference.
 cat > "$T/initramfs/etc/asound.conf" <<'EOF'
 # The speaker goes through dmix so lidar-volume's silent keep-alive stream,
-# its feedback tone and the USB bridge can share it.
+# its feedback tone and every player can share it.
 pcm.lidar_dmix {
 	type dmix
 	ipc_key 2468
@@ -346,19 +352,20 @@ pcm.lidar_speaker {
 	type plug
 	slave.pcm "lidar_dmix"
 }
-pcm.lidar_mics_mix {
-	type route
-	slave { pcm "hw:amazonlidar,1" channels 8 }
-	ttable.0.0 0.5
-	ttable.0.1 0.5
-	ttable.0.2 0.5
-	ttable.0.3 0.5
-	ttable.0.4 0.5
-	ttable.0.5 0.5
+# The microphones and the speaker reference, shared (dsnoop): lidar-voice
+# and the sound display listen at the same time. Fixed at 48 kHz; whoever
+# needs less decimates itself (lidar-voice: 16 kHz).
+pcm.lidar_mic8 {
+	type dsnoop
+	ipc_key 7341
+	ipc_perm 0600
+	slave { pcm "hw:amazonlidar,1" channels 8 rate 48000 format S32_LE period_size 480 buffer_size 3840 }
 }
-pcm.lidar_mics {
-	type plug
-	slave.pcm "lidar_mics_mix"
+pcm.lidar_ref {
+	type dsnoop
+	ipc_key 7342
+	ipc_perm 0600
+	slave { pcm "hw:amazonlidar,2" channels 2 rate 48000 format S16_LE period_size 480 buffer_size 3840 }
 }
 EOF
 
@@ -560,9 +567,6 @@ fi
 			touch /run/lidar-no-radio-firmware
 		fi
 	fi
-	if lidar-feature enabled usbaudio; then
-		lidar-usbaudio start > /dev/kmsg 2>&1
-	fi
 	touch /run/boot-done
 ) &
 # BusyBox init becomes PID 1: it runs the shells from /etc/inittab and reaps
@@ -602,7 +606,6 @@ EOF
 # the extras it is used with. Edit with lidar-feature on the device.
 mkdir -p "$T/fs/etc"
 cat > "$T/fs/etc/lidar.conf" <<'EOF'
-feature.usbaudio=1
 feature.telnet=1
 EOF
 chmod 600 "$T/fs/etc/lidar.conf"

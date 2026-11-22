@@ -62,7 +62,7 @@ complete() { # group dir: everything required there
 fireos_mount() {
 	mounted=
 	mkdir -p $MNT || return 1
-	if [ -b $FIREOS_DEV ] && mount -o ro -t ext4 $FIREOS_DEV $MNT 2>/dev/null; then
+	if [ -b $FIREOS_DEV ] && mount -o ro,noload -t ext4 $FIREOS_DEV $MNT 2>/dev/null; then
 		mounted=1
 		[ -d $MNT/system ] && return 0
 		fireos_umount

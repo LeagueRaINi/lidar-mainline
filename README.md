@@ -26,8 +26,8 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Speaker | ✅ | ✅ |
 | 3.5 mm line-out | ✅ | ⚠️ works; start-of-stream crack not re-tested since the jack moved to the headphone drivers |
 | Speaker crossover (woofer + tweeter) | ✅ | ✅ Amazon's filters in the DAC, amplifier mute against pops |
-| Microphones (7) | ✅ | ⚠️ all 7 capture; mic 7 picks up narrow interference tones |
-| Echo-cancellation reference | ✅ | ✅ playback loopback capture, bit-exact; used by `lidar-aec` |
+| Microphones (7) | ✅ | ✅ all 7 capture, shared (`lidar_mic8`, dsnoop, 48 kHz): 6 on a ring of 32 mm radius plus one in the centre. Mic 7 (centre) once showed narrow interference tones; a quiet-room measurement now puts it within 4 dB of the ring mics, 50 Hz-8 kHz. Beamforming with echo cancellation in `lidar-voice` (experimental) |
+| Echo-cancellation reference | ✅ | ✅ playback loopback capture, bit-exact, shared (`lidar_ref`, dsnoop); used by `lidar-voice` and the sound display (`lidar-viz`) |
 | Line-in | capture path in Fire OS's mixer config; use unclear | 🧪 not tested with a real source |
 | **Wireless** | | |
 | Wi-Fi (MT7668) | ✅ | ✅ scans 2.4 and 5 GHz, connects (tested on 5 GHz: 866 Mbit/s link); firmware from the unit's own Fire OS, kept on lidar's slot (`lidar-fireos`), MAC from IDME |
@@ -40,8 +40,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Ambient light sensor | ✅ | ✅ relative readings (no lux calibration) |
 | Temperature sensors | ✅ | ✅ |
 | **Software** | | |
-| Voice assistant | ✅ Alexa | 🛠️ local userspace, e.g. a Home Assistant voice satellite |
-| USB speakerphone for a PC | ➖ | ✅ USB Audio Class 2: speaker and 6-mic mono capture with echo cancellation |
+| Voice assistant | ✅ Alexa | 🛠️ local userspace: the wake word detector `lidar-wakeword` behind `lidar-voice` and the `voice` settings are there, the assistant itself is not |
 | Services, with settings | n/a | ✅ `lidar-feature`: core services on, extras off by default |
 | Alexa cloud services | ✅ | ➖ |
 | Kernel and U-Boot upstreaming | n/a | 🛠️ patch series drafted |
@@ -124,11 +123,12 @@ decompression.
 | `tools/lidar-bootanim.sh` | light-ring boot animation: twin comets over a drifting colour wheel, then a rainbow sweep and fade when boot completes |
 | `tools/lidar-feature.sh` | service switches (core on, extras off by default) and settings in `/etc/lidar.conf` |
 | `tools/lidar-listen.c` | TCP listener bound to one interface (`SO_BINDTODEVICE`); runs telnetd per connection |
-| `tools/lidar-usbaudio.sh` | USB speakerphone: adds a UAC2 function to the gadget and bridges it to speaker and mics |
-| `tools/lidar-volume.sh` | system volume daemon: USB host slider, volume buttons and CLI share one level and mute |
+| `tools/lidar-volume.sh` | system volume daemon: Bluetooth phones, volume buttons and CLI share one level and mute |
 | `tools/lidar-ring.sh` | LED ring after boot: red while the mics are muted, volume arc on changes, the blue arc of Bluetooth pairing mode; hands the ring to `lidar-viz` in between |
 | `tools/lidar-viz.c` | sound display on the LED ring (`visualizer` service): level arc or spectrum of whatever the speaker plays |
-| `tools/lidar-aec.cc` | mics with the speaker's echo and background noise removed (WebRTC AEC3), for the speakerphone and later voice use |
+| `tools/lidar-voice.cc` | experimental: the voice of whoever speaks to the Echo, from all 7 mics: echo cancellation on every mic (WebRTC AEC3), 12 superdirective beams, the best beam by speech over noise, noise suppression; 16 kHz mono out, beam state for the ring and the web interface |
+| `tools/lidar-wakeword.cc` | wake word detector ("Hey Jarvis") for the output of `lidar-voice`: microWakeWord model on TensorFlow Lite Micro, one line per detection (below) |
+| `tools/mk-wakeword.sh` | fetches the pinned TensorFlow Lite Micro, microfrontend, FlatBuffers and KISS FFT sources and the wake word model, and builds `lidar-wakeword` for the test image or for the build host |
 | `tools/lidar-radio.sh` | the EFR32 radio for Zigbee and Thread at once: uploads the multi-PAN RCP if needed and runs `cpcd`, `zigbeed` with its TCP bridge, and `otbr-agent`, with both networks kept on the booted slot |
 | `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
@@ -142,6 +142,7 @@ decompression.
 | `ucm2/MediaTek/amazon-lidar/` | ALSA UCM profile (alsa-ucm-conf layout) for PipeWire/PulseAudio: base routing as BootSequence, Speaker and Mic devices; the test image applies its BootSequence at boot |
 | `pogo-jig/` | 3D-printable pogo-pin jig for the USB test points, held by one M4 screw in the bottom insert: OpenSCAD source, STLs, assembly notes and a test-fit checklist |
 | `efr32/` | the EFR32MG12's multi-PAN RCP and `zigbeed` for the Echo (Gecko SDK 4.4.3, their own build container and a GBL packer); see `efr32/README.md` |
+| `installer/` | browser installer (WebUSB): flashes U-Boot and the test system from a web page (see Installing); `installer/vendor/` holds fastboot.js; `.github/workflows/pages.yml` publishes the directory to GitHub Pages |
 
 The overlays are copied over pristine upstream trees by `build.sh`. The
 porting reference was Amazon's GPL release `Echo_Plus_2nd_Gen_src-6.5.7.1-20251021`,
@@ -220,6 +221,41 @@ area.
 **Recovery:** hold **Action** while plugging in, then
 `fastboot flash boot_a <your boot_a dump>` restores the stock boot path.
 
+### Browser installer
+
+`installer/` is a static page that does steps 1 and 2 from a desktop
+Chromium browser (Chrome, Edge, Brave, Opera) over WebUSB. It needs what
+the manual way needs: Kaeru fastboot already on the device, your own
+`boot_a` dump, and the pogo-pin USB. It contains no unlock code.
+
+- You pick `lidar-uboot.img` and `lidar-test-system.ext4` from disk, and
+  optionally a `SHA256SUMS` file to verify them. Nothing is uploaded. The
+  page cannot download the images itself yet: a page cannot fetch GitHub
+  release assets (their download URLs redirect without CORS headers), so
+  that waits for a mirror.
+- For each phase a photo of the Echo's top shows the button to hold,
+  circled: Action for Kaeru fastboot, Volume Up for U-Boot's.
+- It writes `boot_a` and `system_b` only and refuses any other partition.
+  If your Fire OS runs from slot b, install by hand as above.
+- Before each flash it checks which fastboot answers (Kaeru's for `boot_a`,
+  U-Boot's for `system_b`) and asks for confirmation. It does not read the
+  serial number.
+- Windows: the fastboot device must use the WinUSB driver; the page explains
+  how. Linux may need a udev rule for USB ID `0bb4:0c01`.
+- To run it locally: `python -m http.server` in `installer/`, then open
+  `http://localhost:8000/` (WebUSB needs https or localhost, and the page
+  does not work from `file://`).
+- **Not yet tried on an Echo.** Both phases, wrong-mode and foreign
+  devices, a failed flash and a lost USB connection were only run against
+  a simulated fastboot device in the browser. Open on hardware: the Windows
+  driver steps, the udev rule, how Kaeru's fastboot answers the page's
+  `getvar` queries, whether U-Boot accepts the page's sparse pieces, and
+  the GitHub Pages workflow.
+
+USB access uses [fastboot.js](https://github.com/kdrag0n/fastboot.js) v1.1.3
+(MIT), vendored unmodified in `installer/vendor/` with its licence and
+checksum.
+
 ## Services
 
 Services sit on top of the base system, in two groups:
@@ -230,8 +266,8 @@ Services sit on top of the base system, in two groups:
   (its own volume handling or LED daemon, say) turns the matching service
   off so the two do not fight over the same controls.
 - **Extras** are for development and integration: everything on the USB
-  port beyond the serial shell and network (speakerphone, web interface,
-  telnet) and the Zigbee and Thread radio. They are **off by default**.
+  port beyond the serial shell and network (web interface, telnet) and the
+  Zigbee and Thread radio. They are **off by default**.
 
 Services do not require each other, with one exception: `thread` with
 `thread infra wlan0` (the default) needs `wifi` and does not start without
@@ -265,16 +301,15 @@ Flashing a slot's image replaces its `/etc/lidar.conf`, so the image's
 choices (telnet included) come back. Changing a service needs a shell on
 the device, or editing the file in the image before flashing.
 
-The test image ships an `/etc/lidar.conf` that also enables the `usbaudio`
-and `telnet` extras. U-Boot passes the booted slot as
-`lidar.slot=${lidar_slot}` on the kernel command line, and the test image
-mounts that slot read-only at `/media/system`. If it cannot, the defaults
-apply.
+The test image ships an `/etc/lidar.conf` that also enables the `telnet`
+extra. U-Boot passes the booted slot as `lidar.slot=${lidar_slot}` on the
+kernel command line, and the test image mounts that slot read-only at
+`/media/system`. If it cannot, the defaults apply.
 
 ```sh
 lidar-feature list                 # group, current state and defaults
-lidar-feature disable usbaudio     # takes effect on the next boot
-lidar-feature reset usbaudio       # back to the default (off)
+lidar-feature disable telnet       # takes effect on the next boot
+lidar-feature reset telnet         # back to the default (off)
 ```
 
 | Service | Group | Default | What it does |
@@ -285,8 +320,7 @@ lidar-feature reset usbaudio       # back to the default (off)
 | `wifi` | core | on | Wi-Fi client: joins the network in the `wifi` settings at boot; the clock comes from NTP once online |
 | `bluetooth` | core | on | Bluetooth speaker for phones (below) |
 | `dsp` | core | on | speaker tuning as on Fire OS (below); needs the `volume` service and Amazon's tuning files (Fire OS on `system_a`, or lidar's copy), takes effect on reboot |
-| `usbaudio` | extra | off | USB speakerphone (below) |
-| `webui` | extra | off | web interface on port 80 of the USB network (below) |
+| `webui` | core | on | web interface on port 80 of the USB network, with the first-run setup (below) |
 | `telnet` | extra | off | root shell without authentication on port 23 of the USB network (`169.254.7.2`) |
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
 | `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
@@ -299,6 +333,7 @@ default.
 lidar-feature settings [feature]          # values in effect, defaults, allowed
 lidar-feature get telnet listen           # prints the value in effect
 lidar-feature set wifi country DE         # takes effect on the next boot
+lidar-feature set voice api_key < keyfile # no value: the first line of standard input
 lidar-feature unset wifi country          # back to the default
 ```
 
@@ -315,8 +350,6 @@ lidar-feature unset wifi country          # back to the default
 | `volume keepalive` | `on` | `on`, `off` | `off`: no silent stream holding the speaker output open. No idle amplifier hiss, but every sound then clicks at its start and end |
 | `ring auto_brightness` | `on` | `on`, `off` | ring brightness follows the ambient light sensor, as on stock; `off`: always full |
 | `ring min_brightness` | 15 | 5-100 | ring brightness in a dark room, in percent of full |
-| `usbaudio mic_gain` | 70 | 0-80 | `ADC1`-`ADC4` `PGA Capture Volume` in 0.5 dB steps: 70 is +35 dB |
-| `usbaudio aec` | `on` | `on`, `off` | `on`: the microphone the host gets is cleaned by `lidar-aec` (echo cancellation, noise suppression); `off`: the plain six-mic mix |
 | `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `thread infra` | `wlan0` | `wlan0`, `usb0` | the network Home Assistant is on: the border router routes between it and the Thread network and advertises the Thread network there. `wlan0` needs the `wifi` service |
 | `thread listen` | `usb` | `usb`, `any` | `usb`: the REST API sits on a unix socket that `lidar-listen` bridges to port 8081 for connections arriving on `usb0` only (`SO_BINDTODEVICE`, as for telnet); `any`: otbr-agent listens on every address, Wi-Fi included. The API has no authentication and can change the Thread network |
@@ -326,17 +359,27 @@ lidar-feature unset wifi country          # back to the default
 | `visualizer style` | `level` | `level`, `spectrum` | `level`: an arc from LED 1 down both sides, green, yellow, red at the end, with a peak mark; longer with louder music and a higher volume. `spectrum`: 7 bands from 50 Hz to 10 kHz, mirrored, bass at LED 1 and treble opposite, red to violet |
 | `webui listen` | `usb` | `usb`, `any` | `usb`: the web interface only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `webui storage_mb` | 256 | 64-512 | RAM for uploaded songs, in MB (about 11 minutes of music per 128 MB), a RAM disk of its own; the library is cleared on reboot |
+| `webui setup_done` | `no` | `no`, `yes` | `yes`: the first-run setup of the web interface was finished. `no`: the web interface opens it for clients on the USB network |
+| `webui fireos_image_saved` | `no` | `no`, `yes` | `yes`: the owner confirmed in the setup that the Fire OS image (`system_a`) was downloaded and saved. Nothing else depends on it yet |
+| `voice wake_word` | `hey_jarvis` | `hey_jarvis` | word the voice assistant listens for; the only one for now |
+| `voice language` | `en` | `en`, `de` | language the voice assistant understands and speaks: English, German |
+| `voice sensitivity` | `medium` | `low`, `medium`, `high` | how readily the wake word triggers: `low` misses more, `high` triggers more often by mistake |
+| `voice api_key` | unset | 16-200 printable ASCII characters, no spaces | Claude API key of the voice assistant. Stored in plain text in `lidar.conf`, which only root can read; `lidar-feature settings` shows it as `(set)` |
 
+- `voice` is a group of settings without a service switch: it does not
+  appear in `lidar-feature list`. The assistant that will use them is not
+  part of the image yet, so nothing reads them so far; `lidar-wakeword`
+  does not take its cutoff from `voice sensitivity` either.
+- `lidar-feature set <name> <key>` without a value reads it from standard
+  input, which keeps a passphrase or key out of the process list. The web
+  interface hands on setting values and the Wi-Fi passphrase that way.
+  Verified on hardware with `voice api_key` (set and unset).
 - The telnet restriction is a socket bound to `usb0` with `SO_BINDTODEVICE`
   (`tools/lidar-listen.c`), not a packet filter: the kernel only matches
   the listener for connections that come in on `usb0`, whatever address
   they are sent to. If `usb0` is missing, telnet does not start. The USB
   host, and whatever that host forwards onto the USB network, still gets a
   root shell without a password. Not yet verified on hardware.
-- `usbaudio mic_gain` is applied when the speakerphone starts
-  (`lidar-usbaudio start`). Old `usbaudio.speaker_volume` and
-  `usbaudio.keepalive` lines in `lidar.conf` are ignored: speaker volume and
-  the keep-alive belong to the `volume` service.
 - `wifi country` has not been tried on hardware.
 - `wifi ssid`/`passphrase`: verified on hardware. The configuration
   that `wpa_supplicant` gets (SSID as hex, the PSK from `wpa_passphrase`,
@@ -359,17 +402,12 @@ Volume 0 is silence: the codec's lowest step (-63.5 dB) is still audible, so
 otherwise through the codec's DAC-to-driver switches). Everything that
 changes volume feeds the same state:
 
-- **USB host:** the speakerphone offers the host a hardware volume and mute
-  whose steps are the codec's steps, so the host's own volume curve applies
-  unchanged. Changes made on the Echo are reported back, so the host's slider
-  follows them.
 - **Bluetooth phone** (`bluetooth` service): the phone's volume buttons and
   slider set the level, and changes made on the Echo move the phone's
   slider (see Bluetooth speaker).
 - **Volume buttons:** 3 dB per press; holding repeats after 0.4 s, one step
   every 0.15 s. A short 520 Hz tone plays at the new level on the press and,
-  after a hold, once at the final level, as on stock. Host slider changes
-  stay silent: the host plays its own sound.
+  after a hold, once at the final level, as on stock.
 - **Command line:** `lidar-volume get | set <percent> | up | down | mute |
   unmute | toggle`.
 
@@ -388,8 +426,7 @@ stream held open, sounds start at once and without clicks. Expect a faint
 amplifier hiss, as on stock.
 
 Without the `volume` service the speaker stays at the test image's base level
-(-40 dB), and the USB host gets no hardware volume, so it scales the audio
-itself.
+(-40 dB).
 
 ### Speaker tuning
 
@@ -493,9 +530,45 @@ up:
 - **Files:** a read-only file browser with text preview (first 256 KB) and
   download. Device nodes, `/proc/kmsg`, `/proc/kcore`, process memory and
   debugfs are refused: reading some of them blocks, and debugfs register
-  dumps of clock-gated blocks can stall the bus. Everything else is
-  served, `lidar.conf` with the Wi-Fi passphrase included: the settings
-  view shows it as `(set)`, but the file holds it in plain text.
+  dumps of clock-gated blocks can stall the bus. `lidar.conf` on the
+  booted slot is refused too, because it holds the Wi-Fi passphrase and
+  the API key in plain text. Everything else is served.
+
+**First-run setup.** Until it has been finished once (`webui setup_done`),
+the web interface opens a setup for clients on the USB network; "Run setup
+again" under System starts it later. Every step can be skipped.
+
+1. *Fire OS files*: shows whether lidar's copy of the Wi-Fi firmware and
+   the speaker tuning is complete, and restores a `lidar-fireos export`
+   backup if not (see Files from Fire OS).
+2. *Fire OS image*: downloads the whole Fire OS partition (`system_a`) as
+   `fireos-system_a.img.gz`, offered when lidar booted from slot b and
+   Fire OS is still on `system_a`. The partition is only read, never
+   mounted. The image is private: keep it, never share or publish it.
+   Ticking "I saved the file" sets `webui fireos_image_saved`.
+3. *Wi-Fi*: scan and join, as under Network.
+4. *Device name*: the name phones show for the Bluetooth speaker
+   (`bluetooth name`), after a reboot. It is not a network hostname.
+5. *Voice assistant*: wake word, language, sensitivity and the Claude API
+   key (the `voice` settings). The web interface never returns the key,
+   only whether one is set and its last four characters. "Test key" asks
+   the Anthropic API for its model list from the Echo, over TLS with the
+   key on `socat`'s standard input; it needs Wi-Fi and a set clock. The
+   assistant itself is not part of the image yet.
+
+The setup adds these to the API: `setup` (finished or not, and whether
+this client may run it; the only one answered outside the USB network),
+`fireos_image` (the gzip stream), `voice_key` (set or not, last four
+characters) and `voice_key_test` (`ok`, `invalid`, `offline` or `error`);
+`fireos` also reports `image_bytes`, the partition size.
+
+Verified on hardware, through the API: `setup`, `voice_key`, setting and
+removing the key, `voice_key_test` with a made-up key (`invalid`, so the
+TLS connection and the certificate check work), the `fireos_image` stream
+(about 6 MB/s of partition data, a valid gzip file) and the refusal of
+`lidar.conf`. A key test with a valid key has not been run, and the pages
+of the setup were walked through in a desktop browser against a mock
+backend, not against the Echo.
 
 There is no login: as with telnet, the server (BusyBox `httpd` behind
 `lidar-listen`) only accepts connections that arrive on `usb0` unless
@@ -550,13 +623,11 @@ tuning, mixed with other sounds (`lidar-bluetooth`).
 - **Volume:** the phone's volume (AVRCP absolute volume) is the system
   volume (without the `volume` service, bluealsa scales the phone's audio
   by it instead). Changes on the phone go to `lidar-volume` (with the volume arc on
-  the ring), and the volume buttons, the web interface and the USB host's
-  slider move the phone's slider. Each slider answers a change with its own
-  rounding of it (an iPhone has 16 steps); `lidar-volume` takes what comes
-  back from a slider within 1.5 s of its own write as that echo, otherwise
-  the phone and the USB host push the level back and forth. A real change
-  on that slider inside those 1.5 s is lost the same way; the next one
-  counts again.
+  the ring), and the volume buttons and the web interface move the phone's
+  slider. The phone answers a change with its own rounding of it (an iPhone
+  has 16 steps); `lidar-volume` takes what comes back from the phone within
+  1.5 s of its own write as that echo and ignores it. A real change on the
+  phone inside those 1.5 s is lost the same way; the next one counts again.
 - Pairing keys live in `/var/lib/bluetooth`, bound from the booted slot
   (`lidar-feature keep`). Paired phones are listed and removed in the web
   interface or with `lidar-bluetooth devices` and `lidar-bluetooth forget
@@ -576,7 +647,7 @@ tuning, mixed with other sounds (`lidar-bluetooth`).
 With the `visualizer` extra, the LED ring shows what the speaker plays
 (`lidar-viz`). It listens to the AFE's loopback of the DAC input
 (`hw:amazonlidar,2`), so every source counts: Bluetooth, the web player,
-the USB host, system sounds. 40 frames per second.
+system sounds. 40 frames per second.
 
 The loopback is taken after the speaker tuning and before the codec: with
 `dsp`, `lidar-dsp` has already applied the system volume (up to the cap);
@@ -596,11 +667,59 @@ is missing from `/run/lidar-volume.state`, so both paths look the same.
   rest of the ring (`/run/lidar-ring.level`).
 - Dark while the speaker is muted, at volume 0, and while nothing plays
   (silence is judged before the volume).
-- While the USB host records through the speakerphone (`lidar-usbaudio`'s
-  mic pipe runs, also with `usbaudio aec off`), `lidar-aec` may need the
-  loopback: `lidar-viz` lets go of it and waits.
 - Verified on hardware: both styles with music over Bluetooth, the volume
   arc, mute, privacy red and pairing taking the ring and handing it back.
+
+### Wake word
+
+`lidar-wakeword` listens for "Hey Jarvis" in 16 kHz 16-bit mono audio on
+standard input, which is what `lidar-voice` writes:
+
+```sh
+lidar-voice | lidar-wakeword
+```
+
+It prints one line per detection, `wake hey_jarvis <probability> <seconds
+since boot>`, and then stays quiet for a second. `-v` prints the
+probability of every inference (one per 30 ms) on stderr, `-t 0.9` sets
+another cutoff than the model's 0.97, and `-m`/`-c` select another
+microWakeWord v2 model and its manifest. No service starts it yet.
+
+The detector is microWakeWord's `hey_jarvis` v2 model, run as ESPHome's
+`micro_wake_word` component runs it (same audio features, same decision
+over the last 5 probabilities; none of its code), on TensorFlow Lite
+Micro.
+
+- **On hardware:** 5 of 5 "Hey Jarvis" detected behind `lidar-voice`, no
+  false accept during the test. One short test, one speaker.
+- **On a PC**, with synthetic speech (Piper, 109 voices, 154 utterances of
+  "Hey Jarvis" alone and with a question run on):
+
+  | Condition | Detected |
+  |---|---|
+  | no noise | 148 of 154 |
+  | pink noise, 10 dB SNR | 152 of 154 |
+  | pink noise, 0 dB SNR | 152 of 154 |
+  | music, 5 dB SNR | 152 of 154 |
+
+  The model is trained on Piper speech, so these numbers are optimistic;
+  no recordings of people were tested on the PC. Most misses are the
+  phrase run together with the question without a pause.
+- **False accepts on a PC:** none in 12.2 hours (10.5 h of read speech
+  from LibriSpeech, 0.5 h of music, 1.2 h of noise and silence).
+- **Similar phrases** usually trigger it too ("Hey Jervis" 31 of 35 voices,
+  "Hey Travis" 23 of 35); "Jarvis" alone, "Hey Siri" and "Alexa" never
+  did.
+- **Load:** 0.09 % of a PC core and 4.5 MB of memory. On the Echo's
+  Cortex-A35 that is an estimated 1.3-1.9 % of one core, not measured.
+- The arm64 binary gives the same probabilities as the PC build, byte for
+  byte, over 5.5 minutes of speech and music (under `qemu-aarch64`).
+
+Neither the model nor the TensorFlow sources are in this repository:
+`tools/mk-wakeword.sh` fetches them at build time, pinned by commit or
+checksum (see Licensing). The licence texts go into the image, in
+`/usr/share/licenses/lidar-wakeword`. `tools/mk-wakeword.sh <dir>` without
+a sysroot builds the detector for the build host, to try it on recordings.
 
 ### Zigbee and Thread
 
@@ -697,52 +816,6 @@ on a log scale: about 30 or less (covered, dark room at night) gives
 brightness; a dimly lit room (about 550) gives about 60 %. A steady red ring
 follows the room light every 2 s, in steps of at least 10 % so it does not
 flicker. The ring's own light does not reach the sensor (measured).
-
-### USB speakerphone
-
-The USB host sees the Echo as a USB Audio Class 2 sound card, with no driver
-needed: "Speakers (Echo Plus speakerphone)" and "Microphone (Echo Plus
-speakerphone)" on Windows. PC audio plays on the Echo speaker (verified by
-ear), and mics 1-6 summed to mono come back as the microphone, both at
-48 kHz.
-`lidar-usbaudio start|stop|status` controls it at runtime.
-
-- The audio function is added next to the serial shell and network. If the
-  host had configured the gadget before but does not configure it again
-  within about 15 s, the function is removed and the shell and network come
-  back. This rollback path has not been exercised on hardware.
-- With the `volume` service's keep-alive on (the default), the speaker pipe
-  stays up while the speakerphone exists, mixed into the speaker output that
-  `lidar-volume` holds open, so short sounds start at once. Without it the
-  pipe only runs while the host plays: no idle hiss, but each stream clicks
-  at start and end and loses up to a second of its start. The mic pipe only
-  runs while the host records, which the gadget's `Playback Rate` control
-  reports.
-- The microphone goes through `lidar-aec` (setting `usbaudio aec`): mics 1-6
-  mixed to mono, with WebRTC's AEC3 echo cancellation against the playback
-  loopback (a bit-exact copy of what the DAC gets, on the same clock),
-  noise suppression and a high-pass filter. The speaker plays the mono mix,
-  so the reference is mixed to mono too. The echo reaches the mics only
-  2.4 ms after the reference, too little for AEC3's delay estimator: without
-  a margin it settled on about 100 ms and never converged. The mic is
-  therefore run 40 ms behind the reference. Measured with music at 60 %
-  volume: the echo drops from -31 dBFS at the mics to about -72 dBFS, the
-  noise floor, after 4-5 s of adaptation (AEC3: ERL 20 dB, ERLE 15 dB).
-  It costs about a third of one core while the host records.
-- Two USB kernel fixes in `drivers/usb/musb/`:
-  - Isochronous transfers through MUSB's Inventra DMA failed on MT8516 (IN
-    produced no packets; root cause unknown), so isochronous endpoints use
-    PIO there: a quirk (`MUSB_G_ISOC_NO_DMA`) set by the MediaTek glue only.
-  - Isochronous packets that fail their CRC (`DATAERROR`) are dropped
-    instead of being passed on with a garbage length. That had shifted the
-    PC-to-Echo stream by single bytes, which played as static. Each drop
-    costs 1 ms of audio. Over the pogo-pin connection to the test pads they
-    happen several times per second, which a soldered, twisted D+/D- pair
-    should reduce.
-- Not yet done:
-  - beamforming
-  - clock-drift compensation: the mic and USB clocks are independent, so
-    latency can creep up to about 0.7 s before the pipe resets
 
 ## U-Boot behaviour
 
@@ -957,6 +1030,15 @@ bound by `lidar-volume`'s cap.
   The `ring` service sets it to 256x gain and 0.72 s integration for its
   brightness control; with `ring auto_brightness off` the driver default
   (1x, 0.18 s) stays.
+- **USB device port (MUSB):** two fixes in `drivers/usb/musb/` for
+  isochronous gadget endpoints, which the serial shell and the network do
+  not use:
+  - Isochronous transfers through MUSB's Inventra DMA failed on MT8516 (IN
+    produced no packets; root cause unknown), so isochronous endpoints use
+    PIO there: a quirk (`MUSB_G_ISOC_NO_DMA`) set by the MediaTek glue only.
+  - Isochronous packets that fail their CRC (`DATAERROR`) are dropped
+    instead of being passed on with a garbage length. Over the pogo-pin
+    connection to the test pads they happen several times per second.
 
 ## Upstreaming
 
@@ -984,6 +1066,20 @@ series:
 | `lidar-wifi/` | MediaTek dual licence, `GPL-2.0 OR BSD-3-Clause` |
 | `ucm2/` | `BSD-3-Clause`, as alsa-ucm-conf |
 | `pogo-jig/` | `CERN-OHL-S-2.0` |
+| `tools/lidar-wakeword.cc` | `GPL-2.0-or-later`: the binary links Apache-2.0 code (below), which combines with GPL version 3 but not with version 2 alone, so the binary as a whole is under GPL-3.0-or-later terms |
+| `installer/vendor/` | `MIT` (fastboot.js v1.1.3, unmodified, licence text beside it); the bundle contains zip.js, `BSD-3-Clause`, with its notices kept inside the file |
 | everything else | `GPL-2.0-only` (see `LICENSE`) |
 
 Licence texts are in `LICENSES/`.
+
+Not in this repository, downloaded when the test image is built and linked
+into `lidar-wakeword` or shipped beside it:
+
+| What | Licence |
+|---|---|
+| TensorFlow Lite Micro, TensorFlow's microfrontend, FlatBuffers | `Apache-2.0` |
+| KISS FFT | `BSD-3-Clause` |
+| the `hey_jarvis` microWakeWord model and its manifest | `Apache-2.0` |
+
+Their licence texts and the model collection's NOTICE are installed in
+`/usr/share/licenses/lidar-wakeword`.

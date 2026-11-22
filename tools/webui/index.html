@@ -295,6 +295,26 @@ pre.text { margin: 0; max-height: max(320px, calc(100vh - 250px)); overflow: aut
 #fb-name { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; }
 @media (max-width: 560px) { .when { display: none; } }
 
+/* first-run setup */
+body.setup nav { display: none; }
+#view-setup { max-width: 680px; margin: 0 auto; }
+#wz-dots { display: flex; gap: 6px; margin-bottom: 16px; }
+#wz-dots li { flex: 1; height: 6px; border-radius: 3px; background: var(--track); }
+#wz-dots li.past { background: var(--accent); opacity: .45; }
+#wz-dots li.now { background: var(--accent); }
+.wz-step { display: grid; gap: 12px; }
+.wz-step h3 { font-size: 1.15rem; }
+.wz-step .callout, .wz-step .bar, .wz-step .note, .wz-step form { margin: 0; }
+.wz-step ul.plain { padding-left: 20px; list-style: disc; }
+.wz-step form { display: grid; gap: 8px; padding: 14px; border-radius: 12px; background: var(--bg); }
+.wz-step form div { display: flex; gap: 8px; }
+.field { display: grid; gap: 4px; }
+.field > span { font-size: .85rem; font-weight: 550; }
+.check { display: flex; align-items: flex-start; gap: 9px; font-weight: 550; }
+.check input { margin-top: 3px; flex: none; }
+.wz-foot { display: flex; align-items: center; gap: 8px; margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid var(--line); }
+
 @media (max-width: 899px) {
   body { display: block; }
   #side { display: contents; }
@@ -574,6 +594,12 @@ pre.text { margin: 0; max-height: max(320px, calc(100vh - 250px)); overflow: aut
     </div>
     <div class="card">
       <div class="ch flat">
+        <div class="stack"><h3>Setup</h3><span class="meta">Fire OS files and image, Wi-Fi, device name and voice assistant, step by step.</span></div>
+        <a class="btn" href="#setup">Run setup again</a>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch flat">
         <div class="stack"><h3>Restart</h3><span class="meta">The page reconnects by itself once the Echo is back.</span></div>
         <button id="reboot">Reboot</button>
       </div>
@@ -624,6 +650,112 @@ pre.text { margin: 0; max-height: max(320px, calc(100vh - 250px)); overflow: aut
     <div class="card" id="fb-view" hidden>
       <div class="ch"><h3 id="fb-name"></h3><button id="fb-close">Close</button></div>
       <pre class="text" id="fb-text"></pre>
+    </div>
+  </div>
+</section>
+
+<section id="view-setup" hidden>
+  <div class="vh"><h2>Setup</h2><button id="wz-later" class="ghost">Not now</button></div>
+  <ul id="wz-dots" aria-hidden="true"></ul>
+  <div class="card">
+    <p class="muted" id="wz-count" role="status"></p>
+
+    <div class="wz-step" data-step="welcome">
+      <h3>Welcome</h3>
+      <p>This Echo Plus runs lidar: mainline Linux with its own services for the speaker, the LED ring, Wi-Fi, Bluetooth and the Zigbee and Thread radio, in place of Fire OS. lidar is an independent project and not affiliated with the maker of the device.</p>
+      <p>A few steps get it ready:</p>
+      <ul class="plain">
+        <li><b>Fire OS files</b>: the Wi-Fi firmware and the speaker tuning lidar needs from your own Fire OS</li>
+        <li><b>Fire OS image</b>: a full copy of the original system, for you to keep</li>
+        <li><b>Wi-Fi</b>: the network the Echo joins</li>
+        <li><b>Device name</b>: what phones see</li>
+        <li><b>Voice assistant</b>: wake word, language and API key</li>
+      </ul>
+      <p class="note">Every step can be skipped and done later; the setup can be run again from System.</p>
+    </div>
+
+    <div class="wz-step" data-step="fireos" hidden>
+      <div class="ch flat"><h3>Fire OS files</h3><span class="pill" id="wz-fireos-state">–</span></div>
+      <p>lidar cannot ship two things, as they may not be redistributed: the Wi-Fi firmware (Wi-Fi and Bluetooth both need it) and Amazon's tuning for this speaker. It takes them from the Fire OS on this Echo and keeps its own copy.</p>
+      <ul class="rows" id="wz-fireos-rows"></ul>
+      <p class="callout" id="wz-fireos-warn" hidden></p>
+      <div class="bar">
+        <button id="wz-fireos-pick">Restore backup…</button>
+        <button id="wz-fireos-export">Download backup</button>
+      </div>
+      <p class="note">A backup is the tar file of "Download backup" (lidar-fireos export). Keep one on your PC: an Echo without Fire OS and without this copy needs it. Restored files take effect after a reboot.</p>
+    </div>
+
+    <div class="wz-step" data-step="image" hidden>
+      <div class="ch flat"><h3>Fire OS image</h3><span class="pill" id="wz-image-state">–</span></div>
+      <p>The original system still sits untouched on the Echo (partition system_a). Download a complete copy and keep it in a safe place: once that partition is put to other use, this file is the only way back to the original system.</p>
+      <p class="muted" id="wz-image-none" hidden>No Fire OS was found on system_a: there is nothing to download.</p>
+      <div id="wz-image-have" class="wz-step">
+        <p class="callout">The image is private: it holds software licensed for this one device and data specific to it. Never share or publish it.</p>
+        <div class="bar">
+          <a class="btn pri" id="wz-image-get" href="cgi-bin/api?fireos_image" download="fireos-system_a.img.gz"><svg class="i" aria-hidden="true"><use href="#i-down"/></svg>Download image</a>
+          <span class="muted" id="wz-image-size"></span>
+        </div>
+        <label class="check"><input type="checkbox" id="wz-image-saved"> I saved the file fireos-system_a.img.gz and will keep it private</label>
+        <p class="note">The partition is only read, nothing on the Echo changes. The download is compressed, takes several minutes and shows no total size; wait until the browser reports it complete. "gzip -t" on the PC checks the file.</p>
+      </div>
+    </div>
+
+    <div class="wz-step" data-step="wifi" hidden>
+      <div class="ch flat"><h3>Wi-Fi</h3><span class="pill" id="wz-wifi-state">–</span></div>
+      <p id="wz-wifi-now">–</p>
+      <p class="callout" id="wz-wifi-warn" hidden>The Wi-Fi firmware is missing: Wi-Fi cannot start until the Fire OS files are restored and the Echo has rebooted.</p>
+      <div class="bar">
+        <button id="wz-wifi-scan">Scan</button>
+        <button id="wz-wifi-other">Other…</button>
+      </div>
+      <form id="wz-wifi-form" hidden>
+        <input id="wz-wifi-ssid" type="text" placeholder="Network name" maxlength="32" required aria-label="Network name">
+        <input id="wz-wifi-pass" type="password" placeholder="Passphrase" minlength="8" maxlength="63" required
+               autocomplete="off" aria-label="Passphrase">
+        <div><button type="submit" class="pri">Connect</button><button type="button" id="wz-wifi-cancel" class="ghost">Cancel</button></div>
+      </form>
+      <ul class="rows wrap" id="wz-wifi-list"></ul>
+      <p class="note">WPA2-Personal. The network is saved on the Echo and joined at every boot. Without Wi-Fi the Echo is reached over USB only, and the clock is not set.</p>
+    </div>
+
+    <div class="wz-step" data-step="name" hidden>
+      <h3>Device name</h3>
+      <p>The name phones show for the Echo as a Bluetooth speaker.</p>
+      <label class="field"><span>Name</span><input id="wz-name" type="text" maxlength="48" placeholder="lidar"></label>
+      <p class="note">Up to 48 bytes. A new name takes effect after a reboot.</p>
+    </div>
+
+    <div class="wz-step" data-step="voice" hidden>
+      <h3>Voice assistant</h3>
+      <p>Say the wake word, ask, and Claude answers through the speaker. The assistant itself is not part of this image yet: these settings are stored for it.</p>
+      <label class="field"><span>Wake word</span>
+        <select id="wz-wake"><option value="hey_jarvis">Hey Jarvis</option></select></label>
+      <label class="field"><span>Language</span>
+        <select id="wz-lang"><option value="en">English</option><option value="de">Deutsch</option></select></label>
+      <label class="field"><span>Wake word sensitivity</span>
+        <select id="wz-sens"><option value="low">Low: fewer false wake-ups</option><option value="medium">Medium</option><option value="high">High: reacts more readily</option></select></label>
+      <label class="field"><span>Claude API key</span>
+        <input id="wz-key" type="password" maxlength="200" autocomplete="off" spellcheck="false"></label>
+      <div class="bar">
+        <button id="wz-key-test">Test key</button>
+        <span class="pill" id="wz-key-result" role="status" hidden></span>
+      </div>
+      <p class="note">The key is stored on the Echo, readable by root only, and is never shown again: only whether one is set and its last four characters. Questions go from the Echo to the Anthropic API and are billed to the key's account. The test needs Wi-Fi and a set clock.</p>
+    </div>
+
+    <div class="wz-step" data-step="done" hidden>
+      <h3>All set</h3>
+      <ul class="rows" id="wz-summary"></ul>
+      <p class="callout" id="wz-reboot" hidden>Some changes take effect after a reboot (System, Restart).</p>
+      <p class="note">Everything here can be changed later under Network and System.</p>
+    </div>
+
+    <div class="wz-foot">
+      <button id="wz-back" class="ghost">Back</button>
+      <span class="grow"></span>
+      <button id="wz-skip" class="ghost">Skip</button>
+      <button id="wz-next" class="pri">Next</button>
     </div>
   </div>
 </section>
@@ -875,12 +1007,13 @@ function initTheme() {
 
 /* ---------- views ---------- */
 
-const VIEWS = ['dashboard', 'music', 'network', 'services', 'debug', 'files'];
+const VIEWS = ['dashboard', 'music', 'network', 'services', 'debug', 'files', 'setup'];   /* setup: not in the menu */
 let view = 'dashboard';
 
 function showView(name) {
   view = VIEWS.includes(name) ? name : 'dashboard';
   for (const v of VIEWS) $('view-' + v).hidden = v !== view;
+  document.body.classList.toggle('setup', view === 'setup');
   for (const a of document.querySelectorAll('nav a')) {
     if (a.dataset.view === view) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
@@ -889,6 +1022,7 @@ function showView(name) {
   if (view === 'music') { refreshPlayer(); refreshSongs(); }
   if (view === 'network') refreshNetwork();
   if (view === 'services') { refreshServices(); refreshSettings(); refreshFireos(); }
+  if (view === 'setup') openSetup();
   if (view === 'debug') {
     $('log').dataset.shown = '';              /* a hidden pane loses its scroll position */
     refreshLog();
@@ -1391,7 +1525,8 @@ function fmtBand(mhz) {
 }
 
 function renderNetwork(n) {
-  const w = n.wifi;
+  const w = wifi = n.wifi;
+  renderSetupWifi();
   const up = w.state === 'connected';
   setPill('wifi-state', up ? 'Connected' : w.state === 'absent' ? 'Unavailable' : 'Not connected', up ? 'on' : '');
   setText('wifi-ssid', w.state === 'absent' ? 'No Wi-Fi interface (wifi service off?)'
@@ -1445,27 +1580,28 @@ function ssidFromIw(s) {
 }
 
 /* Only WPA2-Personal is set up (also in WPA2/WPA3 mixed mode). */
-function wifiRow(net) {
+function wifiRow(net, open) {
   const li = el('li');
   const pick = el('button', '', 'Connect');
   if (!net.security.startsWith('wpa2')) {
     pick.disabled = true;
     pick.title = 'Only WPA2-Personal networks are supported';
   }
-  pick.addEventListener('click', () => openWifiForm(net.ssid));
+  pick.addEventListener('click', () => open(net.ssid));
   li.append(bars(net.signal), stack(net.ssid, el('span', 'pill', net.security),
     el('span', 'num', net.bands.split(' ').join(' + ') + ' GHz'), el('span', 'num', net.signal + ' dBm')), pick);
   return li;
 }
 
-async function scanWifi() {
-  const btn = $('wifi-scan'), label = btn.textContent;
+/* The Network view's scan, or the setup's with its own button, list and form. */
+async function scanWifi(btn = $('wifi-scan'), list = $('wifi-list'), open = openWifiForm) {
+  const label = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Scanning…';
   try {
     const d = await api('wifi_scan', null, WIFI_SCAN_MS);
     const nets = d.networks.map((n) => ({ ...n, ssid: ssidFromIw(n.ssid) })).filter((n) => n.ssid != null);
-    $('wifi-list').replaceChildren(...(nets.length ? nets.map(wifiRow) : [el('li', 'empty', 'No networks found')]));
+    list.replaceChildren(...(nets.length ? nets.map((n) => wifiRow(n, open)) : [el('li', 'empty', 'No networks found')]));
   } catch (err) {
     toast(describe(err));
   } finally {
@@ -1524,7 +1660,7 @@ async function scanBluetooth() {
 }
 
 function initNetwork() {
-  $('wifi-scan').addEventListener('click', scanWifi);
+  $('wifi-scan').addEventListener('click', () => scanWifi());
   $('wifi-other').addEventListener('click', () => openWifiForm(''));
   $('wifi-cancel').addEventListener('click', () => {
     $('wifi-form').hidden = true;
@@ -1614,7 +1750,7 @@ function settingInput(s) {
     const [lo, hi] = s.allowed.split('-');
     input = el('input');
     Object.assign(input, { type: 'number', min: lo, max: hi, value: s.value });
-  } else if (s.allowed === 'passphrase') {
+  } else if (s.allowed === 'passphrase' || s.allowed === 'secret') {
     input = el('input');
     Object.assign(input, { type: 'password', autocomplete: 'off', placeholder: s.value ? 'set (type to replace)' : 'unset' });
   } else {
@@ -1635,7 +1771,7 @@ function settingRow(s) {
   const name = s.feature + '.' + s.key;
   const save = el('button', 'pri', 'Save');
   const reset = el('button', 'ghost', 'Reset');
-  const secret = s.allowed === 'passphrase';
+  const secret = s.allowed === 'passphrase' || s.allowed === 'secret';
   const mark = () => { save.disabled = secret ? !input.value : input.value === s.value; };
   mark();
   input.addEventListener('input', mark);
@@ -1695,6 +1831,8 @@ function renderFireos(d) {
   const kept = (f) => f.size != null;
   const wifiOk = files.filter((f) => f.group === 'wifi' && f.required).every(kept);
   const dspOk = files.some((f) => f.group === 'dsp' && f.required && kept(f));
+  fireos = { wifiOk, dspOk, present: !!d.fireos, imageBytes: d.image_bytes };
+  renderSetupFireos();
   const state = $('fireos-state');
   state.textContent = wifiOk && dspOk ? 'Kept' : 'Incomplete';
   state.className = 'pill ' + (wifiOk && dspOk ? 'on' : 'warn');
@@ -1743,6 +1881,263 @@ async function importFireos(file) {
   } catch (err) {
     toast(describe(err));
   }
+}
+
+/* ---------- first-run setup ---------- */
+
+/* Per step: its title; skip: may be left undone; ready(): Next is offered; apply(): what Next saves
+   (resolves to false to stay on the step). */
+const SETUP = {
+  welcome: { title: 'Welcome' },
+  fireos: { title: 'Fire OS files', skip: true, ready: () => !!fireos && fireos.wifiOk && fireos.dspOk },
+  image: { title: 'Fire OS image', skip: true, ready: () => !imageOffered() || $('wz-image-saved').checked,
+    apply: () => !imageOffered() || saveSetting('webui.fireos_image_saved', 'yes') },
+  wifi: { title: 'Wi-Fi', skip: true, ready: () => !!wifi && (wifi.state === 'connected' || !!wifi.configured) },
+  name: { title: 'Device name', skip: true, ready: () => !!$('wz-name').value.trim(), apply: saveName },
+  voice: { title: 'Voice assistant', skip: true, apply: saveVoice },
+  done: { title: 'Done', apply: finishSetup },
+};
+const SETUP_STEPS = Object.keys(SETUP);
+let setupStep = 0;
+let fireos = null;              /* the last ?fireos answer: { wifiOk, dspOk, present, imageBytes } */
+let wifi = null;                /* the last ?network answer's wifi */
+let conf = {};                  /* settings as the device holds them, by "feature.key" */
+let confLoaded = false;         /* conf came from the device on this opening; nothing is saved otherwise */
+let voiceKey = { set: false, last4: null };
+
+function imageOffered() { return !!fireos && fireos.imageBytes != null; }
+
+async function saveSetting(name, value) {
+  if (!confLoaded || conf[name] === value) return true;
+  if (!await command('set=' + name, OCTET(value))) return false;
+  conf[name] = value;
+  return true;
+}
+
+async function saveName() {
+  const name = $('wz-name').value.trim();
+  if (!confLoaded || name === conf['bluetooth.name']) return true;
+  if (!await saveSetting('bluetooth.name', name)) return false;
+  markPending();
+  return true;
+}
+
+/* The key goes to the device only; what comes back is whether one is set and its last four characters. */
+async function saveKey() {
+  const key = $('wz-key').value.trim();
+  if (!key) return true;
+  if (!await command('set=voice.api_key', OCTET(key))) return false;
+  $('wz-key').value = '';
+  try { voiceKey = await api('voice_key'); } catch (err) { toast(describe(err)); }
+  renderKey();
+  return true;
+}
+
+async function saveVoice() {
+  return await saveSetting('voice.wake_word', $('wz-wake').value) &&
+    await saveSetting('voice.language', $('wz-lang').value) &&
+    await saveSetting('voice.sensitivity', $('wz-sens').value) &&
+    await saveKey();
+}
+
+function renderKey() {
+  $('wz-key').placeholder = voiceKey.set ? 'set, ends in ' + voiceKey.last4 + ' (type to replace)' : 'sk-ant-…';
+  $('wz-key-test').disabled = !voiceKey.set && !$('wz-key').value.trim();
+}
+
+const KEY_RESULTS = {
+  ok: ['Key works', 'on'],
+  invalid: ['Key rejected by the API', 'warn'],
+  offline: ['API not reached: no internet, or the clock is not set', 'warn'],
+};
+
+/* Tests the stored key, so a typed one is saved first. */
+async function testKey() {
+  const btn = $('wz-key-test'), out = $('wz-key-result');
+  btn.disabled = true;
+  out.hidden = true;
+  try {
+    if (await saveKey()) {
+      const r = await api('voice_key_test', true, 30000);
+      const [text, cls] = KEY_RESULTS[r.result] || ['API answered: ' + (r.status || 'error'), 'warn'];
+      out.textContent = text;
+      out.className = 'pill ' + cls;
+      out.hidden = false;
+    }
+  } catch (err) {
+    toast(describe(err));
+  }
+  renderKey();
+}
+
+function statusRow(name, info, pill, cls) {
+  const li = el('li');
+  li.append(stack(name, info), el('span', 'pill ' + (cls || ''), pill));
+  return li;
+}
+
+function renderSetupFireos() {
+  if (!fireos) return;
+  const all = fireos.wifiOk && fireos.dspOk;
+  setPill('wz-fireos-state', all ? 'Kept' : 'Incomplete', all ? 'on' : 'warn');
+  $('wz-fireos-rows').replaceChildren(
+    statusRow('Wi-Fi firmware', 'needed for Wi-Fi and Bluetooth', fireos.wifiOk ? 'Kept' : 'Missing', fireos.wifiOk ? 'on' : 'warn'),
+    statusRow('Speaker tuning', 'loudness, bass and limiter as on Fire OS', fireos.dspOk ? 'Kept' : 'Missing', fireos.dspOk ? 'on' : 'warn'),
+    statusRow('Fire OS on system_a', 'where the files come from at boot', fireos.present ? 'Found' : 'Not found', fireos.present ? 'on' : ''));
+  const missing = [];
+  if (!fireos.wifiOk) missing.push('without the Wi-Fi firmware there is no Wi-Fi and no Bluetooth');
+  if (!fireos.dspOk) missing.push('without the tuning the speaker plays untuned');
+  $('wz-fireos-warn').textContent = 'Restore a backup, or skip: ' + missing.join(', and ') + '.';
+  $('wz-fireos-warn').hidden = all;
+  $('wz-fireos-export').disabled = !(fireos.wifiOk || fireos.dspOk);
+  $('wz-image-none').hidden = imageOffered();
+  $('wz-image-have').hidden = !imageOffered();
+  if (imageOffered()) setText('wz-image-size', fmtBytes(fireos.imageBytes) + ' before compression');
+  $('wz-wifi-warn').hidden = fireos.wifiOk;
+  renderSetupNav();
+}
+
+function renderSetupImage() {
+  const saved = conf['webui.fireos_image_saved'] === 'yes';
+  setPill('wz-image-state', saved ? 'Saved' : 'Not saved', saved ? 'on' : '');
+}
+
+function renderSetupWifi() {
+  if (!wifi) return;
+  const up = wifi.state === 'connected';
+  setPill('wz-wifi-state', up ? 'Connected' : wifi.state === 'absent' ? 'Unavailable' : 'Not connected', up ? 'on' : '');
+  setText('wz-wifi-now', up ? 'Connected to ' + wifi.ssid + '.' :
+    wifi.configured ? 'Saved network: ' + wifi.configured + '. Not connected (yet).' : 'No network set up yet. Scan and pick yours.');
+  renderSetupNav();
+}
+
+function openSetupWifiForm(ssid) {
+  $('wz-wifi-form').hidden = false;
+  $('wz-wifi-ssid').value = ssid || '';
+  $('wz-wifi-pass').value = '';
+  (ssid ? $('wz-wifi-pass') : $('wz-wifi-ssid')).focus();
+}
+
+function renderSummary() {
+  const saved = conf['webui.fireos_image_saved'] === 'yes';
+  const files = !!fireos && fireos.wifiOk && fireos.dspOk;
+  const up = !!wifi && wifi.state === 'connected';
+  const net = wifi && (up ? wifi.ssid : wifi.configured);
+  const lang = $('wz-lang').selectedOptions[0].textContent;
+  $('wz-summary').replaceChildren(
+    statusRow('Fire OS files', files ? 'Wi-Fi firmware and speaker tuning kept' : 'incomplete: restore a backup under System',
+      files ? 'Kept' : 'Incomplete', files ? 'on' : 'warn'),
+    statusRow('Fire OS image', saved ? 'you confirmed the download' : imageOffered() ? 'not downloaded yet' : 'no Fire OS on system_a',
+      saved ? 'Saved' : 'Not saved', saved ? 'on' : ''),
+    statusRow('Wi-Fi', net || 'no network set up', up ? 'Connected' : net ? 'Saved' : 'Skipped', up ? 'on' : ''),
+    statusRow('Device name', conf['bluetooth.name'] || '', 'Set', 'on'),
+    statusRow('Voice assistant', $('wz-wake').selectedOptions[0].textContent + ', ' + lang,
+      voiceKey.set ? 'Key set' : 'No key', voiceKey.set ? 'on' : ''));
+  $('wz-reboot').hidden = $('pending').hidden;
+}
+
+function renderSetupNav() {
+  const step = SETUP[SETUP_STEPS[setupStep]];
+  const ready = !step.ready || step.ready();
+  $('wz-back').hidden = setupStep === 0;
+  $('wz-next').disabled = !ready;
+  $('wz-next').textContent = setupStep === SETUP_STEPS.length - 1 ? 'Finish' : 'Next';
+  $('wz-skip').hidden = !step.skip || (ready && !step.apply);   /* nothing left to skip */
+}
+
+function showSetupStep(i) {
+  setupStep = Math.min(SETUP_STEPS.length - 1, Math.max(0, i));
+  const name = SETUP_STEPS[setupStep];
+  for (const s of document.querySelectorAll('#view-setup > .card > .wz-step')) s.hidden = s.dataset.step !== name;
+  [...$('wz-dots').children].forEach((d, n) => { d.className = n < setupStep ? 'past' : n === setupStep ? 'now' : ''; });
+  setText('wz-count', 'Step ' + (setupStep + 1) + ' of ' + SETUP_STEPS.length + ' · ' + SETUP[name].title);
+  if (name === 'wifi') refreshNetwork();
+  if (name === 'done') renderSummary();
+  renderSetupNav();
+  scrollTo(0, 0);
+}
+
+async function finishSetup() {
+  await saveSetting('webui.setup_done', 'yes');   /* a failure shows as a toast; the dashboard opens anyway */
+  location.hash = 'dashboard';
+  return false;
+}
+
+/* Opened by the hash "#setup": from the first step, with what the device holds now. */
+async function openSetup() {
+  showSetupStep(0);
+  refreshFireos();
+  refreshNetwork();
+  confLoaded = false;
+  try {
+    const [s, k] = await Promise.all([api('settings'), api('voice_key')]);
+    conf = Object.fromEntries(s.settings.map((x) => [x.feature + '.' + x.key, x.value]));
+    voiceKey = k;
+    confLoaded = true;
+  } catch (err) {
+    toast(describe(err));
+    return;
+  }
+  $('wz-name').value = conf['bluetooth.name'] || '';
+  $('wz-wake').value = conf['voice.wake_word'];
+  $('wz-lang').value = conf['voice.language'];
+  $('wz-sens').value = conf['voice.sensitivity'];
+  $('wz-image-saved').checked = conf['webui.fireos_image_saved'] === 'yes';
+  $('wz-key').value = '';
+  $('wz-key-result').hidden = true;
+  renderKey();
+  renderSetupImage();
+  renderSetupNav();
+}
+
+/* The setup opens by itself until it was finished once, for clients that may run it (USB network). */
+async function checkFirstRun() {
+  try {
+    const s = await api('setup');
+    if (!s.done && s.admin) location.hash = 'setup';
+  } catch (err) { /* the polls report an unreachable device */ }
+}
+
+function initSetup() {
+  $('wz-dots').replaceChildren(...SETUP_STEPS.map(() => el('li')));
+  $('wz-later').addEventListener('click', () => { location.hash = 'dashboard'; });
+  $('wz-back').addEventListener('click', () => showSetupStep(setupStep - 1));
+  $('wz-skip').addEventListener('click', () => showSetupStep(setupStep + 1));
+  $('wz-next').addEventListener('click', async () => {
+    const step = SETUP[SETUP_STEPS[setupStep]];
+    $('wz-next').disabled = true;
+    const ok = !step.apply || await step.apply();
+    if (ok) showSetupStep(setupStep + 1);
+    else if (view === 'setup') renderSetupNav();
+    renderSetupImage();
+  });
+  $('wz-fireos-pick').addEventListener('click', () => $('fireos-import').click());
+  $('wz-fireos-export').addEventListener('click', exportFireos);
+  $('wz-image-saved').addEventListener('change', renderSetupNav);
+  $('wz-name').addEventListener('input', renderSetupNav);
+  $('wz-key').addEventListener('input', renderKey);
+  $('wz-key-test').addEventListener('click', testKey);
+  $('wz-wifi-scan').addEventListener('click', () => scanWifi($('wz-wifi-scan'), $('wz-wifi-list'), openSetupWifiForm));
+  $('wz-wifi-other').addEventListener('click', () => openSetupWifiForm(''));
+  $('wz-wifi-cancel').addEventListener('click', () => {
+    $('wz-wifi-form').hidden = true;
+    $('wz-wifi-pass').value = '';
+  });
+  $('wz-wifi-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ssid = $('wz-wifi-ssid').value, pass = $('wz-wifi-pass').value;
+    if (/[\r\n]/.test(ssid + pass)) return toast('Line breaks are not allowed');
+    const btn = e.submitter;
+    if (btn) btn.disabled = true;
+    const ok = await command('wifi_connect', OCTET(ssid + '\n' + pass), 15000);
+    if (btn) btn.disabled = false;
+    if (!ok) return;
+    $('wz-wifi-pass').value = '';
+    $('wz-wifi-form').hidden = true;
+    $('wz-wifi-list').replaceChildren();
+    toast('Saved, joining ' + ssid + '…', true);
+    refreshNetwork();
+  });
 }
 
 /* ---------- debug ---------- */
@@ -1916,11 +2311,14 @@ initNetwork();
 initServices();
 initDebug();
 initFiles();
+initSetup();
 initViews();
+checkFirstRun();
 if (view !== 'music') refreshSongs();           /* the overview's play button starts the first song */
 every(STATS_MS, () => !document.hidden, refreshStats);
 every(PLAYER_MS, () => !document.hidden && view === 'music', refreshPlayer);
-every(NETWORK_MS, () => !document.hidden && view === 'network', refreshNetwork);
+every(NETWORK_MS, () => !document.hidden && (view === 'network' || (view === 'setup' && SETUP_STEPS[setupStep] === 'wifi')),
+  refreshNetwork);
 every(LOG_MS, () => !document.hidden && view === 'debug' && debugTab === 'log' && $('log-follow').checked &&
   $('log-src').value === 'current', refreshLog);
 </script>
