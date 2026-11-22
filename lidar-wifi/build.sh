@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-2.0
 # Build the MT7668 WLAN module out of tree. Run inside the lidar-build
-# container (see README.md):
+# container (see docs/building.md):
 #   bash /work/lidar-wifi/build.sh [extra make args]
 #
 # KSRC   kernel source tree               (default /src/linux)

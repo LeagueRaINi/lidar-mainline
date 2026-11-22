@@ -1,10 +1,11 @@
 # Pogo-pin flash jig for the debug USB
 
 A 3D-printed jig that puts three pogo pins on the USB test pads of the Echo
-Plus 2nd gen (TM4 D+, TM5 D-, TM37 GND; see "Test points" in the top-level
-README). The wires of a cut USB cable are soldered to the pins. Nothing is
-soldered to the Echo, and there is no PCB. One M4 screw into the threaded
-insert in the centre of the bottom holds the jig.
+Plus 2nd gen (TM4 D+, TM5 D-, TM37 GND; see
+[Test points](../docs/hardware.md#test-points)). The wires of a cut USB
+cable are soldered to the pins. Nothing is soldered to the Echo, and there
+is no PCB. One M4 screw into the threaded insert in the centre of the
+bottom holds the jig.
 
 ![Flash jig on its feet, from the table side](renders/jig-feet-underside.png)
 

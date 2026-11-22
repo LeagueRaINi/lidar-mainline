@@ -2,7 +2,8 @@
 
 A multiprotocol RCP for lidar's Silicon Labs radio: Zigbee and Thread at the
 same time on one channel (OpenThread multi-PAN RCP over CPC), driven by
-`cpcd`, `zigbeed` and `otbr-agent` on the Echo (see the main README).
+`cpcd`, `zigbeed` and `otbr-agent` on the Echo (see
+[Zigbee and Thread](../docs/services.md#zigbee-and-thread)).
 
 ## The radio, as read from Amazon's two images
 

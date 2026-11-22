@@ -1,0 +1,87 @@
+<!-- SPDX-License-Identifier: GPL-2.0-only -->
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>lidar-mainline banner</title>
+<!--
+  Source of docs/banner.png, the README's banner: the project page's hero
+  (installer/index.html) as one 1280 x 400 frame, dark theme, animations
+  frozen. To render it again, serve the repository root over HTTP and take a
+  1280 x 400 screenshot of this page at device scale factor 2, e.g.:
+    python -m http.server 8731      (in the repository root)
+    open http://localhost:8731/docs/banner/banner.html
+  then quantise the PNG to keep it below 250 KB (Pillow: quantize(colors=192,
+  method=MEDIANCUT), saved with optimize=True).
+-->
+<link rel="stylesheet" href="../../installer/site.css">
+<link rel="stylesheet" href="../../installer/landing.css">
+<style>
+  html, body { width: 1280px; height: 400px; overflow: hidden; scrollbar-gutter: auto; }
+  /* one frozen frame: every LED at its own phase of the chase, no breathing */
+  *, ::before, ::after { animation-play-state: paused !important; }
+  .banner { width: 1280px; height: 400px; }
+  .banner-in { display: grid; grid-template-columns: 1fr 400px; align-items: center; height: 100%; padding: 0 64px 0 84px; gap: 24px; }
+  .lp h1 { margin: 22px 0 14px; font-size: 76px; }
+  .pitch { font-size: 1.5rem; max-width: none; color: var(--fg); opacity: .86; }
+  .facts { margin-top: 26px; font-size: 1rem; }
+  .hero-art { height: 400px; }
+  .device { width: 330px; }
+</style>
+</head>
+<body class="lp">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="led" viewBox="0 0 100 100" overflow="visible"><path d="M38.22 6.05A45.5 45.5 0 0 1 61.78 6.05"/></symbol>
+</svg>
+<section class="banner backdrop">
+  <div class="banner-in">
+    <div>
+      <p class="tag"><span class="dot" aria-hidden="true"></span>Mainline Linux and U-Boot</p>
+      <h1><span class="grad">lidar-mainline</span></h1>
+      <p class="pitch">Open firmware for the Echo Plus (2nd generation)</p>
+      <ul class="facts">
+        <li><b>Voice</b> on the device</li>
+        <li><b>Bluetooth</b> speaker</li>
+        <li><b>Web</b> interface</li>
+        <li><b>Open</b> source</li>
+      </ul>
+    </div>
+    <div class="hero-art">
+      <div class="device">
+        <!-- the drawn Echo top from installer/index.html (hero) -->
+        <svg class="echo" viewBox="0 0 100 100" role="img" aria-label="An Echo Plus (2nd generation) from above, the light ring glowing cyan">
+          <defs>
+            <radialGradient id="g-rim" cx="50%" cy="40%" r="62%"><stop offset="0" stop-color="#3b4048"/><stop offset="1" stop-color="#17191d"/></radialGradient>
+            <radialGradient id="g-cap" cx="42%" cy="30%" r="78%"><stop offset="0" stop-color="#434951"/><stop offset=".6" stop-color="#2d3137"/><stop offset="1" stop-color="#22262b"/></radialGradient>
+            <linearGradient id="g-btn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#25292e"/><stop offset="1" stop-color="#3a3f46"/></linearGradient>
+            <filter id="blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.4"/></filter>
+            <filter id="diffuse" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation=".75"/></filter>
+            <mask id="mute-cut" maskUnits="userSpaceOnUse" x="40" y="19" width="20" height="20"><rect x="40" y="19" width="20" height="20" fill="#fff"/><path d="M47.15 26.15l5.7 5.7" stroke="#000" stroke-width="2.3" stroke-linecap="round"/></mask>
+          </defs>
+          <circle cx="50" cy="50" r="49.6" fill="url(#g-rim)"/>
+          <circle cx="50" cy="50" r="45.5" fill="none" stroke="#090b0d" stroke-width="3.8"/>
+          <circle class="track" cx="50" cy="50" r="45.5"/>
+          <circle cx="50" cy="50" r="43.5" fill="url(#g-cap)"/>
+          <circle cx="50" cy="50" r="43.3" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width=".4"/>
+          <g class="mics" fill="#111316"><circle cx="50" cy="50" r=".8"/><circle cx="50" cy="17.5" r=".8"/><circle cx="78.1" cy="33.75" r=".8"/><circle cx="78.1" cy="66.25" r=".8"/><circle cx="50" cy="82.5" r=".8"/><circle cx="21.9" cy="66.25" r=".8"/><circle cx="21.9" cy="33.75" r=".8"/></g>
+          <g class="btns" fill="url(#g-btn)" stroke="#121417" stroke-width=".7"><circle cx="50" cy="29" r="6.4"/><circle cx="71" cy="50" r="6.4"/><circle cx="50" cy="71" r="6.4"/><circle cx="29" cy="50" r="6.4"/></g>
+          <g class="btn-hi" fill="none" stroke="#fff" stroke-opacity=".06" stroke-width=".5"><circle cx="50" cy="29" r="5.8"/><circle cx="71" cy="50" r="5.8"/><circle cx="50" cy="71" r="5.8"/><circle cx="29" cy="50" r="5.8"/></g>
+          <g class="glyphs" fill="none" stroke="#8d959f" stroke-width=".75" stroke-linecap="round">
+            <circle cx="50" cy="29" r="2.4" mask="url(#mute-cut)"/><path d="M47.15 26.15l5.7 5.7"/>
+            <path d="M71 47.6v4.8M68.6 50h4.8"/>
+            <path d="M29 47.6v4.8"/>
+            <circle cx="50" cy="71" r=".9" fill="#c9ced4" stroke="none"/>
+          </g>
+          <g class="leds halo" filter="url(#blur)">
+            <use href="#led" style="--i:0"/><use href="#led" style="--i:1" transform="rotate(30 50 50)"/><use href="#led" style="--i:2" transform="rotate(60 50 50)"/><use href="#led" style="--i:3" transform="rotate(90 50 50)"/><use href="#led" style="--i:4" transform="rotate(120 50 50)"/><use href="#led" style="--i:5" transform="rotate(150 50 50)"/><use href="#led" style="--i:6" transform="rotate(180 50 50)"/><use href="#led" style="--i:7" transform="rotate(210 50 50)"/><use href="#led" style="--i:8" transform="rotate(240 50 50)"/><use href="#led" style="--i:9" transform="rotate(270 50 50)"/><use href="#led" style="--i:10" transform="rotate(300 50 50)"/><use href="#led" style="--i:11" transform="rotate(330 50 50)"/>
+          </g>
+          <g class="leds" filter="url(#diffuse)">
+            <use href="#led" style="--i:0"/><use href="#led" style="--i:1" transform="rotate(30 50 50)"/><use href="#led" style="--i:2" transform="rotate(60 50 50)"/><use href="#led" style="--i:3" transform="rotate(90 50 50)"/><use href="#led" style="--i:4" transform="rotate(120 50 50)"/><use href="#led" style="--i:5" transform="rotate(150 50 50)"/><use href="#led" style="--i:6" transform="rotate(180 50 50)"/><use href="#led" style="--i:7" transform="rotate(210 50 50)"/><use href="#led" style="--i:8" transform="rotate(240 50 50)"/><use href="#led" style="--i:9" transform="rotate(270 50 50)"/><use href="#led" style="--i:10" transform="rotate(300 50 50)"/><use href="#led" style="--i:11" transform="rotate(330 50 50)"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+</body>
+</html>
