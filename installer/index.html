@@ -103,41 +103,62 @@
           power starts it. This page does not unlock anything; see
           <a id="link-prereq" target="_blank" rel="noopener">Prerequisites in the README</a>.</li>
         <li>Your own eMMC dump from the unlock, at least <code>boot_a</code>. It is the way back to the stock boot path.</li>
-        <li>The pogo-pin USB: a USB cable on the Echo's USB contacts underneath (D+ on TM4, D− on TM5, GND on TM37, marked below), for example with the project's pogo-pin jig. One contact of the block carries about 17 V: see below.</li>
+        <li>The pogo-pin USB: a USB cable on the six contacts underneath the Echo (D+, D− and GND, see below), for example with the project's pogo-pin jig.</li>
         <li>The two images, <code>lidar-uboot.img</code> and <code>lidar-test-system.ext4</code> (next step).</li>
       </ul>
-      <div class="photos">
-        <figure class="echo-pads">
-          <img src="echo-pads.webp" width="720" height="540" alt="The six gold contacts on the underside of the Echo, seen with the label upright. Top row, left to right: TM45, D+ (TM4), D− (TM5). Bottom row: TM35, GND (TM37), and at the bottom right 17 V (TM33), which must stay unconnected">
-          <svg viewBox="0 0 100 75" aria-hidden="true">
-            <circle class="sig" cx="42.9" cy="31.7" r="5"/><text x="42.9" y="22.5">D+</text>
-            <circle class="sig" cx="56.7" cy="31.7" r="5"/><text x="56.7" y="22.5">D−</text>
-            <circle class="gnd" cx="42.9" cy="45.2" r="5"/><text x="42.9" y="58.6">GND</text>
-            <circle class="hot" cx="56.7" cy="45.2" r="5"/><text class="hot" x="56.7" y="58.6">17 V</text>
-          </svg>
-          <figcaption>Underneath, with the label upright: the Echo's outer edge is to the right of the window, the small notch in its frame on the left. The two contacts in the left column stay free.</figcaption>
-        </figure>
+      <figure class="echo-pads">
+        <img src="echo-pads.webp" width="1240" height="520" alt="The underside of the Echo with its label text upright and the window with six gold contacts to the right of it. Top row, left to right: TM45, D+, D−. Bottom row: TM35, GND, and 17 V at the bottom right">
+        <svg viewBox="0 0 100 41.94" aria-hidden="true">
+          <circle class="free" cx="70.8" cy="9.84" r="2.4"/><text x="70.8" y="5.6">TM45</text>
+          <circle class="sig" cx="76.0" cy="9.84" r="2.4"/><text x="76.0" y="5.6">D+</text>
+          <circle class="sig" cx="81.6" cy="9.84" r="2.4"/><text x="81.6" y="5.6">D−</text>
+          <circle class="free" cx="70.8" cy="15.08" r="2.4"/><text x="70.8" y="20.4">TM35</text>
+          <circle class="gnd" cx="76.0" cy="15.08" r="2.4"/><text x="76.0" y="20.4">GND</text>
+          <circle class="hot" cx="81.6" cy="15.08" r="2.4"/><text class="hot" x="81.6" y="20.4">17 V</text>
+        </svg>
+        <figcaption>The contacts underneath the Echo, seen with the label text upright as here.</figcaption>
+      </figure>
+      <div class="pads-detail">
+        <table class="pads">
+          <thead><tr><th>Contact</th><th>Signal</th><th>Connect</th></tr></thead>
+          <tbody>
+            <tr><td>top middle (TM4)</td><td>USB D+</td><td>yes</td></tr>
+            <tr><td>top right (TM5)</td><td>USB D−</td><td>yes</td></tr>
+            <tr><td>bottom middle (TM37)</td><td>ground</td><td>yes</td></tr>
+            <tr class="hot"><td>bottom right (TM33)</td><td>about 17 V from the power adapter</td><td><b>never</b></td></tr>
+            <tr><td>top left (TM45)</td><td>USB ID</td><td>no, leave free</td></tr>
+            <tr><td>bottom left (TM35)</td><td>not known yet (probably USB power from the factory fixture)</td><td>no, leave free</td></tr>
+          </tbody>
+        </table>
         <figure class="echo-jig">
           <img src="echo-jig.webp" width="640" height="640" alt="The pogo-pin jig clamped to the underside of the Echo, its cable leading off to the right">
-          <figcaption>The project's pogo-pin jig in place (<code>pogo-jig/</code>): only D+, D− and GND are wired; the red wire (VBUS) is cut off and insulated. The Echo also needs its own power adapter; plug that in last, while holding a button.</figcaption>
+          <figcaption>The project's pogo-pin jig (<code>pogo-jig/</code>) in place: only D+, D− and GND are wired.</figcaption>
         </figure>
       </div>
-      <p class="callout"><b>The bottom right contact, the one nearest the outer edge (TM33), carries about 17 V from the power adapter.</b> Never connect anything to it, and do not bridge it to its neighbours.</p>
+      <p class="callout"><b>The bottom right contact carries about 17 V.</b> Never connect anything to it, and do not bridge it to its neighbours.</p>
     </div>
     <div class="card">
       <h3>What gets written</h3>
+      <p>Two partitions, each with its own job:</p>
       <ul class="rows">
-        <li><div class="stack"><span class="name"><code>boot_a</code> ← lidar-uboot.img</span><span class="meta">Replaces the boot image LK starts. Restore your own <code>boot_a</code> dump through Kaeru fastboot to undo it.</span></div></li>
-        <li><div class="stack"><span class="name"><code>system_b</code> ← lidar-test-system.ext4</span><span class="meta">Erases <code>system_b</code>. Fire OS on <code>system_a</code> stays as it is.</span></div></li>
+        <li><div class="stack"><span class="name"><code>boot_a</code> ← lidar-uboot.img</span><span class="meta">The boot partition: the bootloader (LK) starts whatever is in it. Today that is Fire OS's kernel; afterwards it is lidar's bootloader (U-Boot), which starts lidar.</span></div></li>
+        <li><div class="stack"><span class="name"><code>system_b</code> ← lidar-test-system.ext4</span><span class="meta">The spare system partition Fire OS keeps for its updates. lidar's system goes here; what was on it is erased.</span></div></li>
       </ul>
-      <p class="note">Nothing else is written, and the installer refuses any other partition. Kaeru's fastboot lives in partitions this
-        project never touches, so it stays available for recovery: hold <b>Action</b> while plugging in power.</p>
-      <p class="callout">If your Fire OS runs from slot b, do not use this page: it would erase it. Follow the README by hand with
-        <code>system_a</code> instead.</p>
+      <p><b>Fire OS no longer starts afterwards.</b> This install does not touch its own system on <code>system_a</code> (lidar
+        takes the Wi-Fi firmware and the speaker tuning from it). While Fire OS is still there, restoring your own
+        <code>boot_a</code> dump through Kaeru fastboot (hold <b>Action</b> while plugging in power) brings it back.</p>
+      <p class="note">Later versions of lidar will use <code>system_a</code> as their second partition for updates. They ask first,
+        and offer to save a full image of Fire OS to your computer before anything is written there; without that image there is no
+        way back to Fire OS afterwards.</p>
+      <p class="note">Nothing else is written, and the installer refuses any other partition. Kaeru fastboot lives in partitions this
+        project never touches, so it stays available for recovery.</p>
+      <p class="callout">Fire OS normally runs from <code>system_a</code>. If yours runs from <code>system_b</code>, do not use this
+        page: it would erase it. Follow the README by hand with <code>system_a</code> instead.</p>
     </div>
     <div class="card">
-      <label class="check"><input type="checkbox" id="pre-ok"><span>My Echo Plus 2nd gen is unlocked and has Kaeru fastboot, I have my own
-        <code>boot_a</code> dump, and I accept that <code>system_b</code> is erased. I do this at my own risk.</span></label>
+      <label class="check"><input type="checkbox" id="pre-ok"><span>My Echo Plus 2nd gen is unlocked and has Kaeru fastboot, and I have my own
+        <code>boot_a</code> dump. I accept that <code>system_b</code> is erased and that Fire OS no longer starts until I restore that
+        dump. I do this at my own risk.</span></label>
     </div>
     <div class="bar"><button data-go="1">Back</button><span class="grow"></span><button class="pri" data-go="3" id="next-2" disabled>Next</button></div>
   </section>

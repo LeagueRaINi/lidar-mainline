@@ -129,21 +129,28 @@ figure.echo-top circle { fill: none; stroke: #ff3b30; stroke-width: 1.6;
 figure.echo-top figcaption { text-align: center; color: var(--muted); font-size: .9rem; margin-top: 6px; }
 @keyframes press { 50% { transform: scale(1.18); opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { figure.echo-top circle { animation: none; } }
-/* underside: the contacts with their signals marked, and the jig in place */
-.photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; align-items: start; }
-.photos figure { margin: 0; }
-.photos img { display: block; width: 100%; height: auto; border-radius: 10px; }
-.photos figcaption { color: var(--muted); font-size: .9rem; margin-top: 6px; }
-figure.echo-jig img { width: min(100%, 300px); margin: 0 auto; border-radius: 50%; }
-figure.echo-pads { position: relative; }
-figure.echo-pads svg { position: absolute; left: 0; top: 0; width: 100%; aspect-ratio: 4 / 3; pointer-events: none; }
-figure.echo-pads circle { fill: none; stroke-width: 1.1; }
+/* underside: the contacts with their signals marked, a table, the jig in place */
+figure.echo-pads, figure.echo-jig { margin: 0; }
+figure.echo-pads { position: relative; margin-top: 16px; }
+figure.echo-pads img { display: block; width: 100%; height: auto; border-radius: 10px; }
+figure.echo-pads svg { position: absolute; left: 0; top: 0; width: 100%; aspect-ratio: 100 / 41.94; pointer-events: none; }
+figure.echo-pads circle { fill: none; stroke-width: .55; }
 figure.echo-pads circle.sig { stroke: #4ade80; }
 figure.echo-pads circle.gnd { stroke: #60a5fa; }
-figure.echo-pads circle.hot { stroke: #ff3b30; stroke-width: 1.6; }
-figure.echo-pads text { font: 700 4.6px system-ui, sans-serif; fill: #fff; text-anchor: middle;
-  paint-order: stroke; stroke: rgba(0, 0, 0, .75); stroke-width: 1.2px; }
+figure.echo-pads circle.free { stroke: rgba(255, 255, 255, .45); stroke-dasharray: .8 .6; }
+figure.echo-pads circle.hot { stroke: #ff3b30; stroke-width: .8; }
+figure.echo-pads text { font: 700 1.75px system-ui, sans-serif; fill: #fff; text-anchor: middle;
+  paint-order: stroke; stroke: rgba(0, 0, 0, .8); stroke-width: .5px; }
 figure.echo-pads text.hot { fill: #ff6b61; }
+figure.echo-pads figcaption, figure.echo-jig figcaption { color: var(--muted); font-size: .9rem; margin-top: 6px; }
+.pads-detail { display: grid; grid-template-columns: 1fr 220px; gap: 20px; align-items: center; margin-top: 14px; }
+@media (max-width: 640px) { .pads-detail { grid-template-columns: 1fr; } }
+figure.echo-jig img { display: block; width: 100%; max-width: 220px; height: auto; margin: 0 auto; border-radius: 50%; }
+figure.echo-jig figcaption { text-align: center; }
+table.pads { width: 100%; border-collapse: collapse; font-size: .92rem; }
+table.pads th, table.pads td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.pads th { color: var(--muted); font-weight: 600; }
+table.pads tr.hot td { color: var(--bad); font-weight: 600; }
 .prog { display: grid; gap: 6px; }
 .prog span { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
 
