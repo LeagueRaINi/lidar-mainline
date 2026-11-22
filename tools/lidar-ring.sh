@@ -9,11 +9,17 @@
 #   pair on|ok|off                     Bluetooth pairing mode: a blue arc
 #                                      circles until "ok" (two blue
 #                                      flashes) or "off"
+#   wake <led 1-12>|off                the wake word was heard: the LED towards
+#                                      the speaker and, dimmer, its two
+#                                      neighbours in cyan, for WAKE_HOLD
+#                                      seconds or until "off"; not while the
+#                                      mics are muted
 # A change of the privacy state ends any overlay at once; while the mics
 # are muted the pairing arc waits under the red ring.
 # Brightness follows the ambient light sensor, as on stock: full from a lit
-# room down to "ring min_brightness" percent in the dark (setting "ring
-# auto_brightness off" keeps it at full).
+# room down to "ring min_brightness" percent in the dark (a change of it
+# applies within seconds; setting "ring auto_brightness off" keeps it at
+# full).
 # While the ring shows any of this, /run/lidar-ring.busy exists, and
 # /run/lidar-ring.level holds the brightness in percent: the visualizer
 # (lidar-viz) only draws without the first, at the second.
@@ -27,9 +33,12 @@ LEVEL=/run/lidar-ring.level
 L=/sys/class/leds
 N=12
 HOLD=2
+WAKE_HOLD=3
 WHITE=96
 RED=160
 BLUE=160
+WAKE_G=70	# listening: cyan, green and blue of the middle LED
+WAKE_B=160
 SPIN=0.1	# pairing arc: seconds per step
 # Sensor counts at its most sensitive setting: covered reads 0-20, a dimly
 # lit room about 550, a flashlight about 9000. Brightness is interpolated on
@@ -73,9 +82,19 @@ claim() {
 }
 release() { rm -f $BUSY; }
 
+# min_brightness is read here whenever lidar.conf changed, so a change
+# shows without a restart.
 level() { # -> P, the brightness in percent, also published for lidar-viz
 	P=100
 	if [ -n "$als" ]; then
+		# re-read only when lidar.conf changed (mtime and inode; a change
+		# replaces the file): a lidar-feature fork is not free
+		m=$(stat -c '%Y %i' /media/system/etc/lidar.conf 2>/dev/null)
+		if [ "$m" != "${dim_at-unread}" ] || [ -z "$dim_min" ]; then
+			dim_at=$m
+			dim_min=$(lidar-feature get ring min_brightness 2>/dev/null)
+			dim_min=${dim_min:-15}
+		fi
 		P=$(awk -v v="$(cat "$als/in_illuminance_raw" 2>/dev/null)" -v min="$dim_min" \
 			-v lo=$ALS_DARK -v hi=$ALS_BRIGHT 'BEGIN {
 			if (v == "" || v >= hi) { print 100; exit }
@@ -141,6 +160,23 @@ spin() {
 	pos=$(( (pos + 1) % N ))
 }
 
+# Listening: the LED towards the speaker, its neighbours at a fifth
+wake() { # led
+	claim
+	level
+	wg=$(scaled $WAKE_G)
+	wb=$(scaled $WAKE_B)
+	i=1
+	while [ $i -le $N ]; do
+		case $(( (i - $1 + N) % N )) in
+		0) set_led $i 0 $wg $wb ;;
+		1 | $((N - 1))) set_led $i 0 $((wg / 5)) $((wb / 5)) ;;
+		*) set_led $i 0 0 0 ;;
+		esac
+		i=$((i + 1))
+	done
+}
+
 flash() { # two blue flashes: paired
 	claim
 	level
@@ -180,19 +216,24 @@ daemon() {
 	pairing=
 	pos=0
 	p_drawn=100
-	dim_min=$(lidar-feature get ring min_brightness 2>/dev/null)
-	dim_min=${dim_min:-15}
 	als_setup
 	mic_watch &
 	trap 'trap "" TERM; kill 0; exit' INT TERM
 	base
 	while :; do
 		t=$HOLD
+		[ "$overlay" = wake ] && t=$WAKE_HOLD
 		[ -n "$pairing" ] && [ -z "$overlay" ] && [ "$mic_muted" != 1 ] && t=$SPIN
 		if read -t $t cmd a b c <&3; then
 			case $cmd in
 			mic) mic_muted=$a; overlay=; pos=0; base ;;	# privacy state wins at once
 			volume) volume "$a" "$b" "$c"; overlay=1 ;;
+			wake)
+				case $a in
+				[1-9] | 1[0-2]) [ "$mic_muted" = 1 ] || { wake "$a"; overlay=wake; } ;;
+				off) [ "$overlay" != wake ] || { overlay=; pos=0; base; } ;;
+				esac
+				;;
 			pair)
 				case $a in
 				on) pairing=1; pos=0; [ -n "$overlay" ] || { claim; base; } ;;
@@ -225,7 +266,7 @@ daemon() {
 case $1 in
 daemon) daemon ;;
 *)
-	sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

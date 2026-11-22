@@ -61,3 +61,5 @@ play some jazz
 !action alarm_set hour=7 minute=5 repeat=sat
 !action reboot
 how much time is left
+say "hello" to bob
+!state

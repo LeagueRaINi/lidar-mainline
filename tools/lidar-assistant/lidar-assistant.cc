@@ -433,9 +433,40 @@ static std::string days_json(int mask)
 	return "[" + s + "]";
 }
 
+// The last utterance and what became of it, for the web interface
+static struct {
+	long seq, uptime;
+	std::string text, action, say;
+	bool ok;
+} last;
+
+// Valid UTF-8 of what came in: the state file has to stay JSON
+static std::string utf8(const std::string &s)
+{
+	std::string out;
+
+	for (size_t i = 0; i < s.size();) {
+		unsigned char c = (unsigned char)s[i];
+		size_t len = c < 0x80 ? 1 : c >= 0xC2 && c < 0xE0 ? 2 : c >= 0xE0 && c < 0xF0 ? 3 :
+			     c >= 0xF0 && c < 0xF5 ? 4 : 0, k = 1;
+
+		while (k < len && i + k < s.size() && ((unsigned char)s[i + k] & 0xC0) == 0x80)
+			k++;
+		if (len && k == len) {
+			out.append(s, i, len);
+			i += len;
+		} else {
+			out += '?';
+			i++;
+		}
+	}
+	return out;
+}
+
 // For the web interface and the LED ring. Timers end at "ends" seconds
 // since boot (/proc/uptime); "remaining" is as of "uptime", when the file
 // was written. It is written when something changes, not every second.
+// "last": the last utterance (seq counts them), null before the first.
 static std::string state()
 {
 	long mono = mono_now();
@@ -472,7 +503,13 @@ static std::string state()
 		     ",\"repeat\":" + days_json(a.repeat) + ",\"next\":" +
 		     std::to_string(ok || !a.repeat ? (long long)next_due(a, now) : 0) + "}";
 	}
-	return s + "]}";
+	s += "],\"last\":";
+	if (!last.seq)
+		return s + "null}";
+	return s + "{\"seq\":" + std::to_string(last.seq) + ",\"uptime\":" +
+	       std::to_string(last.uptime) + ",\"text\":" + json(last.text) + ",\"action\":" +
+	       json(last.action) + ",\"ok\":" + (last.ok ? "true" : "false") + ",\"say\":" +
+	       json(last.say) + "}}";
 }
 
 // sync: on disk before it replaces the file (the alarms; not for /run)
@@ -1161,7 +1198,7 @@ static void tick()
 }
 
 // Carries the action out, reports the result and speaks the answer
-static void perform(const Action &a)
+static Result perform(const Action &a)
 {
 	Result res = execute(a);
 	std::string args;
@@ -1172,6 +1209,7 @@ static void perform(const Action &a)
 	       json(a.name).c_str(), args.c_str(), res.ok ? "true" : "false",
 	       json(res.code).c_str(), json(res.say.text()).c_str());
 	speak(res.say);
+	return res;
 }
 
 static void handle(const std::string &line)
@@ -1221,11 +1259,20 @@ static void handle(const std::string &line)
 		printf("action %s\n", a.str().c_str());
 		if (parse_only)
 			return;
+		Result res;
 		if (a.name == "unmatched") {
 			printf("unmatched %s\n", line.c_str());
-			return;
+			res.ok = false;
+		} else {
+			res = perform(a);
 		}
-		perform(a);
+		last.seq++;
+		last.uptime = mono_now();
+		last.text = utf8(line);
+		last.action = a.name;
+		last.ok = res.ok;
+		last.say = res.say.text();
+		dirty = true;
 	}
 	tick();
 }

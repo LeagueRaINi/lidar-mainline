@@ -168,6 +168,7 @@ install -m755 /work/tools/lidar-wifi.sh "$T/initramfs/usr/bin/lidar-wifi"
 install -m755 /work/tools/lidar-fireos.sh "$T/initramfs/usr/bin/lidar-fireos"
 install -m755 /work/tools/lidar-time.sh "$T/initramfs/usr/bin/lidar-time"
 install -m755 /work/tools/lidar-models.sh "$T/initramfs/usr/bin/lidar-models"
+install -m755 /work/tools/lidar-wake.sh "$T/initramfs/usr/bin/lidar-wake"
 # Thread border router: ot-br-posix, pinned, built for musl against the
 # sysroot like the tools above. Its sources (with submodules) are cached in
 # /src. The vendor and product name end up in the border agent's mDNS
@@ -442,6 +443,9 @@ done
 if [ -z "$slot" ] || ! mount -o ro -t ext4 "/dev/disk/by-partlabel/system_$slot" /media/system; then
 	echo "lidar: booted slot not mounted (lidar.slot='$slot'): no /etc/lidar.conf, defaults apply" > /dev/kmsg
 fi
+# The settings as this boot started with them: "lidar-feature pending" tells
+# a change from a change undone (holds the secrets too: root only)
+(umask 077; cp /media/system/etc/lidar.conf /run/lidar.conf.boot 2>/dev/null || : > /run/lidar.conf.boot)
 # Light-ring animation until the last boot job touches /run/boot-done
 if lidar-feature enabled bootanim; then
 	lidar-bootanim /run/boot-done &
@@ -559,7 +563,14 @@ fi
 # Sound display on the ring: after the boot animation, as lidar-ring; it
 # keeps off the ring while lidar-ring shows something
 if lidar-feature enabled visualizer && [ -e /sys/class/leds/ring1:red/brightness ]; then
-	echo "::respawn:/bin/sh -c 'while [ ! -e /run/boot-done ] || pidof lidar-bootanim >/dev/null; do sleep 0.5; done; exec /usr/bin/lidar-viz -s $(lidar-feature get visualizer style)'" \
+	# the style is read at every start: a change restarts lidar-viz (lidar-feature)
+	echo '::respawn:/bin/sh -c '\''while [ ! -e /run/boot-done ] || pidof lidar-bootanim >/dev/null; do sleep 0.5; done; exec /usr/bin/lidar-viz -s $(lidar-feature get visualizer style)'\''' \
+		>> /etc/inittab
+fi
+# Wake word: lidar-voice into lidar-wakeword, once the boot is done (the
+# microphones and the speaker reference are shared, dsnoop)
+if lidar-feature enabled voice; then
+	echo "::respawn:/bin/sh -c 'while [ ! -e /run/boot-done ]; do sleep 0.5; done; exec /usr/bin/lidar-wake daemon'" \
 		>> /etc/inittab
 fi
 # Voice assistant: alarms and speech models are kept on the booted slot (too

@@ -1,5 +1,5 @@
 > !state
-state {"language":"en","clock":false,"uptime":0,"ringing":[],"timers":[],"alarms":[]}
+state {"language":"en","clock":false,"uptime":0,"ringing":[],"timers":[],"alarms":[],"last":null}
 > what time is it
 action time_get
 result {"action":"time_get","arguments":{},"ok":false,"code":"no_clock","say":"I don't know the time yet."}
@@ -73,7 +73,7 @@ say en Timer set for one hour and five minutes.
 > !advance 420
 ring start
 > !state
-state {"language":"en","clock":true,"uptime":720,"ringing":[{"kind":"timer","name":"pizza"}],"timers":[{"name":"","seconds":3900,"ends":4200,"remaining":3480}],"alarms":[]}
+state {"language":"en","clock":true,"uptime":720,"ringing":[{"kind":"timer","name":"pizza"}],"timers":[{"name":"","seconds":3900,"ends":4200,"remaining":3480}],"alarms":[],"last":{"seq":16,"uptime":300,"text":"set a timer for one hour and five minutes","action":"timer_set","ok":true,"say":"Timer set for one hour and five minutes."}}
 > stop the timer
 action timer_cancel
 ring stop
@@ -139,11 +139,11 @@ action alarm_list
 result {"action":"alarm_list","arguments":{},"ok":true,"code":"ok","say":"Alarm at seven PM today. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at seven thirty AM tomorrow. Alarm at nine AM on weekends."}
 say en Alarm at seven PM today. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at seven thirty AM tomorrow. Alarm at nine AM on weekends.
 > !state
-state {"language":"en","clock":true,"uptime":1510,"ringing":[],"timers":[],"alarms":[{"id":1,"hour":19,"minute":0,"repeat":[],"next":1795370400},{"id":3,"hour":6,"minute":0,"repeat":["mon","tue","wed","thu","fri"],"next":1795410000},{"id":5,"hour":6,"minute":0,"repeat":["mon","wed"],"next":1795410000},{"id":2,"hour":7,"minute":30,"repeat":[],"next":1795415400},{"id":4,"hour":9,"minute":0,"repeat":["sat","sun"],"next":1795852800}]}
+state {"language":"en","clock":true,"uptime":1510,"ringing":[],"timers":[],"alarms":[{"id":1,"hour":19,"minute":0,"repeat":[],"next":1795370400},{"id":3,"hour":6,"minute":0,"repeat":["mon","tue","wed","thu","fri"],"next":1795410000},{"id":5,"hour":6,"minute":0,"repeat":["mon","wed"],"next":1795410000},{"id":2,"hour":7,"minute":30,"repeat":[],"next":1795415400},{"id":4,"hour":9,"minute":0,"repeat":["sat","sun"],"next":1795852800}],"last":{"seq":31,"uptime":1510,"text":"what alarms do i have","action":"alarm_list","ok":true,"say":"Alarm at seven PM today. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at seven thirty AM tomorrow. Alarm at nine AM on weekends."}}
 > !advance 2100
 ring start
 > !state
-state {"language":"en","clock":true,"uptime":3610,"ringing":[{"kind":"alarm","hour":19,"minute":0}],"timers":[],"alarms":[{"id":3,"hour":6,"minute":0,"repeat":["mon","tue","wed","thu","fri"],"next":1795410000},{"id":5,"hour":6,"minute":0,"repeat":["mon","wed"],"next":1795410000},{"id":2,"hour":7,"minute":30,"repeat":[],"next":1795415400},{"id":4,"hour":9,"minute":0,"repeat":["sat","sun"],"next":1795852800}]}
+state {"language":"en","clock":true,"uptime":3610,"ringing":[{"kind":"alarm","hour":19,"minute":0}],"timers":[],"alarms":[{"id":3,"hour":6,"minute":0,"repeat":["mon","tue","wed","thu","fri"],"next":1795410000},{"id":5,"hour":6,"minute":0,"repeat":["mon","wed"],"next":1795410000},{"id":2,"hour":7,"minute":30,"repeat":[],"next":1795415400},{"id":4,"hour":9,"minute":0,"repeat":["sat","sun"],"next":1795852800}],"last":{"seq":31,"uptime":1510,"text":"what alarms do i have","action":"alarm_list","ok":true,"say":"Alarm at seven PM today. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at seven thirty AM tomorrow. Alarm at nine AM on weekends."}}
 > !stop
 ring stop
 > cancel the seven thirty alarm
@@ -226,3 +226,8 @@ say en I can't do that.
 action timer_list
 result {"action":"timer_list","arguments":{},"ok":true,"code":"ok","say":"Tea timer one minute and one second left."}
 say en Tea timer one minute and one second left.
+> say "hello" to bob
+action unmatched
+unmatched say "hello" to bob
+> !state
+state {"language":"en","clock":true,"uptime":39610,"ringing":[],"timers":[{"name":"Tea","seconds":61,"ends":39671,"remaining":61}],"alarms":[{"id":1,"hour":7,"minute":5,"repeat":["sat"],"next":1795845900}],"last":{"seq":47,"uptime":39610,"text":"say \"hello\" to bob","action":"unmatched","ok":false,"say":""}}

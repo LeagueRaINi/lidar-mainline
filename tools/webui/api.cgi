@@ -39,12 +39,23 @@ fail() { hdr; printf '{"error": "%s"}\n' "$1"; exit 0; }
 ok() { hdr; printf '{"ok": true}\n'; exit 0; }
 
 # The answer to a changed service or setting: what lidar-feature said about
-# it ($1), and whether the change waits for the next boot
+# it ($1), whether the change waits for the next boot (it says so), and how
+# many changes wait in all
 changed() {
 	r=false; case $1 in *'next boot'*) r=true ;; esac
+	n=0
+	for l in $(lidar-feature pending 2>/dev/null); do n=$((n + 1)); done
 	hdr
-	printf '{"ok": true, "reboot": %s, "message": "%s"}\n' $r "$(esc "$1")"
+	printf '{"ok": true, "reboot": %s, "pending": %s, "message": "%s"}\n' $r $n "$(esc "$1")"
 	exit 0
+}
+
+# Changes that are not in effect before the next boot, one name each:
+# feature.<service> or <feature>.<key>
+pending() {
+	lidar-feature pending 2>/dev/null | jesc | awk 'BEGIN { printf "{\"pending\": [" }
+		NF { printf "%s\"%s\"", n++ ? ", " : "", $1 }
+		END { print "]}" }'
 }
 
 # Clients on the USB network: a 169.254.0.0/16 address (httpd writes IPv6
@@ -465,6 +476,54 @@ voice_key_test() {
 	esac
 }
 
+# ---------- voice ----------
+
+# A state file under /run that holds one JSON object on one line -> $j, or
+# null; reads without a fork (the Voice page asks a few times a second)
+jfile() {
+	j=
+	[ -r "$1" ] && IFS= read -r j < "$1"
+	case $j in '{'*'}') ;; *) j=null ;; esac
+}
+
+# What the microphones hear (lidar-voice: the beams and the one chosen), the
+# last wake word and the assistant's state (timers, alarms, last utterance)
+voice_state() {
+	jfile /run/lidar-voice.json; printf '{"voice": %s, ' "$j"
+	jfile /run/lidar-wake.json; printf '"wake": %s, ' "$j"
+	jfile /run/lidar-assistant.json; printf '"assistant": %s}\n' "$j"
+}
+
+# "seq" of the assistant's last utterance -> $seq, empty before the first
+last_seq() {
+	jfile /run/lidar-assistant.json
+	seq=
+	case $j in *'"last":{"seq":'*) seq=${j##*\"last\":\{\"seq\":}; seq=${seq%%[!0-9]*} ;; esac
+}
+
+# body: one line for the assistant, as if it had been spoken. Written to its
+# FIFO (opened read-write: never blocks, even if nobody reads), then its
+# state is awaited for up to 3 s: "answered" says whether "last" there is
+# the answer to this line.
+assistant_say() {
+	body_len 1200	# 300 characters, each up to 4 bytes of UTF-8
+	t=$(head -c "$len" | tr -d '\000-\037\177')
+	[ -n "$t" ] || fail "nothing to say"
+	# "!..." lines are the daemon's own commands, not utterances
+	case $t in '!'*) fail "not an utterance" ;; esac
+	[ -p /run/lidar-assistant.fifo ] || fail "assistant service off"
+	last_seq; was=$seq
+	printf '%s\n' "$t" 1<> /run/lidar-assistant.fifo
+	a=false; n=0
+	while [ $n -lt 30 ]; do
+		sleep 0.1
+		last_seq
+		[ "$seq" = "$was" ] || { a=true; break; }
+		n=$((n + 1))
+	done
+	printf '{"answered": %s, "assistant": %s}\n' $a "$j"
+}
+
 # ---------- files (read-only) ----------
 
 fpath() { # URL-encoded absolute path -> $p, canonical
@@ -491,8 +550,8 @@ ls_dir() {
 get_file() {
 	fpath "$val"
 	case $p in
-	/dev/* | /proc/kmsg | /proc/kcore | /proc/*/mem | /proc/*/pagemap | /sys/kernel/debug/* | /media/system/etc/lidar.conf*)
-		fail "not readable from here" ;;	# the last: it holds the secrets
+	/dev/* | /proc/kmsg | /proc/kcore | /proc/*/mem | /proc/*/pagemap | /sys/kernel/debug/* | /media/system/etc/lidar.conf* | /run/lidar.conf.boot*)
+		fail "not readable from here" ;;	# the last two: they hold the secrets
 	esac
 	[ -f "$p" ] || fail "not a regular file"
 	[ -r "$p" ] || fail "not readable"
@@ -796,8 +855,8 @@ case $key in file | fireos_export | fireos_image | login | logout | auth_set) ;;
 
 case $key in
 stats | player | songs | services | network | setup) ;;
-wifi_scan | bt_scan | bt_devices | log | procs | system | settings | ls | file | fireos | fireos_export | fireos_image | voice_key) admin ;;
-upload | wifi_connect | set | fireos_import | login | auth_set)
+wifi_scan | bt_scan | bt_devices | log | procs | system | settings | pending | ls | file | fireos | fireos_export | fireos_image | voice_key | voice) admin ;;
+upload | wifi_connect | set | fireos_import | login | auth_set | assistant_say)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/octet-stream ] ||
 		fail "$key needs POST with application/octet-stream"
 	case $key in upload | login) ;; *) admin ;; esac
@@ -882,6 +941,7 @@ log) klog ;;
 procs) printf '{"text": %s}\n' "$(top -b -n 1 | head -n 80 | jtext)" ;;
 system) system_info ;;
 settings) settings ;;
+pending) pending ;;
 enable | disable)
 	case $val in '' | *[!a-z0-9]*) fail "bad service" ;; esac
 	msg=$(lidar-feature "$key" "$val" 2>/dev/null) || fail "cannot change $val"
@@ -891,8 +951,6 @@ set) set_setting ;;
 unset)
 	setting_name
 	msg=$(lidar-feature unset "$sf" "$sk" 2>/dev/null) || fail "unknown setting"
-	# lidar-feature only says so for set; the dsp settings apply at once
-	[ "$sf" = dsp ] || msg="$msg (takes effect on next boot)"
 	changed "$msg"
 	;;
 ls) ls_dir ;;
@@ -907,6 +965,8 @@ logout) logout ;;
 auth_set) auth_set ;;
 voice_key) voice_key ;;
 voice_key_test) voice_key_test ;;
+voice) voice_state ;;
+assistant_say) assistant_say ;;
 reboot)
 	(sleep 1; reboot) >/dev/null 2>&1 &
 	ok

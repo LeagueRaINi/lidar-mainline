@@ -56,7 +56,8 @@ to_kmsg() {
 # keepalive off), 600 ms of silence go first: the amplifier only unmutes
 # 500 ms after the DAC starts, and would otherwise chop the sound.
 sound() { # pairing | paired | timeout
-	[ "$sound_on" = on ] || return 0
+	# read here, at every sound: "bluetooth sound" applies at once
+	[ "$(lidar-feature get bluetooth sound 2>/dev/null)" = on ] || return 0
 	muted=0
 	[ -r /run/lidar-volume.state ] && read -r _ muted _ < /run/lidar-volume.state
 	[ "$muted" = 1 ] && return 0
@@ -68,18 +69,25 @@ sound() { # pairing | paired | timeout
 		viz_quiet "$SOUNDS/bt-$1.wav" 0
 		aplay -q -D lidar_speaker "$SOUNDS/bt-$1.wav" 2>/dev/null
 	fi
+	# aplay can take a moment to start: the chime ends later than its length
+	viz_until 0.6
 }
 
 # The sound display keeps off our own sounds: until the time (seconds since
-# boot) in /run/lidar-viz.quiet. $1 a 48 kHz 16-bit stereo WAV, $2 seconds
-# of silence before it; 0.3 s more for the speaker tuning and buffers.
-viz_quiet() { # the later end wins when sounds overlap; replaced, never half written
-	b=$(stat -c %s "$1" 2>/dev/null) || return 0
+# boot) in /run/lidar-viz.quiet. The later end wins when sounds overlap; the
+# file is replaced, never half written.
+viz_until() { # seconds from now
 	read -r up _ < /proc/uptime
 	old=0; [ -r /run/lidar-viz.quiet ] && read -r old < /run/lidar-viz.quiet
-	awk -v u="$up" -v b="$b" -v x="$2" -v o="${old:-0}" \
-		'BEGIN { t = u + (b - 44) / 192000 + x + 0.3; printf "%.2f\n", t > o + 0 ? t : o + 0 }' \
+	awk -v u="$up" -v s="$1" -v o="${old:-0}" 'BEGIN { t = u + s; printf "%.2f\n", (t > o + 0 ? t : o + 0) }' \
 		> /run/lidar-viz.quiet.$$ && mv /run/lidar-viz.quiet.$$ /run/lidar-viz.quiet
+}
+
+# $1 a 48 kHz 16-bit stereo WAV about to play, $2 seconds of silence before
+# it; 0.3 s more for the speaker tuning and buffers
+viz_quiet() {
+	b=$(stat -c %s "$1" 2>/dev/null) || return 0
+	viz_until "$(awk -v b="$b" -v x="$2" 'BEGIN { print (b - 44) / 192000 + x + 0.3 }')"
 }
 
 wait_for() { # seconds command...: true once the command succeeds
@@ -119,7 +127,6 @@ name_of() { btctl info "$1" | sed -n 's/^[[:space:]]*Name: //p'; }
 # the Echo pairs again under an address the Echo still has as paired.
 pairing() {
 	secs=$(lidar-feature get bluetooth pair_seconds)
-	sound_on=$(lidar-feature get bluetooth sound)
 	was_paired=" $(devices_of Paired | tr '\n' ' ') "
 	was_connected=" $(devices_of Connected | tr '\n' ' ') "
 	to_fifo $RING_FIFO "pair on"
@@ -248,7 +255,6 @@ daemon() {
 	# a daemon that died in pairing mode left these behind
 	rm -f $PAIRING $STOP
 	to_fifo $RING_FIFO "pair off"
-	sound_on=$(lidar-feature get bluetooth sound)
 	[ -p $FIFO ] || mkfifo $FIFO || exit 1
 	exec 3<> $FIFO
 	bt-agent -c NoInputNoOutput 2>&1 | to_kmsg bt-agent &

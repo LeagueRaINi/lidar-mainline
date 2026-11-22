@@ -28,11 +28,14 @@
 #                  (without <value>: the first line of standard input, which
 #                   keeps a secret out of the process list)
 #        lidar-feature unset <name> <key>  (back to the default)
+#        lidar-feature pending     (changes not yet in effect, one per line:
+#                                   feature.<name> or <name>.<key>; compared
+#                                   with the file as it was at boot)
 #        lidar-feature keep <dir>  (bind <dir> from the booted slot: where
 #                                   services keep data across reboots)
 #
-# Changes take effect on the next boot, except the dsp settings: lidar-dsp
-# re-reads them at once (SIGHUP).
+# Changes take effect on the next boot, except the live settings (see
+# is_live): what reads them picks a change up at once.
 CONF=${LIDAR_CONF:-/media/system/etc/lidar.conf}
 
 # name category default description
@@ -49,17 +52,18 @@ zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP ov
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
 visualizer extra 0 sound display on the LED ring: spectrum or level of whatever the speaker plays, below the displays of the ring service
 assistant extra 0 voice assistant: timers, alarms, volume, music, time and date by command (English or German), as text on /run/lidar-assistant.fifo until speech recognition is part of the image. Needs the volume service; alarms and the time need the clock from the network (wifi)
+voice extra 0 wake word: listens for "Hey Jarvis" with the beamformer on the seven microphones (lidar-wake), shows the direction on the LED ring and plays a chime; about one CPU core. Silent while the mics are muted
 '
 
 # feature key default allowed description
-# feature is a service above, or a group of settings without a switch (voice:
-# its service is not part of the image yet). default "-" is unset. allowed is
-# a|b|c (one of), N-M (integer range), CC (two capital letters), ssid (1-32
-# bytes, no control characters), label (1-48 bytes, no control characters),
-# passphrase (8-63 printable ASCII characters, masked in "settings"),
-# secret (16-200 printable ASCII characters without spaces, masked too) or
-# crypt (a sha512-crypt hash as cryptpw prints it, "$6$<salt>$<hash>",
-# masked too).
+# feature is a service above, or a group of settings without a switch.
+# default "-" is unset. allowed is a|b|c (one of), N-M (integer
+# range), CC (two capital letters), ssid (1-32 bytes, no control
+# characters), label (1-48 bytes, no control characters), passphrase (8-63
+# printable ASCII characters, masked in "settings"), secret (16-200
+# printable ASCII characters without spaces, masked too), crypt (a
+# sha512-crypt hash as cryptpw prints it, "$6$<salt>$<hash>", masked too) or
+# tz (a POSIX TZ rule such as CET-1CEST,M3.5.0,M10.5.0/3).
 SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
 wifi country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
@@ -261,6 +265,29 @@ setting_value() { # feature key default allowed -> value in effect
 	if valid "$4" "$v"; then printf '%s\n' "$v"; else printf '%s\n' "$3"; fi
 }
 
+# Settings that apply at once: what reads them does so where it uses them,
+# is told (nudge), or the web interface applies them itself (Wi-Fi join,
+# login). Everything else takes effect on the next boot.
+is_live() { # feature key
+	case $1.$2 in
+	dsp.* | visualizer.style | ring.min_brightness | \
+	volume.sound | volume.ring | bluetooth.sound | bluetooth.pair_seconds | \
+	wifi.ssid | wifi.passphrase | voice.api_key | webui.auth* | webui.setup_done | \
+	webui.fireos_image_saved) return 0 ;;
+	esac
+	return 1
+}
+
+# -> "", or a note on when the change applies
+nudge() { # feature key
+	case $1.$2 in
+	dsp.*) killall -HUP lidar-dsp 2>/dev/null || echo " (applies when the speaker tuning runs)" ;;
+	visualizer.style) killall lidar-viz 2>/dev/null ;;	# init starts it again, with the new style
+	wifi.ssid | wifi.passphrase) echo " (applies when Wi-Fi next starts: lidar-wifi restart, or the web interface does it)" ;;
+	*) is_live "$1" "$2" || echo " (takes effect on next boot)" ;;
+	esac
+}
+
 case $1 in
 list)
 	echo "$FEATURES" | while read -r n c d desc; do
@@ -323,26 +350,40 @@ set)
 	shown=$val
 	case $ALLOWED in passphrase | secret | crypt) shown='(set)' ;; esac
 	conf_put "$2.$3" "$val" || exit 1
-	if [ "$2" != dsp ]; then
-		echo "$2 $3: $shown (takes effect on next boot)"
-	elif killall -HUP lidar-dsp 2>/dev/null; then	# re-reads its settings
-		echo "$2 $3: $shown"
-	else
-		echo "$2 $3: $shown (applies when the speaker tuning runs)"
-	fi
+	echo "$2 $3: $shown$(nudge "$2" "$3")"
 	;;
 unset)
 	need_setting "$2" "$3"
 	conf_put "$2.$3" || exit 1
-	[ "$2" != dsp ] || killall -HUP lidar-dsp 2>/dev/null
-	echo "$2 $3: back to default (${DEF:-unset})"
+	echo "$2 $3: back to default (${DEF:-unset})$(nudge "$2" "$3")"
+	;;
+pending)
+	# what init saved of the file at boot: a change reverted is no change
+	boot=/run/lidar.conf.boot
+	[ -r "$boot" ] || exit 0
+	now=$CONF; [ -r "$now" ] || now=/dev/null
+	# only keys whose last raw value differs can differ in effect
+	awk 'FNR == 1 { f++ } { i = index($0, "="); if (!i) next; k = substr($0, 1, i - 1); v[f, k] = substr($0, i + 1); seen[k] = 1 }
+		END { for (k in seen) if (!((1, k) in v) || !((2, k) in v) || v[1, k] != v[2, k]) print k }' \
+		"$boot" "$now" | sort | while IFS= read -r k; do
+		f=${k%%.*}; s=${k#*.}
+		if [ "$f" = feature ]; then
+			default_of "$s" >/dev/null || continue
+			[ "$(value_of "$s")" = "$(CONF=$boot; value_of "$s")" ] || echo "$k"
+		else
+			da=$(setting_of "$f" "$s") || continue
+			is_live "$f" "$s" && continue
+			d=${da%% *}; a=${da#* }; [ "$d" != - ] || d=
+			[ "$(setting_value "$f" "$s" "$d" "$a")" = "$(CONF=$boot; setting_value "$f" "$s" "$d" "$a")" ] || echo "$k"
+		fi
+	done
 	;;
 keep)
 	case $2 in /*) ;; *) echo "usage: lidar-feature keep <absolute dir>" >&2; exit 2 ;; esac
 	( flock 9 && keep_locked "$2" ) 9> /run/lidar-slot.lock
 	;;
 *)
-	sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

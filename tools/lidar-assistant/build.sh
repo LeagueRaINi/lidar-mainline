@@ -112,6 +112,15 @@ LOG=$TMP PATH=$TMP/bin:$PATH "$BIN" -L "$HERE/lang" -d "$TMP/live" -r "$TMP/live
 	> "$TMP/live/out" &
 daemon=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do [ -p "$TMP/live/lidar-assistant.fifo" ] && break; sleep 0.2; done
+# the last utterance in the state file, whatever bytes it is made of
+printf 'caf\303\251 \377 "x\\\n' > "$TMP/live/lidar-assistant.fifo"
+sleep 0.3
+python3 -c '
+import json, sys
+last = json.load(open(sys.argv[1]))["last"]
+assert last["seq"] == 1 and last["text"] == "caf\u00e9 ? \"x\\" and last["action"] == "unmatched", last
+assert last["ok"] is False and last["say"] == "", last
+' "$TMP/live/lidar-assistant.json" || { echo "FAIL last utterance in the state file"; fail=1; }
 { head -c 3000 /dev/zero | tr '\0' x; echo " stop"; } > "$TMP/live/lidar-assistant.fifo"
 echo "pause" > "$TMP/live/lidar-assistant.fifo"
 echo "set a timer for one second" > "$TMP/live/lidar-assistant.fifo"
@@ -128,7 +137,7 @@ sleep 0.5
 if [[ $rang == *'"ringing":[{"kind":"timer","name":""}]'* && $quiet == *'"ringing":[],"timers":[]'* ]] &&
 	[ "$(tr '\n' ';' < "$TMP/volume")" = "unmute;set 30;set 8;mute;unmute;set 30;" ] &&
 	[ "$(wc -c < "$TMP/chime.raw")" -gt 96000 ] && ! pgrep -f "$TMP/bin/aplay" > /dev/null &&
-	[ "$(grep -c '^action' "$TMP/live/out")" = 3 ] &&
+	[ "$(grep -c '^action' "$TMP/live/out")" = 4 ] &&
 	grep -q '^say en That did not work\.$' "$TMP/live/out" &&
 	grep -q '^say en Timer set for one second\.$' "$TMP/live/out"; then
 	echo "daemon: timer rang and stopped, player gone with the daemon"

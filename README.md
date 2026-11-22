@@ -367,9 +367,18 @@ lidar-feature reset telnet         # back to the default (off)
 | `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
 | `visualizer` | extra | off | sound display on the LED ring (below) |
 | `assistant` | extra | off | voice assistant core: timers, alarms, volume, music, time and date by typed command (below) |
+| `voice` | extra | off | wake word "Hey Jarvis" with the beamformer, direction on the ring, a chime; about one CPU core (Wake word, below) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
-default.
+default. Most take effect on the next boot; the live ones apply at once,
+because what reads them does so where it uses them or is told: `dsp bass`,
+`mid`, `treble`, `boost`, `visualizer style` (the display restarts with
+it), `ring min_brightness`, `volume sound` and
+`ring`, `bluetooth sound` and `pair_seconds`, and those the web interface
+applies itself (Wi-Fi network, API key, login). Init keeps a copy of
+`lidar.conf` as it was at boot (`/run/lidar.conf.boot`), so `lidar-feature
+pending` lists only changes that still differ from what runs: setting a
+value and back again leaves nothing to reboot for.
 
 ```sh
 lidar-feature settings [feature]          # values in effect, defaults, allowed
@@ -377,6 +386,7 @@ lidar-feature get telnet listen           # prints the value in effect
 lidar-feature set wifi country DE         # takes effect on the next boot
 lidar-feature set voice api_key < keyfile # no value: the first line of standard input
 lidar-feature unset wifi country          # back to the default
+lidar-feature pending                     # what still waits for a reboot
 ```
 
 | Setting | Default | Allowed | What it does |
@@ -589,10 +599,18 @@ Each service switch and each setting sits in the category it belongs to:
   `max_attenuation`, `sound`, `keepalive`), the tone controls as sliders
   (`dsp bass`, `mid`, `treble`, `boost`, heard while they move; "Flat" puts
   bass, mids and treble back to 0) and the `volume` and `dsp` services.
-- **Voice:** the `assistant` service, wake word, sensitivity, language (and
-  the German voice with German), the Claude API key (write-only, with a
-  test), the time zone (common ones by city, any other as a POSIX TZ
-  string) and the alarm volume. Timers and alarms will be listed here.
+- **Voice:** the `assistant` and `voice` services, wake word, sensitivity,
+  language (and the German voice with German), the Claude API key
+  (write-only, with a test), the time zone (common ones by city, any other
+  as a POSIX TZ string) and the alarm volume. "Listening" draws the Echo
+  from above, five times a second while the view is open: Volume down at
+  the top, the microphone button on the right, Volume up at the bottom,
+  Action on the left, and around it the twelve beams of `lidar-voice` as
+  bars (how far each is over the noise), the one in use coloured; the ring
+  lights up towards a wake word when one is heard. "Type to the assistant"
+  sends a line as if it had been spoken and lists what was understood and
+  answered; below it, what rings, the timers with their time left and the
+  alarms.
 - **Light ring:** the ring as it is lit, the `ring`, `visualizer` and
   `bootanim` services, brightness (`ring auto_brightness`,
   `min_brightness`), `visualizer style` and the volume arc (`volume ring`).
@@ -620,20 +638,35 @@ Each service switch and each setting sits in the category it belongs to:
   download. Device nodes, `/proc/kmsg`, `/proc/kcore`, process memory and
   debugfs are refused: reading some of them blocks, and debugfs register
   dumps of clock-gated blocks can stall the bus. `lidar.conf` on the
-  booted slot is refused too, because it holds the Wi-Fi passphrase and
-  the API key in plain text. Everything else is served.
+  booted slot and its copy from boot (`/run/lidar.conf.boot`) are refused
+  too, because they hold the Wi-Fi passphrase, the API key and the login's
+  hash. Everything else is served.
 
 A switch, slider or choice is sent the moment it is used, and its row says
-what became of it: saved, or saved and in effect after a reboot (then a bar
-with "Reboot now" stays at the top). The page takes that from the API:
-`set`, `unset`, `enable` and `disable` answer `{"ok": true, "reboot":
-true|false, "message": "<what lidar-feature printed>"}`; only the `dsp`
-settings apply at once. The controls follow what `lidar-feature` allows
-(`on|off` a switch, a range a slider, a few values buttons, more a list).
-A service or setting the page has no place for yet, from a newer image,
-shows under "Advanced" in the category of its service, or under System, so
-none is ever missing. Over Wi-Fi the switches show but are disabled, and the
-settings are not sent (see Login below).
+what became of it. What waits for a reboot is the Echo's to say
+(`lidar-feature pending`): while that list holds anything, a bar with
+"Reboot now" stays at the top and the rows in it say "after reboot"; a
+change taken back leaves the list again, and after a reboot it is empty.
+The page asks for it when a view opens, after every change and when the
+Echo is back. In the API, `set`, `unset`, `enable` and `disable` answer
+`{"ok": true, "reboot": true|false, "pending": <how many wait>, "message":
+"<what lidar-feature printed>"}`, and `pending` answers `{"pending":
+["feature.<service>", "<feature>.<key>", ...]}`. The controls follow what
+`lidar-feature` allows (`on|off` a switch, a range a slider, a few values
+buttons, more a list). A service or setting the page has no place for yet,
+from a newer image, shows under "Advanced" in the category of its service,
+or under System, so none is ever missing. Over Wi-Fi the switches show but
+are disabled, and the settings are not sent (see Login below).
+
+For the Voice view the API has `voice`, which answers `{"voice": ...,
+"wake": ..., "assistant": ...}` with the contents of
+`/run/lidar-voice.json`, `/run/lidar-wake.json` and
+`/run/lidar-assistant.json` (`null` for one that is not there), and
+`assistant_say` (POST, `application/octet-stream`, one line of at most 300
+bytes): the line goes to `/run/lidar-assistant.fifo`, and the answer, after
+at most 3 s, is `{"answered": true|false, "assistant": <its state>}`, whose
+`last` is the answer to that line if `answered` is true. Both are for the
+USB network only.
 
 **First-run setup.** Until it has been finished once (`webui setup_done`),
 the web interface opens a setup for clients on the USB network; "Run setup
@@ -657,8 +690,9 @@ again" under System starts it later. Every step can be skipped.
    key (the `voice` settings). The web interface never returns the key,
    only whether one is set and its last four characters. "Test key" asks
    the Anthropic API for its model list from the Echo, over TLS with the
-   key on `socat`'s standard input; it needs Wi-Fi and a set clock. The
-   assistant itself is not part of the image yet.
+   key on `socat`'s standard input; it needs Wi-Fi and a set clock. Speech
+   recognition, speech output and Claude are not part of the image yet:
+   these settings are stored for them.
 
 The setup adds these to the API: `setup` (finished or not, whether this
 client may run it, and the state of the login; answered for everyone),
@@ -848,12 +882,12 @@ is missing from `/run/lidar-volume.state`, so both paths look the same.
   reference level, which follows the loudest recent level and halves in
   4 s, so it looks the same at any volume.
 - The ring service's own displays win: while `lidar-ring` shows the privacy
-  red, the volume arc or pairing it holds `/run/lidar-ring.busy`, and
+  red, the volume arc, pairing or the wake overlay it holds `/run/lidar-ring.busy`, and
   `lidar-viz` keeps off the ring. Brightness follows the light sensor as the
   rest of the ring (`/run/lidar-ring.level`).
 - Dark while the speaker is muted, at volume 0, and while nothing plays
   (silence is judged before the volume). Dark too while one of our own
-  sounds plays (volume tone, Bluetooth sounds, a ringing timer or alarm):
+  sounds plays (volume tone, Bluetooth sounds, the wake chime, a ringing timer or alarm):
   whatever plays one writes the time it ends, in seconds since boot, to
   `/run/lidar-viz.quiet` (the later end wins).
 - Verified on hardware: both styles with music over Bluetooth, the volume
@@ -872,7 +906,25 @@ It prints one line per detection, `wake hey_jarvis <probability> <seconds
 since boot>`, and then stays quiet for a second. `-v` prints the
 probability of every inference (one per 30 ms) on stderr, `-t 0.9` sets
 another cutoff than the model's 0.97, and `-m`/`-c` select another
-microWakeWord v2 model and its manifest. No service starts it yet.
+microWakeWord v2 model and its manifest.
+
+The `voice` service (an extra, off by default; about one CPU core, nearly
+all of it `lidar-voice`) runs this pipeline as `lidar-wake daemon` and
+restarts it if it ends. At each detection it
+
+- shows the direction of the voice on the LED ring (see LED ring),
+- plays a short, quiet two-note chime at the system volume (none while the
+  speaker is muted; the sound display keeps off it),
+- appends `wake <seconds since boot> <angle>` to `/run/lidar-wake.events`
+  (the last 20) and writes `/run/lidar-wake.json` (`last`, `angle`,
+  `count`),
+- keeps `/run/lidar-wake.listening` for 5 s: the time to say something,
+  for speech recognition later.
+
+`voice sensitivity` sets the cutoff (low 0.99, medium the model's 0.97,
+high 0.9; not yet tuned on the device). While the microphones are muted
+they deliver silence: the service keeps running and hears nothing.
+`lidar-wake status` prints whether it runs and the last detection.
 
 The detector is microWakeWord's `hey_jarvis` v2 model, run as ESPHome's
 `micro_wake_word` component runs it (same audio features, same decision
@@ -943,7 +995,10 @@ and speech output are not part of the image yet: answers are printed as
   changed it meanwhile. The microphones are never unmuted by voice: their
   mute is a hardware latch.
 - **State:** `/run/lidar-assistant.json` (timers with `ends` in seconds
-  since boot, alarms, what rings), written when it changes.
+  since boot, alarms, what rings), written when it changes. It also holds
+  the last utterance and what became of it (`last`: `seq`, `uptime`,
+  `text`, `action`, `ok`, `say`; `null` before the first), which the web
+  interface's assistant box shows.
 - `lidar-assistant -S` prints the actions as a tool list for a language
   model, with their parameters and ranges; `-P` every phrase and number
   word the answers are made of, for a speech cache.
@@ -1073,13 +1128,19 @@ latch). Other programs show short overlays through `/run/lidar-ring.fifo`;
 `lidar-volume` uses it for the volume arc. Muting or unmuting the mics ends
 an overlay at once, so the privacy state always shows immediately.
 
+`wake <led>` (from `lidar-wake`) lights the LED towards whoever said the
+wake word and, dimmer, its two neighbours in cyan for 3 s or until
+`wake off`. Not while the mics are muted; a volume change replaces it, and
+the pairing arc continues after it.
+
 As on stock, the ring dims in the dark. The service sets the TSL2540 to its
 most sensitive range (highest gain, 0.72 s integration) and maps its counts
 on a log scale: about 30 or less (covered, dark room at night) gives
 `ring min_brightness`, 8000 (a flashlight on the top) and more give full
 brightness; a dimly lit room (about 550) gives about 60 %. A steady red ring
 follows the room light every 2 s, in steps of at least 10 % so it does not
-flicker. The ring's own light does not reach the sensor (measured).
+flicker. The ring's own light does not reach the sensor (measured). A
+change of `ring min_brightness` applies within seconds, without a restart.
 
 Orientation, seen from above: `ring1` sits at Volume down, `ring4` at the
 microphone button, `ring7` at Volume up and `ring10` at Action, numbered

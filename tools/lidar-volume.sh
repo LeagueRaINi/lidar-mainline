@@ -90,7 +90,20 @@ apply() {
 
 # The ring belongs to lidar-ring (the ring service); its FIFO is opened
 # read-write once it exists, so a write never blocks.
+# volume ring and volume sound, read again whenever lidar.conf changed:
+# they apply at once (lidar-feature's live settings)
+opts() {
+	# mtime and inode: lidar-feature replaces the file, so two changes
+	# within one second still differ
+	m=$(stat -c '%Y %i' /media/system/etc/lidar.conf 2>/dev/null)
+	[ "$m" = "$opts_m" ] && return
+	opts_m=$m
+	ring_on=$(lidar-feature get volume ring 2>/dev/null)
+	sound_on=$(lidar-feature get volume sound 2>/dev/null)
+}
+
 show() {
+	opts
 	[ "$ring_on" = on ] || return
 	if [ -z "$ring_open" ]; then
 		[ -p $RING_FIFO ] || return
@@ -145,29 +158,37 @@ buttons() {
 # (volume keepalive off), 600 ms of silence go first: the amplifier only
 # unmutes 500 ms after the DAC starts, and would otherwise chop the tone.
 tone() {
+	opts
 	[ "$sound_on" = on ] && [ "$mute" = 0 ] && [ -r $TONE ] || return
 	[ -n "$tp" ] && kill -0 "$tp" 2>/dev/null && return
+	# viz_until after aplay: it can take a moment to start, and the sound
+	# then ends later than its length says
 	if grep -qs closed /proc/asound/$CODEC/pcm0p/sub0/status; then
 		viz_quiet $TONE 0.6
-		{ head -c 115200 /dev/zero; tail -c +45 $TONE; } |
-			aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 2>/dev/null &
+		{ { head -c 115200 /dev/zero; tail -c +45 $TONE; } |
+			aplay -q -D lidar_speaker -t raw -f S16_LE -c 2 -r 48000 2>/dev/null; viz_until 0.6; } &
 	else
 		viz_quiet $TONE 0
-		aplay -q -D lidar_speaker $TONE 2>/dev/null &
+		{ aplay -q -D lidar_speaker $TONE 2>/dev/null; viz_until 0.6; } &
 	fi
 	tp=$!
 }
 
 # The sound display keeps off our own sounds: until the time (seconds since
-# boot) in /run/lidar-viz.quiet. $1 a 48 kHz 16-bit stereo WAV, $2 seconds
-# of silence before it; 0.3 s more for the speaker tuning and buffers.
-viz_quiet() { # the later end wins when sounds overlap; replaced, never half written
-	b=$(stat -c %s "$1" 2>/dev/null) || return 0
+# boot) in /run/lidar-viz.quiet. The later end wins when sounds overlap; the
+# file is replaced, never half written.
+viz_until() { # seconds from now
 	read -r up _ < /proc/uptime
 	old=0; [ -r /run/lidar-viz.quiet ] && read -r old < /run/lidar-viz.quiet
-	awk -v u="$up" -v b="$b" -v x="$2" -v o="${old:-0}" \
-		'BEGIN { t = u + (b - 44) / 192000 + x + 0.3; printf "%.2f\n", t > o + 0 ? t : o + 0 }' \
+	awk -v u="$up" -v s="$1" -v o="${old:-0}" 'BEGIN { t = u + s; printf "%.2f\n", (t > o + 0 ? t : o + 0) }' \
 		> /run/lidar-viz.quiet.$$ && mv /run/lidar-viz.quiet.$$ /run/lidar-viz.quiet
+}
+
+# $1 a 48 kHz 16-bit stereo WAV about to play, $2 seconds of silence before
+# it; 0.3 s more for the speaker tuning and buffers
+viz_quiet() {
+	b=$(stat -c %s "$1" 2>/dev/null) || return 0
+	viz_until "$(awk -v b="$b" -v x="$2" 'BEGIN { print (b - 44) / 192000 + x + 0.3 }')"
 }
 
 keepalive() { # silence into dmix holds the codec output open
@@ -183,9 +204,9 @@ keepalive() { # silence into dmix holds the codec output open
 daemon() {
 	[ -p $FIFO ] || mkfifo $FIFO || exit 1
 	exec 3<> $FIFO
-	ring_on=$(lidar-feature get volume ring 2>/dev/null)
+	opts_m=unread	# stat never prints this: the first call always reads
+	opts
 	ring_open=
-	sound_on=$(lidar-feature get volume sound 2>/dev/null)
 	tp=
 	last_tone=
 	p=$(lidar-feature get volume initial 2>/dev/null)

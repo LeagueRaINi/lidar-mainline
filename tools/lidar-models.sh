@@ -547,6 +547,10 @@ case $cmd in
 status) status ;;
 verify) verify ;;
 grow-fs) grow_fs ;;
-install) install "$arg" ;;
+install)
+	# German without -v: the voice chosen in the settings (voice voice_de)
+	[ -n "$VOICE" ] || [ "$arg" != de ] || VOICE=$(lidar-feature get voice voice_de 2>/dev/null)
+	install "$arg"
+	;;
 remove) remove "$arg" ;;
 esac

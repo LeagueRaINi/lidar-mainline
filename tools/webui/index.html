@@ -338,9 +338,24 @@ a.tile:hover { border-color: var(--accent); }
 .kv + .rows, .rows + .kv { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
 .rows + .kv { padding-top: 14px; }
 
-/* voice: the API key */
+/* voice: the API key, the beams of the microphones, typing to the assistant */
 .keyrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .keyrow input { flex: 1 1 100%; }
+.sayrow { display: flex; gap: 8px; margin-bottom: 4px; }
+.sayrow input { flex: 1; }
+.left { font-weight: 650; font-variant-numeric: tabular-nums; }
+.beams { display: block; width: 200px; flex: none; }
+.beams .top { fill: #16191d; stroke: #262b31; stroke-width: 1; }
+.beams .ringline { fill: none; stroke: #0b0d0f; stroke-width: 6; }
+.beams .slot, .beams .beam { fill: none; stroke-width: 9; stroke-linecap: round; }
+.beams .slot { stroke: var(--track); }
+.beams .beam { stroke: var(--knob-off); }
+.beams .beam.sel { stroke: var(--accent); }
+.beams .key { fill: #2a3037; }
+.beams .glyph { fill: none; stroke: #aab2bb; stroke-width: 1.6; stroke-linecap: round; }
+.beams .heard { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; opacity: 0; transition: opacity 1.2s; }
+.beams .heard.on { opacity: 1; transition: none; }
+@media (max-width: 560px) { .hero .beams { width: 200px; margin: 0 auto; } }
 
 /* debug and files */
 pre.text { margin: 0; max-height: max(320px, calc(100vh - 270px)); overflow: auto; padding: 12px 14px;
@@ -665,7 +680,7 @@ body.setup nav, body.setup #pending { display: none; }
     <div class="col">
       <div class="card">
         <h3>Assistant</h3>
-        <ul class="rows" data-rows="svc:assistant voice.wake_word voice.sensitivity voice.language voice.voice_de"></ul>
+        <ul class="rows" data-rows="svc:assistant svc:voice voice.wake_word voice.sensitivity voice.language voice.voice_de"></ul>
       </div>
       <div class="card">
         <div class="ch"><h3>Claude API key</h3><span class="pill" id="vc-key-state">–</span></div>
@@ -683,13 +698,37 @@ body.setup nav, body.setup #pending { display: none; }
       </div>
     </div>
     <div class="col">
-      <div class="card" data-optional>
-        <h3>Time and alarms</h3>
-        <ul class="rows" data-rows="voice.timezone voice.ring_volume"></ul>
+      <div class="card" id="vc-listen" hidden>
+        <div class="ch"><h3>Listening</h3><span class="pill" id="vc-state">–</span></div>
+        <div class="hero">
+          <svg class="beams" id="beams" viewBox="-100 -100 200 200" role="img" aria-label="The Echo from above, and how loud each direction is"></svg>
+          <div class="hero-main">
+            <dl class="kv">
+              <dt>Direction</dt><dd id="vc-beam">–</dd>
+              <dt>Over the noise</dt><dd id="vc-snr">–</dd>
+              <dt>"Hey Jarvis"</dt><dd id="vc-wake">–</dd>
+            </dl>
+          </div>
+        </div>
+        <p class="note" id="vc-hint">The Echo from above: Volume down at the top, the microphone button on the right, Volume up at the bottom, Action on the left. Each bar is one direction the microphones listen in; the coloured one is in use.</p>
+      </div>
+      <div class="card" id="vc-say-card" hidden>
+        <h3>Type to the assistant</h3>
+        <p class="muted">A line here is taken as if it had been said after the wake word.</p>
+        <form id="vc-say" class="sayrow">
+          <input id="vc-say-text" type="text" maxlength="300" autocomplete="off" placeholder="set a timer for ten minutes" aria-label="What to say to the assistant" required>
+          <button type="submit" class="pri">Send</button>
+        </form>
+        <ul class="rows wrap" id="vc-history"></ul>
       </div>
       <div class="card">
         <h3>Timers and alarms</h3>
-        <div class="blank"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg>Timers and alarms set by voice will be listed here.</div>
+        <ul class="rows wrap" id="vc-timers"></ul>
+        <div class="blank" id="vc-timers-none"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg><span id="vc-timers-text">No timer runs and no alarm is set.</span></div>
+      </div>
+      <div class="card" data-optional>
+        <h3>Time and alarms</h3>
+        <ul class="rows" data-rows="voice.timezone voice.ring_volume"></ul>
       </div>
       <div class="card" data-more="voice" hidden>
         <h3>Advanced</h3>
@@ -1056,7 +1095,7 @@ body.setup nav, body.setup #pending { display: none; }
 
     <div class="wz-step" data-step="voice" hidden>
       <h3>Voice assistant</h3>
-      <p>Say the wake word, ask, and Claude answers through the speaker. The assistant itself is not part of this image yet: these settings are stored for it.</p>
+      <p>Say the wake word, ask, and Claude answers through the speaker. Speech recognition, speech output and Claude are not part of the image yet: these settings are stored for them.</p>
       <label class="field"><span>Wake word</span>
         <select id="wz-wake"><option value="hey_jarvis">Hey Jarvis</option></select></label>
       <label class="field"><span>Language</span>
@@ -1401,10 +1440,11 @@ function showView(name) {
   closeMenu();
   $('guest').hidden = !auth || auth.admin || !ADMIN_VIEWS.includes(view);
   scrollTo(0, 0);
+  refreshPending();
   if (view === 'music') { refreshPlayer(); refreshSongs(); }
   if (view === 'overview' || NET_VIEWS.includes(view)) refreshNetwork();
   if (CONF_VIEWS.includes(view)) refreshConfig();
-  if (view === 'voice') refreshKey();
+  if (view === 'voice') { refreshKey(); showVoice(); }
   if (view === 'security') refreshAuth();
   if (view === 'system' && isAdmin()) refreshFireos();
   if (view === 'setup') openSetup();
@@ -1421,12 +1461,16 @@ function showView(name) {
 function openMenu() {
   document.body.classList.add('menu');
   $('menu-open').setAttribute('aria-expanded', 'true');
+  document.querySelector('main').inert = true;
   $('menu-close').focus();
 }
 
 function closeMenu() {
+  const back = document.body.classList.contains('menu') && $('nav').contains(document.activeElement);
   document.body.classList.remove('menu');
   $('menu-open').setAttribute('aria-expanded', 'false');
+  document.querySelector('main').inert = false;
+  if (back) $('menu-open').focus();
 }
 
 function initViews() {
@@ -1444,6 +1488,12 @@ function initViews() {
 const HISTORY = 300;            /* samples per sparkline: 10 min at one per 2 s */
 const tempRows = new Map();     /* sensor name -> { val, line, history } */
 let prevStats = null;
+let statsAt = 0;               /* performance.now() when prevStats came in */
+
+/* The device's seconds since boot right now, from the last statistics; null before the first. */
+function deviceUptime() {
+  return prevStats && prevStats.uptime != null ? prevStats.uptime + (performance.now() - statsAt) / 1000 : null;
+}
 
 function renderSystem(s) {
   setText('model', s.model);
@@ -1570,6 +1620,8 @@ function renderStats(s) {
   renderRing(s.ring || []);
   renderVolume(s.volume);
   renderPlayer(s.player);
+  if (prevStats && s.uptime != null && prevStats.uptime != null && s.uptime < prevStats.uptime) rebooted();
+  statsAt = performance.now();
   prevStats = s;
 }
 
@@ -2145,6 +2197,7 @@ const TEXT = [...SECRET, 'CC', 'ssid', 'label'];    /* typed in; any other word 
 /* Names and explanations for the page; a service or setting without an entry shows under the device's
    own name and description. ask(on): a question before the switch is sent. */
 const SERVICES = {
+  voice: { label: 'Microphones', help: 'Listens in the direction of whoever speaks, and for the wake word.' },
   volume: { label: 'System volume', help: 'One volume for the speaker: the buttons, phones and this page set it. Off: the speaker stays at the level the driver starts with.' },
   dsp: { label: 'Speaker tuning', help: 'Off: the speaker plays untuned, and the tone controls have no effect.' },
   ring: { label: 'Light ring', help: 'Red while the microphones are muted, volume changes, Bluetooth pairing mode.' },
@@ -2237,7 +2290,38 @@ const ZONES = [
 
 const rows = new Map();         /* "<feature>.<key>" -> the setting's row: { s, m, li, reset } */
 
-function markPending() { $('pending').hidden = false; }
+/* What waits for a reboot is the device's to say (lidar-feature pending: "feature.<service>" and
+   "<feature>.<key>", gone again when a change is taken back): the bar at the top shows while that list
+   holds anything, and the rows in it say so. Asked when a view opens, after every change and after a
+   reboot. Restored Fire OS files wait too, and only the page knows. */
+let pending = new Set();
+let fireosWaits = false;
+const waits = new Map();        /* name as in the pending list -> its row's mark(waits) */
+
+function renderPending() {
+  $('pending').hidden = $('wz-reboot').hidden = !pending.size && !fireosWaits;
+  for (const [name, mark] of waits) mark(pending.has(name));
+}
+
+async function refreshPending() {
+  if (!isAdmin()) return;       /* the list is for the USB network only, as the settings are */
+  try {
+    pending = new Set((await api('pending')).pending);
+  } catch (err) {
+    return;
+  }
+  renderPending();
+}
+
+/* The device is back from a reboot: nothing waits any more, and services may have changed. */
+function rebooted() {
+  fireosWaits = false;
+  spoken = 0;                   /* the assistant's seq starts again */
+  pending = new Set();
+  renderPending();
+  refreshPending();
+  if (CONF_VIEWS.includes(view)) refreshConfig();
+}
 
 async function reboot() {
   if (await command('reboot')) toast('Rebooting…', true);
@@ -2245,17 +2329,19 @@ async function reboot() {
 
 function isAdmin() { return !!auth && auth.admin; }
 
-/* The row of a service or setting: its name, what became of the last change, an explanation, and room for
-   the control. `tech` is how a shell would name it. */
-function configRow(label, help, tech) {
+/* The row of a service or setting: its name, whether it waits for a reboot, what became of the last
+   change, an explanation, and room for the control. `id` is its name in the pending list, `tech` how a
+   shell would name it. */
+function configRow(label, help, tech, id) {
   const li = el('li', 'set'), text = el('span', 'stack'), name = el('span', 'name', label);
-  const st = el('span', 'st'), ctl = el('span', 'ctl');
+  const wait = el('span', 'st boot'), st = el('span', 'st'), ctl = el('span', 'ctl');
   let timer;
   st.setAttribute('role', 'status');
-  name.append(st);
+  name.append(wait, st);
   name.title = tech;
   text.append(name, el('span', 'meta', help));
   li.append(text, ctl);
+  waits.set(id, (on) => { wait.textContent = on ? 'after reboot' : ''; });
   const say = (words, cls) => {
     clearTimeout(timer);
     st.textContent = words;
@@ -2264,17 +2350,12 @@ function configRow(label, help, tech) {
   };
   return {
     li, ctl,
-    /* the device's answer to a change: whether it waits for a reboot, and what else it noted in brackets */
+    /* the device's answer to a change: what it noted in brackets, if it is not about the reboot */
     done(r, words) {
-      const note = /\(([^()]*)\)\s*$/.exec(r.message || '');
-      if (r.reboot) {
-        markPending();
-        say(words + ' · after reboot', 'boot');
-      } else if (note && words === 'Saved') {
-        say(words + ' · ' + note[1], '');
-      } else {
-        say(words, 'ok');
-      }
+      const note = !r.reboot && words === 'Saved' && /\(([^()]*)\)\s*$/.exec(r.message || '');
+      if (note) say(words + ' · ' + note[1], '');
+      else say(words, 'ok');
+      if (r.pending || pending.size) refreshPending();
     },
     fail(err) { say(describe(err), 'err'); },
   };
@@ -2282,7 +2363,7 @@ function configRow(label, help, tech) {
 
 function serviceRow(s) {
   const m = SERVICES[s.name] || {};
-  const row = configRow(m.label || s.name, m.help || s.description, 'lidar-feature enable|disable ' + s.name);
+  const row = configRow(m.label || s.name, m.help || s.description, 'lidar-feature enable|disable ' + s.name, 'feature.' + s.name);
   const sw = el('button', 'sw');
   sw.setAttribute('role', 'switch');
   sw.setAttribute('aria-checked', String(s.enabled));
@@ -2437,7 +2518,7 @@ function settingControl(s, m, commit) {
 function settingRow(s) {
   const name = s.feature + '.' + s.key, m = SETTINGS[name] || {};
   const label = m.label || s.feature + ' ' + s.key;
-  const row = configRow(label, m.help || s.description, 'lidar-feature set ' + s.feature + ' ' + s.key);
+  const row = configRow(label, m.help || s.description, 'lidar-feature set ' + s.feature + ' ' + s.key, name);
   const undo = iconButton('undo', 'Back to the default', 'ghost reset');
   let busy = false, next = null;
   const mark = () => {
@@ -2506,6 +2587,7 @@ function renderConfig(services, settings) {
   const setting = new Map(settings.map((s) => [s.feature + '.' + s.key, s]));
   const placed = new Set(NOT_LISTED);
   rows.clear();
+  waits.clear();
   for (const list of document.querySelectorAll('[data-rows]')) {
     const names = list.dataset.rows.split(' ');
     list.replaceChildren(...names.map((n) => service.has(n) ? serviceRow(service.get(n))
@@ -2528,6 +2610,7 @@ function renderConfig(services, settings) {
   for (const card of document.querySelectorAll('[data-optional]')) card.hidden = !card.querySelector('[data-rows] > li');
   $('eq-flat').hidden = !rows.has('dsp.bass');
   applyWhen();
+  renderPending();
 }
 
 /* Services are reported to everyone, settings to the USB network only: elsewhere the switches show, disabled. */
@@ -2631,11 +2714,165 @@ async function importFireos(file) {
   try {
     const r = await api('fireos_import', OCTET(file), 60000);
     toast(r.message || 'Imported', true);
-    if (r.changed) markPending();
+    if (r.changed) {
+      fireosWaits = true;
+      renderPending();
+    }
     refreshFireos();
   } catch (err) {
     toast(describe(err));
   }
+}
+
+/* ---------- voice: what the microphones hear, and the assistant ---------- */
+
+const VOICE_MS = 400;           /* each poll costs a CGI run with a few forks (login, admin check) */
+const BEAMS = 12;
+const BEAM_R0 = 54, BEAM_R1 = 94;      /* where a bar starts, and where it ends at full length */
+const beamBars = [];
+let beamLegend;                 /* the explanation next to the drawing, replaced while nothing listens */
+let wakeLast;                   /* wake.last of the last answer (undefined before the first): a change is a new wake word */
+let heardTimer;
+let spoken = 0;                 /* "seq" of the newest utterance in the history */
+let timersShown = '';
+
+/* lidar-voice counts degrees clockwise from microphone 0, seen from above. In the drawing 210 degrees is
+   the top (Volume down), 300 the right (microphone button), 30 the bottom (Volume up), 120 the left
+   (Action): the same turn as the LED ring, whose LED 1 sits at Volume down. */
+function beamPoint(deg, r) {
+  const a = (deg - 210) * Math.PI / 180;
+  return [(r * Math.sin(a)).toFixed(1), (-r * Math.cos(a)).toFixed(1)];
+}
+
+function initVoice() {
+  const s = $('beams');
+  for (let b = 0; b < BEAMS; b++) {
+    const [x1, y1] = beamPoint(b * 30, BEAM_R0), [x2, y2] = beamPoint(b * 30, BEAM_R1);
+    s.append(svg('line', { class: 'slot', x1, y1, x2, y2 }));
+    const bar = s.appendChild(svg('line', { class: 'beam', x1, y1, x2: x1, y2: y1, visibility: 'hidden' }));
+    bar.appendChild(svg('title', {}));
+    beamBars.push(bar);
+  }
+  s.append(svg('circle', { class: 'top', r: 44 }), svg('circle', { class: 'ringline', r: 36 }),
+    svg('path', { class: 'heard', id: 'beams-heard' }));
+  const keys = [[0, -18, 'Volume down', 'M-3 0h6'],
+    [18, 0, 'Microphone button', 'M-3.4 0a3.4 3.4 0 1 0 6.8 0a3.4 3.4 0 1 0-6.8 0M-2.4-2.4l4.8 4.8'],
+    [0, 18, 'Volume up', 'M-3 0h6M0-3v6'],
+    [-18, 0, 'Action button', 'M-1 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0']];
+  for (const [x, y, name, d] of keys) {
+    const g = s.appendChild(svg('g', { transform: 'translate(' + x + ' ' + y + ')' }));
+    g.appendChild(svg('circle', { class: 'key', r: 7 })).appendChild(svg('title', {})).textContent = name;
+    g.appendChild(svg('path', { class: 'glyph', d }));
+  }
+  beamLegend = $('vc-hint').textContent;
+  $('vc-say').addEventListener('submit', sayToAssistant);
+}
+
+function fmtAgo(s) {
+  if (s == null) return '';
+  return s < 2 ? 'just now' : s < 90 ? Math.floor(s) + ' s ago' : s < 5400 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago';
+}
+
+/* A wake word: the ring lights up towards where it came from, for a moment. */
+function flashWake(deg) {
+  const [x1, y1] = beamPoint(deg - 13, 36), [x2, y2] = beamPoint(deg + 13, 36);
+  $('beams-heard').setAttribute('d', 'M' + x1 + ' ' + y1 + 'A36 36 0 0 1 ' + x2 + ' ' + y2);
+  $('beams-heard').classList.add('on');
+  clearTimeout(heardTimer);
+  heardTimer = setTimeout(() => $('beams-heard').classList.remove('on'), 1500);
+}
+
+/* The twelve beams as bars: how far each is over the noise (or, without that, its level within 30 dB of
+   the loudest), the one in use coloured. */
+function renderVoice(v, w) {
+  const snr = v && v.snr, vals = (v && (v.snr || v.level)) || [];
+  const top = Math.max(...vals);
+  setPill('vc-state', v ? 'Listening' : 'Off', v ? 'on' : '');
+  setText('vc-hint', v ? beamLegend : 'Nothing listens: the microphones service is off. Switch it on under Assistant, then reboot.');
+  beamBars.forEach((bar, b) => {
+    const val = vals[b];
+    bar.setAttribute('visibility', val == null ? 'hidden' : 'visible');
+    if (val == null) return;
+    const frac = Math.min(1, Math.max(0.02, snr ? val / Math.max(15, top) : (val - top + 30) / 30));
+    const [x2, y2] = beamPoint(b * 30, BEAM_R0 + frac * (BEAM_R1 - BEAM_R0));
+    bar.setAttribute('x2', x2);
+    bar.setAttribute('y2', y2);
+    bar.classList.toggle('sel', b === v.beam);
+    bar.firstChild.textContent = b * 30 + '°: ' + val.toFixed(1) + ' dB';
+  });
+  setText('vc-beam', v ? v.angle + '°' + (v.fixed ? ' (fixed)' : '') : DASH);
+  setText('vc-snr', snr && snr[v.beam] != null ? snr[v.beam].toFixed(1) + ' dB' : DASH);
+  const last = w && w.last != null ? w.last : null, up = deviceUptime();
+  setText('vc-wake', last == null ? 'not heard yet'
+    : 'heard ' + fmtAgo(up == null ? null : Math.max(0, up - last)) + (w.count > 1 ? ' · ' + w.count + ' times' : ''));
+  if (wakeLast !== undefined && last != null && last !== wakeLast) flashWake(w.angle || 0);
+  wakeLast = last;
+}
+
+function spokenRow(l) {
+  const li = el('li'), text = el('span', 'stack'), meta = el('span', 'meta');
+  meta.append(el('span', 'pill ' + (l.ok ? 'on' : 'warn'), l.action || (l.ok ? 'understood' : 'not understood')), l.say || '');
+  text.append(el('span', 'name', '“' + l.text + '”'), meta);
+  li.append(text);
+  return li;
+}
+
+/* The assistant's state: its last utterance into the history (once), what rings, timers and alarms.
+   A timer's time left runs on the device's clock since boot, so it ticks between the assistant's writes. */
+function renderAssistant(a) {
+  if (a && a.last && a.last.seq !== spoken) {
+    spoken = a.last.seq;
+    $('vc-history').prepend(spokenRow(a.last));
+    while ($('vc-history').children.length > 6) $('vc-history').lastChild.remove();
+  }
+  const now = deviceUptime() ?? (a ? a.uptime : 0);
+  const hm = (x) => String(x.hour).padStart(2, '0') + ':' + String(x.minute).padStart(2, '0');
+  const items = [];
+  if (a) {
+    for (const r of a.ringing) items.push([r.kind === 'timer' ? r.name || 'Timer' : hm(r), r.kind === 'timer' ? 'Timer' : 'Alarm', 'Ringing', 'pill warn']);
+    for (const t of a.timers) items.push([t.name || 'Timer', 'Timer of ' + fmtTime(t.seconds), fmtTime(Math.max(0, Math.round(t.ends - now))), 'left']);
+    for (const x of a.alarms) items.push([hm(x), x.repeat.length ? x.repeat.join(', ') : 'Once', a.clock ? 'Alarm' : 'Waits for the clock', 'pill']);
+  }
+  $('vc-timers-none').hidden = items.length > 0;
+  setText('vc-timers-text', a ? 'No timer runs and no alarm is set.' : isAdmin() ? 'The assistant is not running.' : 'Shown over the USB network only.');
+  const sig = JSON.stringify(items);
+  if (sig === timersShown) return;
+  timersShown = sig;
+  $('vc-timers').replaceChildren(...items.map(([name, info, state, cls]) => {
+    const li = el('li');
+    li.append(stack(name, info), el('span', cls, state));
+    return li;
+  }));
+}
+
+/* Five times a second while Voice shows; a failure is the statistics poll's to report. */
+async function refreshVoice() {
+  let d;
+  try { d = await api('voice'); } catch (err) { return; }
+  renderVoice(d.voice, d.wake);
+  renderAssistant(d.assistant);
+}
+
+function showVoice() {
+  $('vc-listen').hidden = $('vc-say-card').hidden = !isAdmin();
+  if (isAdmin()) refreshVoice(); else renderAssistant(null);
+}
+
+/* A typed line goes to the assistant as if spoken; its answer comes back with the state. */
+async function sayToAssistant(e) {
+  e.preventDefault();
+  const text = $('vc-say-text').value.trim();
+  if (!text) return;
+  if (e.submitter) e.submitter.disabled = true;
+  try {
+    const r = await api('assistant_say', OCTET(text), 8000);
+    if (r.answered) $('vc-say-text').value = '';
+    else toast('The assistant did not answer');
+    renderAssistant(r.assistant);
+  } catch (err) {
+    toast(describe(err));
+  }
+  if (e.submitter) e.submitter.disabled = false;
 }
 
 /* ---------- first-run setup ---------- */
@@ -2667,16 +2904,11 @@ async function saveSetting(name, value) {
   if (!confLoaded || conf[name] === value) return true;
   if (!await command('set=' + name, OCTET(value))) return false;
   conf[name] = value;
+  refreshPending();
   return true;
 }
 
-async function saveName() {
-  const name = $('wz-name').value.trim();
-  if (!confLoaded || name === conf['bluetooth.name']) return true;
-  if (!await saveSetting('bluetooth.name', name)) return false;
-  markPending();
-  return true;
-}
+function saveName() { return saveSetting('bluetooth.name', $('wz-name').value.trim()); }
 
 /* The key goes to the device only; what comes back is whether one is set and its last four characters.
    p: the form it was typed into, the setup's ('wz') or Voice's ('vc'). */
@@ -3231,6 +3463,7 @@ async function start() {
   initUpload();
   initNetwork();
   initServices();
+  initVoice();
   initDebug();
   initFiles();
   initSetup();
@@ -3239,6 +3472,7 @@ async function start() {
   if (view !== 'music') refreshSongs();           /* the overview's play button starts the first song */
   every(STATS_MS, () => !document.hidden, refreshStats);
   every(PLAYER_MS, () => !document.hidden && view === 'music', refreshPlayer);
+  every(VOICE_MS, () => !document.hidden && view === 'voice' && isAdmin(), refreshVoice);
   every(NETWORK_MS, () => !document.hidden && (NET_VIEWS.includes(view) || (view === 'setup' && SETUP_STEPS[setupStep] === 'wifi')),
     refreshNetwork);
   every(LOG_MS, () => !document.hidden && view === 'debug' && debugTab === 'log' && $('log-follow').checked &&
