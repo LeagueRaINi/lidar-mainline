@@ -21,7 +21,8 @@
 #        lidar-feature enable|disable|reset <name>
 #        lidar-feature settings [--raw] [<name>]
 #                  (--raw: tab-separated feature, key, value, default,
-#                   allowed, description; passphrases and secrets as "(set)")
+#                   allowed, description; passphrases, secrets and hashes
+#                   as "(set)")
 #        lidar-feature get <name> <key>    (prints the value in effect)
 #        lidar-feature set <name> <key> [<value>]
 #                  (without <value>: the first line of standard input, which
@@ -53,8 +54,10 @@ visualizer extra 0 sound display on the LED ring: spectrum or level of whatever 
 # its service is not part of the image yet). default "-" is unset. allowed is
 # a|b|c (one of), N-M (integer range), CC (two capital letters), ssid (1-32
 # bytes, no control characters), label (1-48 bytes, no control characters),
-# passphrase (8-63 printable ASCII characters, masked in "settings") or
-# secret (16-200 printable ASCII characters without spaces, masked too).
+# passphrase (8-63 printable ASCII characters, masked in "settings"),
+# secret (16-200 printable ASCII characters without spaces, masked too) or
+# crypt (a sha512-crypt hash as cryptpw prints it, "$6$<salt>$<hash>",
+# masked too).
 SETTINGS='
 telnet listen usb usb|any usb: accept connections on usb0 only; any: on every interface, Wi-Fi included
 wifi country - CC regulatory domain (ISO 3166 code), set with "iw reg set" after the driver loads
@@ -77,6 +80,9 @@ volume keepalive on on|off on: speaker output stays open, as stock (no clicks, s
 ring auto_brightness on on|off on: ring brightness follows the light sensor, as stock does; off: always full
 ring min_brightness 15 5-100 ring brightness in the dark, percent of full
 webui setup_done no no|yes yes: the first-run setup of the web interface was finished; no: the web interface opens it for clients on the USB network
+webui auth off off|wifi|all login for the web interface: off: none; wifi: asked of clients that are not on the USB network; all: asked of USB clients too. Set from the web interface (setup, or System), which stores auth_hash and auth_kind with it
+webui auth_kind - pin|password what the login is, for the page to ask for the right thing: pin (digits only, at least 6) or password (at least 10 characters)
+webui auth_hash - crypt sha512-crypt hash of the PIN or password of the web interface (cryptpw -m sha512), never shown; without it there is no login, whatever auth says
 webui fireos_image_saved no no|yes yes: the owner confirmed in the setup that the full Fire OS image (system_a) was downloaded and saved
 voice wake_word hey_jarvis hey_jarvis word the voice assistant listens for (hey_jarvis is the only one for now)
 voice language en en|de language the voice assistant understands and speaks: en English, de German
@@ -216,6 +222,10 @@ valid() { # allowed value
 		case $2 in *[![:graph:]]*) return 1 ;; esac
 		[ ${#2} -ge 16 ] && [ ${#2} -le 200 ] && return 0
 		;;
+	crypt)
+		case $2 in *[!A-Za-z0-9./\$]*) return 1 ;; esac
+		case $2 in '$6$'?*'$'?*) [ ${#2} -le 128 ] && return 0 ;; esac
+		;;
 	*)
 		case $2 in '' | *'|'*) return 1 ;; esac
 		case "|$1|" in *"|$2|"*) return 0 ;; esac
@@ -259,7 +269,7 @@ settings)
 		[ -z "$2" ] || [ "$f" = "$2" ] || continue
 		[ "$d" != - ] || d=
 		v=$(setting_value "$f" "$k" "$d" "$a")
-		case $a in passphrase | secret) [ -z "$v" ] || v='(set)' ;; esac
+		case $a in passphrase | secret | crypt) [ -z "$v" ] || v='(set)' ;; esac
 		if [ -n "$raw" ]; then
 			printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$k" "$v" "$d" "$a" "$desc"
 		else
@@ -280,6 +290,7 @@ set)
 		case $ALLOWED in
 		passphrase) echo "invalid passphrase for $2 $3 (allowed: 8-63 printable ASCII characters)" >&2 ;;
 		secret) echo "invalid secret for $2 $3 (allowed: 16-200 printable ASCII characters without spaces)" >&2 ;;
+		crypt) echo "invalid hash for $2 $3 (allowed: sha512-crypt, as cryptpw -m sha512 prints it)" >&2 ;;
 		ssid) echo "invalid value '$val' for $2 $3 (allowed: 1-32 bytes, no control characters)" >&2 ;;
 		label) echo "invalid value '$val' for $2 $3 (allowed: 1-48 bytes, no control characters)" >&2 ;;
 		*) echo "invalid value '$val' for $2 $3 (allowed: $ALLOWED)" >&2 ;;
@@ -287,7 +298,7 @@ set)
 		exit 2
 	}
 	shown=$val
-	case $ALLOWED in passphrase | secret) shown='(set)' ;; esac
+	case $ALLOWED in passphrase | secret | crypt) shown='(set)' ;; esac
 	conf_put "$2.$3" "$val" && echo "$2 $3: $shown (takes effect on next boot)"
 	;;
 unset)
@@ -299,7 +310,7 @@ keep)
 	( flock 9 && keep_locked "$2" ) 9> /run/lidar-slot.lock
 	;;
 *)
-	sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 	;;
 esac

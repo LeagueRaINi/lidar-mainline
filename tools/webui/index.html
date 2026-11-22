@@ -295,6 +295,15 @@ pre.text { margin: 0; max-height: max(320px, calc(100vh - 250px)); overflow: aut
 #fb-name { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85rem; }
 @media (max-width: 560px) { .when { display: none; } }
 
+/* login: nothing but the form */
+body.login { display: block; }
+body.login #side, body.login main { display: none; }
+#login { max-width: 380px; margin: 14vh auto 0; padding: 0 16px; }
+#login form { display: grid; gap: 12px; }
+#login .callout { margin: 0; }
+.side-foot { display: flex; gap: 4px; }
+#auth-box { margin-top: 12px; }
+
 /* first-run setup */
 body.setup nav { display: none; }
 #view-setup { max-width: 680px; margin: 0 auto; }
@@ -381,6 +390,7 @@ body.setup nav { display: none; }
   </nav>
   <div class="side-foot">
     <button id="theme" class="ghost"><svg class="i" aria-hidden="true"><use href="#i-theme"/></svg><span id="theme-label">Theme</span></button>
+    <button id="logout" class="ghost" hidden>Log out</button>
   </div>
 </aside>
 
@@ -593,8 +603,17 @@ body.setup nav { display: none; }
       </div>
     </div>
     <div class="card">
+      <div class="ch"><h3>Login</h3><span class="pill" id="auth-state">–</span></div>
+      <p class="muted">One PIN or password for the whole web interface, asked once per browser and again after 30 days or a restart of the Echo. Forgotten: restart the Echo and, once the ring lights up, hold both volume buttons until it flashes green three times (about 10 s).</p>
+      <p class="muted" id="auth-msg" hidden>The login is changed over the USB network only.</p>
+      <div id="auth-box">
+        <div id="auth-form" class="wz-step"></div>
+        <div class="bar"><button id="auth-save" class="pri">Save</button><span class="muted" id="auth-problem" role="status"></span></div>
+      </div>
+    </div>
+    <div class="card">
       <div class="ch flat">
-        <div class="stack"><h3>Setup</h3><span class="meta">Fire OS files and image, Wi-Fi, device name and voice assistant, step by step.</span></div>
+        <div class="stack"><h3>Setup</h3><span class="meta">Login, Fire OS files and image, Wi-Fi, device name and voice assistant, step by step.</span></div>
         <a class="btn" href="#setup">Run setup again</a>
       </div>
     </div>
@@ -665,6 +684,7 @@ body.setup nav { display: none; }
       <p>This Echo Plus runs lidar: mainline Linux with its own services for the speaker, the LED ring, Wi-Fi, Bluetooth and the Zigbee and Thread radio, in place of Fire OS. lidar is an independent project and not affiliated with the maker of the device.</p>
       <p>A few steps get it ready:</p>
       <ul class="plain">
+        <li><b>Login</b>: a PIN or password for this web interface</li>
         <li><b>Fire OS files</b>: the Wi-Fi firmware and the speaker tuning lidar needs from your own Fire OS</li>
         <li><b>Fire OS image</b>: a full copy of the original system, for you to keep</li>
         <li><b>Wi-Fi</b>: the network the Echo joins</li>
@@ -672,6 +692,14 @@ body.setup nav { display: none; }
         <li><b>Voice assistant</b>: wake word, language and API key</li>
       </ul>
       <p class="note">Every step can be skipped and done later; the setup can be run again from System.</p>
+    </div>
+
+    <div class="wz-step" data-step="auth" hidden>
+      <div class="ch flat"><h3>Protect the web interface</h3><span class="pill" id="wz-auth-state">–</span></div>
+      <p>This web interface controls the whole Echo: music, volume, Wi-Fi, services, files. A PIN or password keeps everyone else in your network out. It is asked once per browser, and again after 30 days or a restart of the Echo.</p>
+      <div id="wz-auth-form" class="wz-step"></div>
+      <p class="muted" id="wz-auth-problem" role="status" hidden></p>
+      <p class="note">Nothing is encrypted on the way (no HTTPS): the PIN or password can be read by whoever can listen in on the network, so use the web interface in your own network only and never open it to the internet. Forgotten: restart the Echo and, once the ring lights up, hold both volume buttons until it flashes green three times (about 10 s).</p>
     </div>
 
     <div class="wz-step" data-step="fireos" hidden>
@@ -760,6 +788,41 @@ body.setup nav { display: none; }
   </div>
 </section>
 </main>
+<div id="login" hidden>
+  <div class="card">
+    <form id="login-form">
+      <h2>Echo Plus</h2>
+      <label class="field"><span id="login-label">PIN or password</span>
+        <input id="login-cred" type="password" maxlength="128" required autocomplete="current-password"></label>
+      <p class="callout" id="login-msg" role="alert" hidden></p>
+      <button type="submit" class="pri" id="login-go">Log in</button>
+      <p class="note">Forgotten: restart the Echo and, once the ring lights up, hold both volume buttons until it flashes green three times (about 10 s). That removes the login.</p>
+    </form>
+  </div>
+</div>
+<template id="auth-fields">
+  <label class="field"><span>Ask for it</span>
+    <select data-f="scope">
+      <option value="all">On Wi-Fi and USB (recommended)</option>
+      <option value="wifi">On Wi-Fi only: the USB network stays open</option>
+      <option value="off">Never: no login</option>
+    </select></label>
+  <p class="callout" data-f="warn-off" hidden>Without a login, everyone who reaches the web interface can use it: on the USB network everything, and on the Wi-Fi (with "webui listen any") the overview, the volume and the music.</p>
+  <div class="wz-step" data-f="cred">
+    <label class="field"><span>With a</span>
+      <select data-f="kind">
+        <option value="pin">PIN: digits only, at least 6</option>
+        <option value="password">Password: at least 10 characters</option>
+      </select></label>
+    <p class="callout" data-f="warn-pin" hidden>The web interface is open to the Wi-Fi network ("webui listen any"). A PIN is quick to guess for a program that keeps trying, even with the pauses the Echo enforces: prefer a password.</p>
+    <label class="field"><span data-f="new-label">PIN</span>
+      <input data-f="new" type="password" maxlength="128" autocomplete="new-password"></label>
+    <label class="field"><span>Once more</span>
+      <input data-f="again" type="password" maxlength="128" autocomplete="new-password"></label>
+  </div>
+  <label class="field" data-f="cur-row" hidden><span data-f="cur-label">Current PIN</span>
+    <input data-f="cur" type="password" maxlength="128" autocomplete="current-password"></label>
+</template>
 <div id="toast" role="status" hidden></div>
 
 <script>
@@ -868,7 +931,8 @@ async function api(query, post, timeoutMs) {
     const res = await fetch(API + '?' + query, opts);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json = await res.json();
-    if (json.error) throw new ApiError(json.error);
+    if (json.login) showLogin();
+    if (json.error) throw Object.assign(new ApiError(json.error), { wait: json.wait || 0 });
     return json;
   } finally {
     clearTimeout(timer);
@@ -932,7 +996,7 @@ async function command(query, post = true, timeoutMs) {
 /* Run fn every `ms` while active() holds, never overlapping itself. */
 function every(ms, active, fn) {
   const tick = async () => {
-    if (active()) await fn();
+    if (!loginShown && active()) await fn();
     setTimeout(tick, ms);
   };
   tick();
@@ -1021,7 +1085,7 @@ function showView(name) {
   scrollTo(0, 0);
   if (view === 'music') { refreshPlayer(); refreshSongs(); }
   if (view === 'network') refreshNetwork();
-  if (view === 'services') { refreshServices(); refreshSettings(); refreshFireos(); }
+  if (view === 'services') { refreshServices(); refreshSettings(); refreshFireos(); refreshAuth(); }
   if (view === 'setup') openSetup();
   if (view === 'debug') {
     $('log').dataset.shown = '';              /* a hidden pane loses its scroll position */
@@ -1718,6 +1782,8 @@ function serviceRow(s) {
   sw.setAttribute('aria-label', s.name + ' service');
   sw.title = s.enabled ? 'Enabled: click to disable' : 'Disabled: click to enable';
   sw.addEventListener('click', async () => {
+    if (s.name === 'telnet' && !s.enabled && !confirm('Telnet is a root shell without any password, for everyone on the USB network ' +
+      '(and on the Wi-Fi with "telnet listen any").\n\nSwitch it on?')) return;
     sw.disabled = true;
     if (await command((s.enabled ? 'disable=' : 'enable=') + encodeURIComponent(s.name))) {
       markPending();
@@ -1804,7 +1870,9 @@ function settingRow(s) {
 async function refreshSettings() {
   try {
     const d = await api('settings');
-    $('settings').replaceChildren(...groupedRows(d.settings, 'feature', settingRow));
+    /* the login has its own card */
+    const rows = d.settings.filter((s) => !(s.feature === 'webui' && s.key.startsWith('auth')));
+    $('settings').replaceChildren(...groupedRows(rows, 'feature', settingRow));
     $('settings-msg').hidden = true;
   } catch (err) {
     $('settings').replaceChildren();
@@ -1889,6 +1957,7 @@ async function importFireos(file) {
    (resolves to false to stay on the step). */
 const SETUP = {
   welcome: { title: 'Welcome' },
+  auth: { title: 'Protect the web interface', skip: true, ready: () => !wzAuth.problem(), apply: () => wzAuth.save() },
   fireos: { title: 'Fire OS files', skip: true, ready: () => !!fireos && fireos.wifiOk && fireos.dspOk },
   image: { title: 'Fire OS image', skip: true, ready: () => !imageOffered() || $('wz-image-saved').checked,
     apply: () => !imageOffered() || saveSetting('webui.fireos_image_saved', 'yes') },
@@ -2029,6 +2098,8 @@ function renderSummary() {
       files ? 'Kept' : 'Incomplete', files ? 'on' : 'warn'),
     statusRow('Fire OS image', saved ? 'you confirmed the download' : imageOffered() ? 'not downloaded yet' : 'no Fire OS on system_a',
       saved ? 'Saved' : 'Not saved', saved ? 'on' : ''),
+    statusRow('Login', authOn() ? AUTH_SCOPE[auth.auth] + ', with a ' + AUTH_KIND[auth.auth_kind] : 'none: the web interface is open',
+      authOn() ? 'Protected' : 'Open', authOn() ? 'on' : 'warn'),
     statusRow('Wi-Fi', net || 'no network set up', up ? 'Connected' : net ? 'Saved' : 'Skipped', up ? 'on' : ''),
     statusRow('Device name', conf['bluetooth.name'] || '', 'Set', 'on'),
     statusRow('Voice assistant', $('wz-wake').selectedOptions[0].textContent + ', ' + lang,
@@ -2068,6 +2139,7 @@ async function openSetup() {
   showSetupStep(0);
   refreshFireos();
   refreshNetwork();
+  refreshAuth();
   confLoaded = false;
   try {
     const [s, k] = await Promise.all([api('settings'), api('voice_key')]);
@@ -2091,11 +2163,164 @@ async function openSetup() {
 }
 
 /* The setup opens by itself until it was finished once, for clients that may run it (USB network). */
-async function checkFirstRun() {
-  try {
-    const s = await api('setup');
-    if (!s.done && s.admin) location.hash = 'setup';
-  } catch (err) { /* the polls report an unreachable device */ }
+function checkFirstRun() {
+  if (auth && !auth.done && auth.admin) location.hash = 'setup';
+}
+
+/* ---------- login ---------- */
+
+const AUTH_SCOPE = { off: 'Off', wifi: 'Wi-Fi only', all: 'Wi-Fi and USB' };
+const AUTH_KIND = { pin: 'PIN', password: 'password' };
+let auth = null;                /* the last ?setup answer: done, admin, auth, auth_kind, need_login, logged_in, listen */
+let loginShown = false;         /* only the login form shows, and nothing polls */
+let loginTimer;
+let wzAuth, sysAuth;            /* the login's form in the setup and under System */
+
+function authOn() { return !!auth && auth.auth !== 'off'; }
+
+function fmtWait(s) { return s >= 60 ? Math.ceil(s / 60) + ' min' : s + ' s'; }
+
+async function loadAuth() {
+  try { auth = await api('setup'); } catch (err) { /* the polls report an unreachable device */ }
+}
+
+/* The device asks for the login: from here on the page is the form alone, until it reloads logged in.
+   Asked again first: a poll answered while the login was being changed here may be stale. */
+async function showLogin() {
+  if (loginShown) return;
+  await loadAuth();
+  if (auth && !(auth.need_login && !auth.logged_in)) return;
+  if (loginShown) return;
+  loginShown = true;
+  document.body.classList.add('login');
+  $('login').hidden = false;
+  const pin = authOn() && auth.auth_kind === 'pin';
+  if (authOn()) setText('login-label', pin ? 'PIN' : 'Password');
+  $('login-cred').inputMode = pin ? 'numeric' : 'text';
+  $('login-cred').focus();
+}
+
+/* What the device said to a wrong PIN, and the pause it enforces counted down. */
+function loginFailed(err) {
+  const until = Date.now() + (err.wait || 0) * 1000;
+  clearInterval(loginTimer);
+  const tick = () => {
+    const left = Math.ceil((until - Date.now()) / 1000);
+    $('login-go').disabled = left > 0;
+    setText('login-msg', describe(err) + (left > 0 ? ': try again in ' + fmtWait(left) : ''));
+    if (left <= 0) clearInterval(loginTimer);
+  };
+  $('login-msg').hidden = false;
+  if (err.wait) loginTimer = setInterval(tick, 1000);
+  tick();
+}
+
+/* The login's settings as a form, in `box`: the scope, PIN or password, the new one twice, and the current
+   one where the device will ask for it (one is set and this browser is not logged in). */
+function authForm(box, onChange) {
+  box.append($('auth-fields').content.cloneNode(true));
+  const f = (name) => box.querySelector('[data-f="' + name + '"]');
+  const needCurrent = () => authOn() && !auth.logged_in;
+  const form = {
+    /* what the device holds; whatever was typed is dropped */
+    load(scope) {
+      f('scope').value = authOn() ? auth.auth : scope;
+      f('kind').value = (authOn() && auth.auth_kind) || 'pin';
+      for (const n of ['new', 'again', 'cur']) f(n).value = '';
+      form.render();
+    },
+    render() {
+      const off = f('scope').value === 'off', pin = f('kind').value === 'pin';
+      const keep = authOn() && f('kind').value === auth.auth_kind;   /* left empty, the current one stays */
+      f('warn-off').hidden = !off;
+      f('cred').hidden = off;
+      f('warn-pin').hidden = !pin || !auth || auth.listen !== 'any';
+      setIn('new-label', (keep ? 'New ' : '') + (pin ? 'PIN' : keep ? 'password' : 'Password'));
+      f('new').placeholder = keep ? 'unchanged' : '';
+      f('new').inputMode = f('again').inputMode = pin ? 'numeric' : 'text';
+      f('cur-row').hidden = !needCurrent();
+      if (authOn()) setIn('cur-label', 'Current ' + AUTH_KIND[auth.auth_kind]);
+      f('cur').inputMode = authOn() && auth.auth_kind === 'pin' ? 'numeric' : 'text';
+      onChange();
+    },
+    changed: () => f('scope').value !== (auth ? auth.auth : 'off') || (f('scope').value !== 'off' && !!f('new').value),
+    /* why it cannot be saved as it is: a text to show, ' ' for "not filled in yet", '' if it can */
+    problem() {
+      const v = f('new').value, pin = f('kind').value === 'pin';
+      if (needCurrent() && form.changed() && !f('cur').value) return ' ';
+      if (f('scope').value === 'off') return '';
+      if (!v) return authOn() && f('kind').value === auth.auth_kind ? '' : ' ';
+      if (pin && !/^\d{6,64}$/.test(v)) return 'A PIN has digits only, at least 6.';
+      if (!pin && !/^[ -~]{10,128}$/.test(v)) return 'A password needs at least 10 characters: letters, digits and signs, no umlauts.';
+      return v === f('again').value ? '' : f('again').value ? 'The two entries differ.' : ' ';
+    },
+    /* resolves to false if the device refused */
+    async save() {
+      if (!form.changed()) return true;
+      const off = f('scope').value === 'off';
+      try {
+        await api('auth_set', OCTET([f('scope').value, f('kind').value, f('cur').value, off ? '' : f('new').value].join('\n')));
+      } catch (err) {
+        toast(describe(err) + (err.wait ? ': try again in ' + fmtWait(err.wait) : ''));
+        return false;
+      }
+      await refreshAuth();
+      return true;
+    },
+  };
+  const setIn = (name, text) => { f(name).textContent = text; };
+  box.addEventListener('input', form.render);
+  return form;
+}
+
+function renderAuthCard() {
+  const p = sysAuth.problem().trim();
+  $('auth-save').disabled = !sysAuth.changed() || !!sysAuth.problem();
+  setText('auth-problem', p);
+}
+
+function renderAuthStep() {
+  const p = wzAuth.problem().trim();
+  setText('wz-auth-problem', p);
+  $('wz-auth-problem').hidden = !p;
+  if (view === 'setup') renderSetupNav();
+}
+
+/* The login as the device holds it, into both forms, the pills and the log-out button. */
+async function refreshAuth() {
+  await loadAuth();
+  if (!auth) return;
+  wzAuth.load('all');
+  sysAuth.load('off');
+  for (const id of ['auth-state', 'wz-auth-state']) setPill(id, AUTH_SCOPE[auth.auth], authOn() ? 'on' : '');
+  $('auth-box').hidden = !auth.admin;
+  $('auth-msg').hidden = auth.admin;
+  $('logout').hidden = !auth.logged_in;
+}
+
+function initLogin() {
+  wzAuth = authForm($('wz-auth-form'), renderAuthStep);
+  sysAuth = authForm($('auth-form'), renderAuthCard);
+  $('auth-save').addEventListener('click', async () => {
+    $('auth-save').disabled = true;
+    if (await sysAuth.save()) toast('Saved', true);
+    renderAuthCard();
+  });
+  $('logout').addEventListener('click', async () => {
+    if (await command('logout')) location.reload();
+  });
+  $('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('login-go').disabled = true;
+    try {
+      await api('login', OCTET($('login-cred').value));
+      location.reload();
+    } catch (err) {
+      $('login-cred').value = '';
+      loginFailed(err);
+      $('login-cred').focus();
+    }
+  });
 }
 
 function initSetup() {
@@ -2302,25 +2527,34 @@ const PLAYER_MS = 1000;
 
 function refreshStats() { return poll('stats', renderStats); }
 
-initTheme();
-initRing();
-initVolume();
-initPlayer();
-initUpload();
-initNetwork();
-initServices();
-initDebug();
-initFiles();
-initSetup();
-initViews();
-checkFirstRun();
-if (view !== 'music') refreshSongs();           /* the overview's play button starts the first song */
-every(STATS_MS, () => !document.hidden, refreshStats);
-every(PLAYER_MS, () => !document.hidden && view === 'music', refreshPlayer);
-every(NETWORK_MS, () => !document.hidden && (view === 'network' || (view === 'setup' && SETUP_STEPS[setupStep] === 'wifi')),
-  refreshNetwork);
-every(LOG_MS, () => !document.hidden && view === 'debug' && debugTab === 'log' && $('log-follow').checked &&
-  $('log-src').value === 'current', refreshLog);
+/* The login comes first: a browser that has to log in gets the form and nothing else. */
+async function start() {
+  initTheme();
+  initLogin();
+  await loadAuth();
+  if (auth && auth.need_login && !auth.logged_in) return showLogin();
+  $('logout').hidden = !auth || !auth.logged_in;
+  initRing();
+  initVolume();
+  initPlayer();
+  initUpload();
+  initNetwork();
+  initServices();
+  initDebug();
+  initFiles();
+  initSetup();
+  initViews();
+  checkFirstRun();
+  if (view !== 'music') refreshSongs();           /* the overview's play button starts the first song */
+  every(STATS_MS, () => !document.hidden, refreshStats);
+  every(PLAYER_MS, () => !document.hidden && view === 'music', refreshPlayer);
+  every(NETWORK_MS, () => !document.hidden && (view === 'network' || (view === 'setup' && SETUP_STEPS[setupStep] === 'wifi')),
+    refreshNetwork);
+  every(LOG_MS, () => !document.hidden && view === 'debug' && debugTab === 'log' && $('log-follow').checked &&
+    $('log-src').value === 'current', refreshLog);
+}
+
+start();
 </script>
 </body>
 </html>

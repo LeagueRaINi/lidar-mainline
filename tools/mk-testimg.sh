@@ -424,6 +424,50 @@ fi
 if lidar-feature enabled bootanim; then
 	lidar-bootanim /run/boot-done &
 fi
+# Forgotten login of the web interface: Volume up and Volume down, held
+# together for 10 s starting within the first 30 s from here, remove it
+# (webui auth, auth_hash, auth_kind) and end every session. Not the
+# microphone button: it toggles the hardware mute latch on every press.
+# Both are keys of gpio-keys (KEY_VOLUMEUP, KEY_VOLUMEDOWN), asked twice a
+# second: 20 times pressed in a row. Three green flashes of the ring confirm
+# it once the boot animation is over; "pair off" then has lidar-ring draw
+# its own state again.
+(
+	ev=$(awk '/^N: Name="gpio-keys"/ { k = 1 } k && /^H: / {
+		for (i = 1; i <= NF; i++) if ($i ~ /^event/) print $i; exit }' /proc/bus/input/devices)
+	[ -n "$ev" ] || exit 0
+	n=0 held=0
+	while [ $held -lt 20 ]; do
+		[ $n -lt 60 ] || [ $held -gt 0 ] || exit 0
+		evtest --query /dev/input/$ev EV_KEY KEY_VOLUMEUP 2>/dev/null
+		if [ $? = 10 ] && { evtest --query /dev/input/$ev EV_KEY KEY_VOLUMEDOWN 2>/dev/null; [ $? = 10 ]; }; then
+			held=$((held + 1))
+		else
+			held=0
+		fi
+		n=$((n + 1))
+		sleep 0.5
+	done
+	lidar-feature unset webui auth >/dev/null && lidar-feature unset webui auth_hash >/dev/null &&
+		lidar-feature unset webui auth_kind >/dev/null || {
+		echo "lidar: buttons held to remove the web interface login, but lidar.conf cannot be written" > /dev/kmsg
+		exit 0
+	}
+	rm -rf /run/lidar-webauth
+	echo "lidar: web interface login removed (both volume buttons held 10 s)" > /dev/kmsg
+	[ -e /sys/class/leds/ring1:green/brightness ] || exit 0
+	while [ ! -e /run/boot-done ] || pidof lidar-bootanim >/dev/null; do sleep 0.5; done
+	sleep 1		# lidar-ring draws the ring once right after the boot animation
+	ring() { for l in /sys/class/leds/ring*:"$1"/brightness; do echo "$2" > "$l"; done; }
+	: > /run/lidar-ring.busy
+	ring red 0; ring blue 0
+	for i in 1 2 3; do
+		ring green 120; sleep 0.3
+		ring green 0; sleep 0.3
+	done
+	rm -f /run/lidar-ring.busy
+	[ ! -p /run/lidar-ring.fifo ] || echo "pair off" 1<> /run/lidar-ring.fifo
+) &
 # no udev here: load the sound stack by hand (codecs before the card)
 for m in snd-soc-mt8516-afe snd-soc-tlv320adc3xxx snd-soc-tlv320aic32x4-i2c mt8516-amazon-lidar; do
 	modprobe $m

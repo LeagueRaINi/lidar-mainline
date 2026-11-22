@@ -11,17 +11,27 @@
 # answers. The Host header must be an IP address, which keeps DNS rebinding
 # out.
 #
-# There is no login. Everything that changes the device or reads more than
-# its status (radios, services, settings, logs, files, the Fire OS image,
-# reboot) is "admin" and only answered for clients on the USB network, even
-# with "webui listen any". Secrets (Wi-Fi passphrase, API key) go in only:
-# no request returns them.
+# Everything that changes the device or reads more than its status (radios,
+# services, settings, logs, files, the Fire OS image, reboot) is "admin" and
+# only answered for clients on the USB network, even with "webui listen
+# any". Secrets (Wi-Fi passphrase, API key) go in only: no request returns
+# them.
+#
+# The owner may set a login (see "login" below): one PIN or password, asked
+# of the clients that are not on the USB network ("webui auth wifi") or of
+# all ("all"). Without a session nothing but "setup" and "login" is answered
+# then. A login does not make a client admin.
 LIB=/run/lidar-player
 FIFO=/run/lidar-player.fifo
 
 HDR=
+COOKIE=	# a Set-Cookie value for this answer
 hdr() {
-	[ -n "$HDR" ] || printf 'Content-Type: application/json\r\nCache-Control: no-store\r\nCross-Origin-Resource-Policy: same-origin\r\n\r\n'
+	[ -n "$HDR" ] || {
+		printf 'Content-Type: application/json\r\nCache-Control: no-store\r\nCross-Origin-Resource-Policy: same-origin\r\n'
+		[ -z "$COOKIE" ] || printf 'Set-Cookie: %s\r\n' "$COOKIE"
+		printf '\r\n'
+	}
 	HDR=1
 }
 
@@ -33,10 +43,14 @@ ok() { hdr; printf '{"ok": true}\n'; exit 0; }
 # route is usb0. Replies to it then only ever leave through usb0, so a Wi-Fi
 # host that fakes such a source cannot complete a connection; without usb0
 # ("webui listen any") they would follow the default route, hence the check.
+USB=	# usb_client's answer, asked once
 usb_client() {
-	a=${REMOTE_ADDR#[}; a=${a%]}; a=${a#::ffff:}
-	case $a in 169.254.*) ;; *) return 1 ;; esac
-	ip route get "$a" 2>/dev/null | grep -q ' dev usb0 '
+	if [ -z "$USB" ]; then
+		USB=no
+		a=${REMOTE_ADDR#[}; a=${a%]}; a=${a#::ffff:}
+		case $a in 169.254.*) ip route get "$a" 2>/dev/null | grep -q ' dev usb0 ' && USB=yes ;; esac
+	fi
+	[ $USB = yes ]
 }
 
 admin() { usb_client || fail "only over the USB network"; }
@@ -384,6 +398,8 @@ setting_name() { # $val = <feature>.<key> -> $sf, $sk
 	case $val in *.* ) ;; *) fail "bad setting" ;; esac
 	sf=${val%%.*}; sk=${val#*.}
 	case $sf$sk in '' | *[!a-z0-9_]*) fail "bad setting" ;; esac
+	# the login has its own request, which asks for the current one
+	case $sf.$sk in webui.auth | webui.auth_*) fail "the login is changed with auth_set (System, Login)" ;; esac
 }
 
 # body: the new value, handed on as standard input: a secret must not show
@@ -395,12 +411,18 @@ set_setting() {
 	ok
 }
 
-# First-run setup: whether it was finished, and whether this client may run
-# it (the page opens it by itself for those who can)
+# First-run setup: whether it was finished and whether this client may run
+# it (the page opens it by itself for those who can); and the login: its
+# scope, PIN or password, whether this client has to log in and whether it
+# has. "listen" is for the page's warning about a PIN on Wi-Fi.
 setup_state() {
 	d=false; [ "$(lidar-feature get webui setup_done 2>/dev/null)" = yes ] && d=true
 	u=false; usb_client && u=true
-	printf '{"done": %s, "admin": %s}\n' $d $u
+	k=null; [ $scope = off ] || k="\"$(lidar-feature get webui auth_kind 2>/dev/null)\""
+	n=false; need_login && n=true
+	l=false; session_ok && l=true
+	printf '{"done": %s, "admin": %s, "auth": "%s", "auth_kind": %s, "need_login": %s, "logged_in": %s, "listen": "%s"}\n' \
+		$d $u $scope "$k" $n $l "$(lidar-feature get webui listen 2>/dev/null)"
 }
 
 # The API key of the voice assistant: whether one is set and its last four
@@ -538,6 +560,199 @@ fireos_import() {
 	printf '{"ok": true, "changed": %s, "message": "%s"}\n' $c "$(esc "${out#lidar-fireos: }")"
 }
 
+# ---------- login ----------
+
+# One PIN or password for the whole interface, kept as a sha512-crypt hash
+# ("webui auth_hash", from cryptpw with a random salt). "webui auth" says of
+# whom it is asked: wifi (clients that are not on the USB network) or all;
+# without a hash there is no login. The PIN or password only ever travels on
+# standard input, never as an argument, and is written nowhere.
+#
+# A login gives the browser a random token in the cookie lidar_session, good
+# for 30 days. Under $AUTH (gone with a reboot):
+#   sessions/<sha256 of the token>  when the session ends
+#   fail/<client address>, fail/all "<failed attempts in a row> <locked until>"
+#   lock                            flock: one check of a PIN at a time
+# Times are seconds since boot (/proc/uptime): the wall clock jumps when NTP
+# sets it (there is no RTC).
+AUTH=/run/lidar-webauth
+SESSION_S=2592000
+
+now() { read -r now _ < /proc/uptime; now=${now%.*}; }
+
+auth_load() { # -> $scope (off, wifi, all) and $ahash
+	ahash=
+	scope=$(lidar-feature get webui auth 2>/dev/null)
+	case $scope in
+	wifi | all) ahash=$(lidar-feature get webui auth_hash 2>/dev/null); [ -n "$ahash" ] || scope=off ;;
+	*) scope=off ;;
+	esac
+}
+
+need_login() { # is the login asked of this client?
+	case $scope in
+	all) return 0 ;;
+	wifi) ! usb_client ;;
+	*) return 1 ;;
+	esac
+}
+
+# The token in the cookie -> $sid, the name of its session file
+session_id() {
+	c="; $HTTP_COOKIE"
+	case $c in *'; lidar_session='*) ;; *) return 1 ;; esac
+	t=${c##*; lidar_session=}; t=${t%%;*}
+	case $t in *[!0-9a-f]*) return 1 ;; esac
+	[ ${#t} = 64 ] || return 1
+	sid=$(printf %s "$t" | sha256sum); sid=${sid%% *}
+}
+
+session_ok() {
+	[ $scope != off ] && session_id || return 1
+	rdv "$AUTH/sessions/$sid" 0
+	now
+	[ "$v" -gt "$now" ] 2>/dev/null
+}
+
+session_new() { # a new session for this browser, its cookie into the answer
+	t=$(head -c 32 /dev/urandom | od -An -v -tx1 | tr -d ' \n')
+	[ ${#t} = 64 ] || fail "no random numbers"
+	sid=$(printf %s "$t" | sha256sum); sid=${sid%% *}
+	auth_dir
+	now
+	echo $((now + SESSION_S)) > "$AUTH/sessions/$sid"
+	COOKIE="lidar_session=$t; Max-Age=$SESSION_S; Path=/; HttpOnly; SameSite=Strict"
+}
+
+session_end() { COOKIE='lidar_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict'; }
+
+auth_dir() { [ -d $AUTH/sessions ] || (umask 077; mkdir -p $AUTH/sessions $AUTH/fail); }
+
+deny() { # message, seconds until the next attempt is taken
+	hdr
+	printf '{"error": "%s", "wait": %s}\n' "$1" "$2"
+	exit 0
+}
+
+locked() { # counter file -> $wait: seconds it still locks, 0 if it does not
+	end=0
+	[ -r "$1" ] && read -r _ end < "$1"
+	wait=$((end - now))
+	[ $wait -gt 0 ] || wait=0
+}
+
+# One more failure in counter file $1. From the $2th in a row on, each one
+# locks: 10 min, then 30 min every time -> $wait
+strike() {
+	cnt=0
+	[ -r "$1" ] && read -r cnt _ < "$1"
+	cnt=$((cnt + 1))
+	case $((cnt - $2)) in
+	-*) wait=0 ;;
+	0) wait=600 ;;
+	*) wait=1800 ;;
+	esac
+	echo "$cnt $((now + wait))" > "$1"
+}
+
+# $1 against the stored hash: hashed again with the salt of the stored one.
+# Returns if it is right; otherwise the request ends here. Failures are
+# counted per client address (locks from the 5th in a row) and over all
+# clients that are not on the USB network (from the 20th: a client that
+# changes its address); the USB network is not held up by the latter, so
+# nobody on the Wi-Fi can lock the owner out there. While locked nothing is
+# checked or counted. Under the lock, so requests in parallel cannot get
+# more attempts than the counters allow.
+cred_check() {
+	auth_dir
+	exec 9> $AUTH/lock
+	flock 9
+	now
+	fa=${REMOTE_ADDR#[}; fa=${fa%]}; fa=${fa#::ffff:}
+	case $fa in '' | *[!0-9A-Fa-f.:]*) fa=other ;; esac
+	fa=$AUTH/fail/$fa
+	locked "$fa"; w=$wait
+	usb_client || { locked $AUTH/fail/all; [ $wait -le $w ] || w=$wait; }
+	[ $w = 0 ] || deny "too many failed attempts" $w
+	salt=${ahash#\$6\$}; salt=${salt%%\$*}
+	h=$(printf '%s\n' "$1" | cryptpw -m sha512 -P 0 -S "$salt" 2>/dev/null)
+	if [ -n "$1" ] && [ "$h" = "$ahash" ]; then
+		rm -f "$fa" $AUTH/fail/all
+		return 0
+	fi
+	strike "$fa" 5; w=$wait
+	usb_client || { strike $AUTH/fail/all 20; [ $wait -le $w ] || w=$wait; }
+	deny "wrong PIN or password" $w
+}
+
+# body: the PIN or password
+login() {
+	[ $scope != off ] || fail "no login is set"
+	body_len 200
+	b=$(head -c "$len")
+	cred_check "${b%%
+*}"
+	for f in $AUTH/sessions/*; do	# those that ended
+		rdv "$f" 0
+		[ "$v" -gt "$now" ] 2>/dev/null || rm -f "$f"
+	done
+	session_new
+	ok
+}
+
+logout() {
+	session_id && rm -f "$AUTH/sessions/$sid"
+	session_end
+	ok
+}
+
+# Sets, changes or removes the login. body, one per line: the scope (off,
+# wifi, all), pin or password, the current PIN or password, the new one.
+# The current one is needed unless there is none or the browser is logged
+# in; an empty new one keeps the current and only changes the scope. Every
+# session ends; this browser gets a new one.
+auth_set() {
+	body_len 600
+	b=$(head -c "$len")
+	{ IFS= read -r nscope; IFS= read -r nkind; IFS= read -r cur; IFS= read -r new; } <<-EOF
+	$b
+	EOF
+	case $nscope in off | wifi | all) ;; *) fail "bad scope" ;; esac
+	[ $scope = off ] || session_ok || cred_check "$cur"
+	if [ "$nscope" = off ]; then
+		for k in auth auth_hash auth_kind; do
+			lidar-feature unset webui $k >/dev/null 2>&1 || fail "cannot change the settings"
+		done
+		rm -rf $AUTH/sessions
+		session_end
+		ok
+	fi
+	if [ -n "$new" ]; then
+		case $nkind in
+		pin)
+			case $new in *[!0-9]*) fail "a PIN has digits only" ;; esac
+			[ ${#new} -ge 6 ] && [ ${#new} -le 64 ] || fail "a PIN needs at least 6 digits"
+			;;
+		password)
+			case $new in *[![:print:]]*) new= ;; esac
+			[ ${#new} -ge 10 ] && [ ${#new} -le 128 ] ||
+				fail "a password needs at least 10 printable ASCII characters"
+			;;
+		*) fail "bad kind" ;;
+		esac
+		h=$(printf '%s\n' "$new" | cryptpw -m sha512 -P 0 2>/dev/null)
+		printf '%s\n' "$h" | lidar-feature set webui auth_hash >/dev/null 2>&1 &&
+			lidar-feature set webui auth_kind "$nkind" >/dev/null 2>&1 ||
+			fail "cannot store the login"
+	elif [ $scope = off ]; then
+		fail "a PIN or password is needed"
+	fi
+	lidar-feature set webui auth "$nscope" >/dev/null 2>&1 || fail "cannot change the settings"
+	rm -rf $AUTH/sessions
+	session_new
+	ok
+}
+
 # the server is reached by its address, never by a name: a.b.c.d[:port] or
 # [IPv6][:port]
 case $HTTP_HOST in
@@ -553,16 +768,30 @@ val=; [ "$key" != "$q" ] && val=${q#*=}
 title=
 case $QUERY_STRING in *'&title='*) title=${QUERY_STRING#*&title=}; title=${title%%&*} ;; esac
 
-# downloads write their own headers
-case $key in file | fireos_export | fireos_image) ;; *) hdr ;; esac
+# With a login set, only "setup" (what the page needs to ask for it) and
+# "login" are answered without a session
+auth_load
+case $key in
+setup | login) ;;
+*)
+	if need_login && ! session_ok; then
+		hdr
+		printf '{"error": "login required", "login": true}\n'
+		exit 0
+	fi
+	;;
+esac
+
+# downloads write their own headers, and these may set a cookie
+case $key in file | fireos_export | fireos_image | login | logout | auth_set) ;; *) hdr ;; esac
 
 case $key in
 stats | player | songs | services | network | setup) ;;
 wifi_scan | bt_scan | bt_devices | log | procs | system | settings | ls | file | fireos | fireos_export | fireos_image | voice_key) admin ;;
-upload | wifi_connect | set | fireos_import)
+upload | wifi_connect | set | fireos_import | login | auth_set)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/octet-stream ] ||
 		fail "$key needs POST with application/octet-stream"
-	[ "$key" = upload ] || admin
+	case $key in upload | login) ;; *) admin ;; esac
 	;;
 *)
 	[ "$REQUEST_METHOD" = POST ] && [ "$CONTENT_TYPE" = application/json ] ||
@@ -662,6 +891,9 @@ fireos_export) fireos_export ;;
 fireos_import) fireos_import ;;
 fireos_image) fireos_image ;;
 setup) setup_state ;;
+login) login ;;
+logout) logout ;;
+auth_set) auth_set ;;
 voice_key) voice_key ;;
 voice_key_test) voice_key_test ;;
 reboot)

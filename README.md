@@ -360,6 +360,9 @@ lidar-feature unset wifi country          # back to the default
 | `webui listen` | `usb` | `usb`, `any` | `usb`: the web interface only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
 | `webui storage_mb` | 256 | 64-512 | RAM for uploaded songs, in MB (about 11 minutes of music per 128 MB), a RAM disk of its own; the library is cleared on reboot |
 | `webui setup_done` | `no` | `no`, `yes` | `yes`: the first-run setup of the web interface was finished. `no`: the web interface opens it for clients on the USB network |
+| `webui auth` | `off` | `off`, `wifi`, `all` | login for the web interface (below). `wifi`: asked of clients that are not on the USB network. `all`: of USB clients too. Set from the web interface, which stores the two settings below with it |
+| `webui auth_kind` | unset | `pin`, `password` | what the login is, so the page asks for the right thing |
+| `webui auth_hash` | unset | sha512-crypt hash | hash of the PIN or password, as `cryptpw -m sha512` prints it; `lidar-feature settings` shows it as `(set)`. Without it there is no login, whatever `webui auth` says |
 | `webui fireos_image_saved` | `no` | `no`, `yes` | `yes`: the owner confirmed in the setup that the Fire OS image (`system_a`) was downloaded and saved. Nothing else depends on it yet |
 | `voice wake_word` | `hey_jarvis` | `hey_jarvis` | word the voice assistant listens for; the only one for now |
 | `voice language` | `en` | `en`, `de` | language the voice assistant understands and speaks: English, German |
@@ -524,6 +527,8 @@ up:
   border routing.
 - **Services:** switch services on and off and edit their settings, with
   inputs that only offer the allowed values; then reboot from the page.
+  Switching `telnet` on asks first: it is a root shell without a password
+  for everyone on the USB network. The login has its own card there.
 - **Debug:** the kernel log with a filter and live follow, the previous
   boot's log from pstore (after a crash or a warm reboot), processes,
   storage, mounts and modules, and a reboot button.
@@ -538,26 +543,29 @@ up:
 the web interface opens a setup for clients on the USB network; "Run setup
 again" under System starts it later. Every step can be skipped.
 
-1. *Fire OS files*: shows whether lidar's copy of the Wi-Fi firmware and
+1. *Protect the web interface*: a PIN or password for the web interface,
+   and of whom it is asked (see Login below). Skipping it leaves the web
+   interface open.
+2. *Fire OS files*: shows whether lidar's copy of the Wi-Fi firmware and
    the speaker tuning is complete, and restores a `lidar-fireos export`
    backup if not (see Files from Fire OS).
-2. *Fire OS image*: downloads the whole Fire OS partition (`system_a`) as
+3. *Fire OS image*: downloads the whole Fire OS partition (`system_a`) as
    `fireos-system_a.img.gz`, offered when lidar booted from slot b and
    Fire OS is still on `system_a`. The partition is only read, never
    mounted. The image is private: keep it, never share or publish it.
    Ticking "I saved the file" sets `webui fireos_image_saved`.
-3. *Wi-Fi*: scan and join, as under Network.
-4. *Device name*: the name phones show for the Bluetooth speaker
+4. *Wi-Fi*: scan and join, as under Network.
+5. *Device name*: the name phones show for the Bluetooth speaker
    (`bluetooth name`), after a reboot. It is not a network hostname.
-5. *Voice assistant*: wake word, language, sensitivity and the Claude API
+6. *Voice assistant*: wake word, language, sensitivity and the Claude API
    key (the `voice` settings). The web interface never returns the key,
    only whether one is set and its last four characters. "Test key" asks
    the Anthropic API for its model list from the Echo, over TLS with the
    key on `socat`'s standard input; it needs Wi-Fi and a set clock. The
    assistant itself is not part of the image yet.
 
-The setup adds these to the API: `setup` (finished or not, and whether
-this client may run it; the only one answered outside the USB network),
+The setup adds these to the API: `setup` (finished or not, whether this
+client may run it, and the state of the login; answered for everyone),
 `fireos_image` (the gzip stream), `voice_key` (set or not, last four
 characters) and `voice_key_test` (`ok`, `invalid`, `offline` or `error`);
 `fireos` also reports `image_bytes`, the partition size.
@@ -570,18 +578,93 @@ TLS connection and the certificate check work), the `fireos_image` stream
 of the setup were walked through in a desktop browser against a mock
 backend, not against the Echo.
 
-There is no login: as with telnet, the server (BusyBox `httpd` behind
-`lidar-listen`) only accepts connections that arrive on `usb0` unless
-`webui listen any` is set. Even then, everything that changes the device or
-reads more than its status (Wi-Fi and Bluetooth control, services and
-settings, logs, files, reboot) is only answered for clients on the USB
-network (`169.254.0.0/16`); over Wi-Fi the dashboard, music and the network
-status stay available. Unlike telnet, a web server can also be reached by
-other web pages open in the host's browser, so the API only takes commands
+**Login.** The owner can protect the web interface with one PIN (digits
+only, at least 6) or one password (at least 10 printable ASCII characters);
+there are no user names. It is set in the first step of the setup and
+changed or removed under System, Login, and `webui auth` says of whom it is
+asked:
+
+- `off` (the default until one is set): no login.
+- `wifi`: clients that are not on the USB network have to log in; the USB
+  network stays open as before.
+- `all`: clients on the USB network have to log in too.
+
+A client that has to log in gets nothing but the login form: every request
+to the API is refused without a session, downloads included, except `setup`
+and `login`. A PIN is fine against people in the same room; where the web
+interface is open to the Wi-Fi (`webui listen any`), prefer a password, and
+the page says so when a PIN is chosen there.
+
+- **What is stored.** Only a sha512-crypt hash with a random salt
+  (`cryptpw -m sha512`) in `webui auth_hash`, in `lidar.conf`, which only
+  root can read and the file browser refuses. The PIN or password reaches
+  `cryptpw` on standard input and is never an argument, a log line or a
+  file. A login is checked by hashing it again with the stored salt.
+- **Sessions.** A login puts a random token (32 bytes from `/dev/urandom`)
+  into the cookie `lidar_session` (`HttpOnly`, `SameSite=Strict`), good for
+  30 days. The Echo keeps only its SHA-256, under `/run/lidar-webauth`, so
+  every browser logs in again after a reboot. "Log out" ends the session;
+  changing the PIN, the password or `webui auth` ends all of them, and the
+  browser that made the change stays logged in.
+- **Wrong attempts.** Failed logins are counted per client address. From
+  the 5th in a row on, each one locks that address: 10 minutes, then 30
+  minutes every time; the answer says how many seconds are left,
+  and the page counts them down. A right login resets the count. All
+  failures from outside the USB network are counted together as well and
+  lock every such client in the same way from the 20th in a row, so
+  changing the address does not help. The USB network is not held up by
+  that count: nobody on the Wi-Fi can lock the owner out of it. The counts
+  are gone with a reboot.
+- **What a login does not do.** It does not make a client admin: with or
+  without it, everything that changes the device or reads more than its
+  status (Wi-Fi and Bluetooth control, services and settings, logs, files,
+  reboot, the login itself) is only answered for clients on the USB network
+  (`169.254.0.0/16`). Over Wi-Fi a logged-in client gets the dashboard, the
+  volume, music and the network status, as every Wi-Fi client does without
+  a login set. Changing or removing the login needs a session or the
+  current PIN or password.
+- **Forgotten.** Restart the Echo and, once the ring lights up (the boot
+  animation; not while plugging in, where Volume up alone enters U-Boot's
+  fastboot), hold **Volume up** and **Volume down** together until the
+  ring flashes green three times, about 10 seconds; start within the first
+  30 seconds. That removes `webui auth`, `auth_hash` and `auth_kind` and
+  ends every session; the kernel log has a line. The volume may shift a
+  little meanwhile. Not the
+  microphone button: every press toggles its hardware mute latch. Whoever
+  can touch the Echo can do this; the login protects against the network,
+  not against hands. On a shell, `lidar-feature unset webui auth` turns the
+  login off.
+- **No TLS.** The web interface is plain HTTP: the PIN or password, the
+  session cookie and everything else cross the network unencrypted, and
+  whoever can listen in on the Wi-Fi can read them. Use it in your own
+  network only. Never forward a port to it or otherwise open it to the
+  internet; for access from outside, use a VPN into the home network.
+
+The login adds `login` (body: the PIN or password; sets the cookie, or
+answers `{"error": ..., "wait": <seconds>}`), `logout` and `auth_set`
+(body, one per line: `off`, `wifi` or `all`; `pin` or `password`; the
+current PIN or password, needed unless none is set or the browser is logged
+in; the new one, or empty to keep it) to the API. A request that needs a
+login gets `{"error": "login required", "login": true}`. `set` and `unset`
+refuse the three `webui auth` settings. For scripts: log in once with
+`curl -c cookies.txt`, then pass `-b cookies.txt`.
+
+Verified on the Echo: setting a PIN, every request and download refused
+without a session, the cookie (`HttpOnly; SameSite=Strict`, 30 days), the
+lockout at the 5th wrong PIN (with the earlier 60 s step) refusing even the
+right PIN until it ended, logout, removing the login, and the button reset
+with both volume buttons (three green flashes, login gone). One check of a
+PIN takes about 0.3 s. Not yet tried on the Echo: the 10 minute lockout
+step itself (the same code path with a longer time).
+
+As with telnet, the server (BusyBox `httpd` behind `lidar-listen`) only
+accepts connections that arrive on `usb0` unless `webui listen any` is set.
+Unlike telnet, a web server can also be reached by other web pages open in
+the host's browser, so the API only takes commands
 as POST with `Content-Type: application/json`, or `application/octet-stream`
-for those that carry data (uploads, Wi-Fi credentials, setting values),
-which a foreign page cannot send without a CORS preflight that the server
-never answers, and only when the Echo is addressed by IP (no DNS
+for those that carry data (uploads, Wi-Fi credentials, setting values, the
+login), which a foreign page cannot send without a CORS preflight that the
+server never answers, and only when the Echo is addressed by IP (no DNS
 rebinding). Everything on the page comes from `/cgi-bin/api` as JSON, so
 scripts can use it too:
 
@@ -591,6 +674,9 @@ curl 'http://169.254.7.2/cgi-bin/api?network'
 curl -X POST -H 'Content-Type: application/json' -d '{}' 'http://169.254.7.2/cgi-bin/api?volume=40'
 printf 'MyNetwork\nmy passphrase' | curl -X POST -H 'Content-Type: application/octet-stream' \
   --data-binary @- 'http://169.254.7.2/cgi-bin/api?wifi_connect'
+printf '246813' | curl -c cookies.txt -X POST -H 'Content-Type: application/octet-stream' \
+  --data-binary @- 'http://169.254.7.2/cgi-bin/api?login'
+curl -b cookies.txt 'http://169.254.7.2/cgi-bin/api?stats'
 ```
 
 ### Bluetooth speaker
@@ -816,6 +902,12 @@ on a log scale: about 30 or less (covered, dark room at night) gives
 brightness; a dimly lit room (about 550) gives about 60 %. A steady red ring
 follows the room light every 2 s, in steps of at least 10 % so it does not
 flicker. The ring's own light does not reach the sensor (measured).
+
+Orientation, seen from above: `ring1` sits at Volume down, `ring4` at the
+microphone button, `ring7` at Volume up and `ring10` at Action, numbered
+clockwise; each LED is slightly counter-clockwise of its button. In
+`lidar-voice`'s frame (0° at mic 0, clockwise) a beam at θ degrees lights
+`ring` ((θ − 210) / 30 mod 12) + 1.
 
 ## U-Boot behaviour
 
