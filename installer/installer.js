@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 //
-// Browser installer: the README's "Installing" procedure over WebUSB.
+// Browser installer: docs/install.md's "Installing" procedure over WebUSB.
 //
 //   phase 1 (Kaeru fastboot)   fastboot flash boot_a lidar-uboot.img
 //                              fastboot reboot
@@ -37,33 +37,51 @@ const SPLIT_SIZE = 64 * 1024 * 1024;    // fastboot -S 64M
 const SPARSE_BLOCK = 4096;
 
 const IMAGES = {
-  uboot: { file: "lidar-uboot.img", what: "an Android boot image", check: isBootImage },
-  system: { file: "lidar-test-system.ext4", what: "a raw ext4 image", check: isExt4 },
+  uboot: { file: "lidar-uboot.img", what: "ins.whatBoot", check: isBootImage },
+  system: { file: "lidar-test-system.ext4", what: "ins.whatExt4", check: isExt4 },
 };
 
 /* ---------- small helpers ---------- */
 
 const $ = (id) => document.getElementById(id);
-const mib = (n) => (n / 1048576).toFixed(n < 10485760 ? 2 : 0) + " MiB";
+const { t, fix } = window.i18n;     // i18n.js, loaded before this module
+const mib = (n) => fix(n / 1048576, n < 10485760 ? 2 : 0) + " MiB";
+
+// What the page writes itself depends on the language: such a text is given
+// as a function (L(key, args...) for a plain one) and kept by element, so a
+// change of language writes it again. A plain string (a tag, a file name)
+// stays as it is.
+const L = (key, ...args) => () => t(key, args);
+const val = (text) => (typeof text === "function" ? text() : text);
+const live = new Map();     // element id -> what writes its text
+
+function render(id, write) {
+  live.set(id, write);
+  write();
+}
 
 function setPill(id, text, cls) {
-  const p = $(id);
-  p.textContent = text;
-  p.className = "pill" + (cls ? " " + cls : "");
+  render(id, () => {
+    const p = $(id);
+    p.textContent = val(text);
+    p.className = "pill" + (cls ? " " + cls : "");
+  });
 }
 
 function setMsg(id, cls, text) {
-  const m = $(id);
-  m.hidden = !text;
-  m.className = "msg " + cls;
-  m.textContent = text || "";
+  render(id, () => {
+    const m = $(id);
+    m.hidden = !text;
+    m.className = "msg " + cls;
+    m.textContent = val(text) || "";
+  });
 }
 
 function setProgress(id, fraction, text) {
   const p = $(id);
   p.hidden = false;
   p.querySelector("progress").value = fraction;
-  p.querySelector("span").textContent = text;
+  render(id, () => { p.querySelector("span").textContent = val(text); });
 }
 
 async function sha256(blob) {
@@ -102,8 +120,7 @@ function showStep(n) {
     b.classList.toggle("done", i < reached);
     if (i === n) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
   }
-  if (n === 4) describeImage("uboot", "p1-image", "boot_a");
-  if (n === 5) describeImage("system", "p2-image", systemPartition());
+  describeImages();
   updateFlashButtons();
   setArc((n - 1) / (STEPS - 1));
   scrollTo(0, 0);
@@ -114,14 +131,27 @@ function setArc(fraction) {
   $("logo").classList.toggle("done", fraction >= 1);
 }
 
+function setLinks() {
+  $("link-prereq").href = REPO_URL + "/blob/main/docs/install.md#prerequisites";
+  $("link-install").href = REPO_URL + "/blob/main/docs/install.md#installing";
+  $("link-repo").href = REPO_URL;
+}
+
 function initSteps() {
   for (const b of document.querySelectorAll("nav button")) b.addEventListener("click", () => showStep(Number(b.dataset.step)));
   for (const b of document.querySelectorAll("[data-go]")) b.addEventListener("click", () => showStep(Number(b.dataset.go)));
-  $("link-prereq").href = REPO_URL + "#prerequisites";
-  $("link-install").href = REPO_URL + "#installing";
-  $("link-repo").href = REPO_URL;
+  setLinks();
   addEventListener("beforeunload", (e) => { if (busy) e.preventDefault(); });
   $("pre-ok").addEventListener("change", (e) => { $("next-2").disabled = !e.target.checked; });
+}
+
+// A change of language: i18n.js has written the markup again (links in it lose
+// their href, the slot name its value); everything the page wrote follows.
+function relang() {
+  setLinks();
+  if ($("p2-slot").value) $("p2-part").textContent = systemPartition();
+  for (const write of live.values()) write();
+  describeImages();
 }
 
 /* ---------- theme (as in the web interface) ---------- */
@@ -135,9 +165,9 @@ function initTheme() {
   const apply = () => {
     const dark = theme === "dark" || (theme === "auto" && systemDark.matches);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
-    $("theme-label").textContent = "Theme: " + theme;
-    $("theme").title = "Theme: " + theme;
+    $("theme-label").textContent = $("theme").title = t("theme", [t("theme." + theme)]);
   };
+  i18n.onChange(apply);
   $("theme").addEventListener("click", () => {
     theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
     try { localStorage.setItem("theme", theme); } catch (e) { /* private mode */ }
@@ -152,11 +182,10 @@ function initTheme() {
 function initBrowserCheck() {
   const usb = "usb" in navigator;
   const secure = window.isSecureContext;
-  setPill("chk-usb", usb ? "available" : "missing", usb ? "on" : "warn");
-  setPill("chk-ctx", secure ? "yes" : "no", secure ? "on" : "warn");
-  if (!secure) setMsg("browser-msg", "bad", "Open this page over https, or from http://localhost/ when you run it yourself.");
-  else if (!usb) setMsg("browser-msg", "bad", "This browser has no WebUSB. Use Chrome, Edge, Brave or Opera on a desktop computer, " +
-    "or follow the README with the fastboot command-line tool instead.");
+  setPill("chk-usb", L(usb ? "ins.available" : "ins.missing"), usb ? "on" : "warn");
+  setPill("chk-ctx", L(secure ? "ins.yes" : "ins.no"), secure ? "on" : "warn");
+  if (!secure) setMsg("browser-msg", "bad", L("ins.needSecure"));
+  else if (!usb) setMsg("browser-msg", "bad", L("ins.noUsb"));
   $("next-1").disabled = !(usb && secure);
   if (navigator.userAgent.includes("Windows")) $("win-driver").open = true;
 }
@@ -182,7 +211,7 @@ function parseSums(text) {
 
 function showImage(key, pill, cls, meta) {
   setPill("img-" + key + "-pill", pill, cls);
-  $("img-" + key + "-meta").textContent = meta;
+  render("img-" + key + "-meta", () => { $("img-" + key + "-meta").textContent = val(meta); });
   $("next-3").disabled = !(images.uboot || images.system);
 }
 
@@ -194,33 +223,32 @@ async function takeImage(key, blob, name, strict = false) {
   const spec = IMAGES[key];
   const seq = pickSeq[key] = (pickSeq[key] || 0) + 1;
   delete images[key];
-  if (!blob) return showImage(key, "missing", "", "Not chosen");
-  showImage(key, "checking", "", name + ", " + mib(blob.size));
+  if (!blob) return showImage(key, L("ins.missing"), "", L("ins.notChosen"));
+  showImage(key, L("ins.checking"), "", () => name + ", " + mib(blob.size));
   const ok = await spec.check(blob);
   if (seq !== pickSeq[key]) return;
-  if (!ok) return showImage(key, "wrong file", "warn", name + " is not " + spec.what + ". Expected " + spec.file + ".");
+  if (!ok) return showImage(key, L("ins.wrongFile"), "warn", () => t("ins.wrongFileMeta", [name, t(spec.what), spec.file]));
   const hash = await sha256(blob);
   if (seq !== pickSeq[key]) return;
-  const head = name + ", " + mib(blob.size), tail = ". SHA-256 " + hash;
+  const head = () => name + ", " + mib(blob.size), tail = ". SHA-256 " + hash;
   const keep = (verifiedBy) => { images[key] = { blob, name, sha256: hash, verifiedBy, strict }; };
   const mine = userSums && userSums.sums.get(spec.file);
   if (mine && mine !== hash)
-    return showImage(key, "checksum mismatch", "warn", head + " does not match " + userSums.from + ": damaged or not that file, it will not be flashed" + tail);
+    return showImage(key, L("ins.mismatch"), "warn", () => t("ins.sumsBad", [head(), userSums.from]) + tail);
   if (mine) {
     keep(userSums.from);
-    return showImage(key, "verified", "on", head + ", matches " + userSums.from + tail);
+    return showImage(key, L("ins.verified"), "on", () => t("ins.sumsOk", [head(), userSums.from]) + tail);
   }
   const rel = release && release.sums.get(spec.file);
+  const tag = release && release.tag;
   if (rel && rel === hash) {
-    keep("release " + release.tag);
-    return showImage(key, "verified", "on", head + ", matches release " + release.tag + tail);
+    keep(L("ins.release", tag));
+    return showImage(key, L("ins.verified"), "on", () => t("ins.relOk", [head(), tag]) + tail);
   }
   if (rel && strict)
-    return showImage(key, "checksum mismatch", "warn", head + " does not match release " + release.tag +
-      ": the download is damaged, it will not be flashed. Try again" + tail);
+    return showImage(key, L("ins.mismatch"), "warn", () => t("ins.relBad", [head(), tag]) + tail);
   keep("");
-  showImage(key, "not verified", "hint", head + (rel ? ": not the file of release " + release.tag +
-    " (built yourself, or another version)" : "") + tail);
+  showImage(key, L("ins.notVerified"), "hint", () => head() + (rel ? t("ins.relOther", [tag]) : "") + tail);
 }
 
 async function recheckImages() {
@@ -258,11 +286,11 @@ async function getRelease() {
     for (const key of Object.keys(IMAGES)) {
       const file = IMAGES[key].file;
       const blob = await fetchHosted(hosted.files[file].gz, (f, got, total) =>
-        setProgress("release-prog", f, file + ": " + mib(got) + (total ? " of " + mib(total) : "")));
+        setProgress("release-prog", f, () => total ? t("ins.progressOf", [file, mib(got), mib(total)]) : t("ins.progress", [file, mib(got)])));
       await takeImage(key, blob, file, true);
     }
   } catch (e) {
-    setMsg("img-msg", "bad", "Download failed (" + e.message + "). Try again, or get the files from All releases and pick them below.");
+    setMsg("img-msg", "bad", L("ins.dlFailed", e.message));
   }
   $("release-prog").hidden = true;
   $("release-get").disabled = false;
@@ -271,23 +299,25 @@ async function getRelease() {
 // The latest release: what GitHub's API says (links, checksums), and the
 // copy the Pages deploy put next to the page (one-click download)
 async function loadRelease() {
-  $("release-more").textContent = "";
-  const all = Object.assign(document.createElement("a"), { href: REPO_URL + "/releases", target: "_blank", rel: "noopener", textContent: "All releases" });
+  // "All releases", a link in the release card's last line
+  const all = () => Object.assign(document.createElement("a"),
+    { href: REPO_URL + "/releases", target: "_blank", rel: "noopener", textContent: t("ins.allReleases") });
   try {
     const r = await fetch("release/release.json", { cache: "no-store" });
     if (r.ok) hosted = await r.json();
   } catch (e) { /* deployed without images */ }
-  let api = null, why = "", answered = false;   // answered: GitHub said which release is the latest (or none)
+  let api = null, why = null, none = false, answered = false;   // answered: GitHub said which release is the latest (or none)
   try {
     const resp = await fetch(RELEASE_API, { cache: "no-store", referrerPolicy: "no-referrer" });
-    if (resp.status === 404) { why = "no release published yet"; answered = true; }
-    else if (resp.headers.get("x-ratelimit-remaining") === "0")
-      why = "GitHub's request limit for this network is used up until " +
-        new Date(1000 * Number(resp.headers.get("x-ratelimit-reset"))).toLocaleTimeString();
-    else if (!resp.ok) why = "GitHub answered " + resp.status;
+    if (resp.status === 404) { why = L("ins.whyNone"); none = answered = true; }
+    else if (resp.headers.get("x-ratelimit-remaining") === "0") {
+      const until = new Date(1000 * Number(resp.headers.get("x-ratelimit-reset")));
+      why = () => t("ins.whyLimit", [until.toLocaleTimeString(i18n.locale())]);
+    }
+    else if (!resp.ok) why = L("ins.whyStatus", resp.status);
     else { api = await resp.json(); answered = true; }
   } catch (e) {
-    why = "no connection to GitHub";
+    why = L("ins.whyOffline");
   }
   const sums = new Map();
   let tag = "";
@@ -296,13 +326,13 @@ async function loadRelease() {
     for (const key of Object.keys(IMAGES)) {
       const asset = (api.assets || []).find((a) => a.name === IMAGES[key].file);
       if (!asset || !String(asset.browser_download_url).startsWith(REPO_URL + "/releases/download/")) {
-        why = tag + " has no usable " + IMAGES[key].file;
+        why = L("ins.whyAsset", tag, IMAGES[key].file);
         api = null;
         tag = "";
         break;
       }
       $("dl-" + key).href = asset.browser_download_url;
-      $("dl-" + key).textContent = "Download " + asset.name + " (" + mib(asset.size) + ")";
+      render("dl-" + key, () => { $("dl-" + key).textContent = t("ins.dlAsset", [asset.name, mib(asset.size)]); });
       const m = /^sha256:([0-9a-f]{64})$/.exec(asset.digest || "");
       if (m) sums.set(asset.name, m[1]);
     }
@@ -321,23 +351,25 @@ async function loadRelease() {
     hosted = null;
   }
   if (!tag) {
-    setPill("release-pill", why === "no release published yet" ? "not found" : "unavailable", "hint");
-    $("release-note").textContent = "Could not get the latest release (" + why + "). Get the images from the releases page, " +
-      "or build them, then pick them below.";
-    $("release-more").append(all);
+    setPill("release-pill", L(none ? "ins.notFound" : "ins.unavailable"), "hint");
+    render("release-note", () => {
+      $("release-note").textContent = t("ins.noRelease", [val(why)]);
+      $("release-more").replaceChildren(all());
+    });
     return;
   }
   release = { tag, sums };
   setPill("release-pill", tag, "on");
-  $("release-get").textContent = "Download and use " + tag;
   $("release-get-bar").hidden = !hosted;
   // with the one-click download there is no need for the two single links
   $("release-links").hidden = !api || !!hosted;
-  $("release-note").textContent = hosted ? ""
-    : sums.size ? "Download both images, then pick them below. They are checked against the release before anything is flashed."
-      : "GitHub gave no checksums: compare the SHA-256 shown below with the release's SHA256SUMS yourself.";
-  $("release-more").append(api ? "Published " + new Date(api.published_at).toLocaleDateString() + ". " : "",
-    "Older versions and release notes: ", all, ".");
+  const published = api && new Date(api.published_at);
+  render("release-note", () => {
+    $("release-get").textContent = t("ins.getTag", [tag]);
+    $("release-note").textContent = hosted ? "" : t(sums.size ? "ins.pickBelow" : "ins.noSums");
+    $("release-more").replaceChildren(published ? t("ins.published", [published.toLocaleDateString(i18n.locale())]) : "",
+      t("ins.older"), all(), ".");
+  });
   recheckImages();
 }
 
@@ -352,11 +384,11 @@ function initImages() {
     const f = e.target.files[0];
     const parsed = f ? parseSums(await f.text()) : null;
     if (f && !parsed.size) {
-      $("sums-meta").textContent = f.name + " has no SHA-256 lines.";
+      render("sums-meta", () => { $("sums-meta").textContent = t("ins.noShaLines", [f.name]); });
       return;
     }
     userSums = f ? { from: "SHA256SUMS (" + f.name + ")", sums: parsed } : null;
-    $("sums-meta").textContent = f ? f.name + " loaded: the images are checked against it." : "";
+    render("sums-meta", () => { $("sums-meta").textContent = f ? t("ins.sumsLoaded", [f.name]) : ""; });
     recheckImages();
   });
   $("release-get").addEventListener("click", getRelease);
@@ -366,8 +398,13 @@ function initImages() {
 function describeImage(key, id, partition) {
   const img = images[key];
   $(id).textContent = img
-    ? img.name + " (" + mib(img.blob.size) + ", " + (img.verifiedBy ? "matches " + img.verifiedBy : "checksum not verified") + ") → " + partition
-    : "No image yet: go back to Images and pick " + IMAGES[key].file + ".";
+    ? t("ins.describe", [img.name, mib(img.blob.size), img.verifiedBy ? t("ins.matches", [val(img.verifiedBy)]) : t("ins.notVerifiedLong"), partition])
+    : t("ins.noImage", [IMAGES[key].file]);
+}
+
+function describeImages() {
+  describeImage("uboot", "p1-image", "boot_a");
+  describeImage("system", "p2-image", systemPartition());
 }
 
 /* ---------- fastboot ---------- */
@@ -429,27 +466,26 @@ function sparsePiece(total, start, data) {
 
 // fastboot flash <partition> <blob>. Refuses anything off the allow-list.
 async function flash(partition, blob, onProgress) {
-  if (!ALLOWED_PARTITIONS.includes(partition)) throw new Error("Refusing to write partition " + partition + ".");
+  if (!ALLOWED_PARTITIONS.includes(partition)) throw new Error(t("ins.refusePart", [partition]));
   const limit = Math.min(SPLIT_SIZE, (await getHexVar("max-download-size")) || SPLIT_SIZE);
   if (blob.size <= limit) {
-    await fb.upload(partition, await blob.arrayBuffer(), (f) => onProgress(f, "Sending"));
-    onProgress(1, "Writing");
+    await fb.upload(partition, await blob.arrayBuffer(), (f) => onProgress(f, L("ins.sending")));
+    onProgress(1, L("ins.writing"));
     await fb.runCommand("flash:" + partition);
     return;
   }
-  if (blob.size % SPARSE_BLOCK) throw new Error("The image size is not a multiple of 4096 bytes.");
+  if (blob.size % SPARSE_BLOCK) throw new Error(t("ins.size4096"));
   if ((await bytesAt(blob, 0, 4)).join() === "58,255,38,237")
-    throw new Error("This is already a sparse image; pick the raw image instead.");
+    throw new Error(t("ins.sparse"));
   const total = blob.size / SPARSE_BLOCK;
   const step = Math.floor((limit - 64) / SPARSE_BLOCK) * SPARSE_BLOCK;      // 64: sparse headers
   const pieces = Math.ceil(blob.size / step);
   for (let i = 0; i < pieces; i++) {
     const offset = i * step;
     const data = await blob.slice(offset, offset + step).arrayBuffer();
-    const label = "piece " + (i + 1) + " of " + pieces;
     await fb.upload(partition, sparsePiece(total, offset / SPARSE_BLOCK, data),
-      (f) => onProgress((offset + f * data.byteLength) / blob.size, "Sending " + label));
-    onProgress((offset + data.byteLength) / blob.size, "Writing " + label);
+      (f) => onProgress((offset + f * data.byteLength) / blob.size, L("ins.sendingPiece", i + 1, pieces)));
+    onProgress((offset + data.byteLength) / blob.size, L("ins.writingPiece", i + 1, pieces));
     await fb.runCommand("flash:" + partition);
   }
 }
@@ -461,25 +497,24 @@ async function reboot() {
   mode = null;
 }
 
-// `connecting`: the error comes from choosing and opening the device, not from talking to it.
+// What went wrong, as a text of the current language. `connecting`: the error
+// comes from choosing and opening the device, not from talking to it.
 function explain(e, connecting) {
-  if (e instanceof FastbootError) return "The bootloader refused: " + (e.bootloaderMessage || e.status || "no reason given") + ".";
-  if (e instanceof TimeoutError) return "No answer from the device. Unplug power, start fastboot again and reconnect.";
-  if (e.name === "SecurityError" || /access denied/i.test(e.message)) return "Access denied. Close other programs using the Echo, such as fastboot. " +
-    "Windows needs the WinUSB driver, Linux a udev rule (step 1).";
-  if (connecting && e.name === "NotFoundError") return "No device chosen. An empty list means the Echo is not in fastboot or not seen: " +
-    "check the USB, hold the button while plugging in power, and on Windows the driver (step 1).";
-  if (["NetworkError", "InvalidStateError", "NotFoundError", "AbortError"].includes(e.name)) return "The USB connection was lost.";
-  return e.message || String(e);
+  if (e instanceof FastbootError) return () => t("ins.refused", [e.bootloaderMessage || e.status || t("ins.noReason")]);
+  if (e instanceof TimeoutError) return L("ins.timeout");
+  if (e.name === "SecurityError" || /access denied/i.test(e.message)) return L("ins.denied");
+  if (connecting && e.name === "NotFoundError") return L("ins.noDevice");
+  if (["NetworkError", "InvalidStateError", "NotFoundError", "AbortError"].includes(e.name)) return L("ins.lost");
+  return () => e.message || String(e);
 }
 
 function confirmFlash(partition, img, warning) {
   const dlg = $("confirm");
-  $("confirm-title").textContent = "Flash " + partition + "?";
+  $("confirm-title").textContent = t("ins.confirmTitle", [partition]);
   const kv = $("confirm-kv");
   kv.textContent = "";
-  for (const [k, v] of [["Partition", partition], ["Image", img.name], ["Size", mib(img.blob.size)], ["SHA-256", img.sha256],
-    ["Checksum", img.verifiedBy ? "matches " + img.verifiedBy : "not verified"]]) {
+  for (const [k, v] of [[t("ins.kvPartition"), partition], [t("ins.kvImage"), img.name], [t("ins.kvSize"), mib(img.blob.size)],
+    ["SHA-256", img.sha256], [t("ins.kvChecksum"), img.verifiedBy ? t("ins.matches", [val(img.verifiedBy)]) : t("ins.notVerified")]]) {
     kv.append(Object.assign(document.createElement("dt"), { textContent: k }), Object.assign(document.createElement("dd"), { textContent: v }));
   }
   $("confirm-warn").textContent = warning;
@@ -496,44 +531,37 @@ function confirmFlash(partition, img, warning) {
 
 const systemPartition = () => "system_" + $("p2-slot").value;
 
+// Per phase: the fastboot it needs, what it flashes, and its texts (keys); a
+// check() problem comes back as a text function.
 const PHASES = {
   p1: {
     want: "kaeru", image: "uboot", partition: () => "boot_a", next: "next-4",
-    found: "Kaeru fastboot",
-    wrong: "This is U-Boot's fastboot: U-Boot is already on boot_a. Skip this phase (below). " +
-      "For Kaeru's fastboot, unplug power, hold Action and plug in again.",
-    warn: () => "This replaces boot_a. Keep your boot_a dump: it is your way back.",
-    recover: "Nothing is lost: Kaeru's fastboot does not depend on boot_a. Unplug power, hold Action, plug in and try again. " +
-      "If the bootloader refuses, the Echo may not be unlocked with Kaeru.",
-    done: "U-Boot is on boot_a and the Echo is rebooting. Continue with the System step.",
+    found: "ins.p1found", wrong: "ins.p1wrong", recover: "ins.p1recover", done: "ins.p1done",
+    warn: () => t("ins.p1warn"),
     async run(img, progress) {
       await flash("boot_a", img.blob, progress);
-      progress(1, "Rebooting");
+      progress(1, L("ins.rebooting"));
       await reboot();
     },
   },
   p2: {
     want: "uboot", image: "system", partition: systemPartition, next: "next-5",
-    found: "U-Boot fastboot",
-    wrong: "This is Kaeru's fastboot, not U-Boot's. Either Action was held, or U-Boot is not on boot_a yet (do the U-Boot step first). " +
-      "Unplug power, hold Volume Up (+) and plug in again.",
-    warn: () => "This erases " + systemPartition() + " and makes it the slot lidar boots from.",
-    recover: "U-Boot's fastboot is still there: unplug power, hold Volume Up (+), plug in and flash again. " +
-      "With an incomplete system, U-Boot opens fastboot by itself. Kaeru's fastboot (Action) also stays available.",
-    done: "The system is installed and the Echo is rebooting into lidar.",
+    found: "ins.p2found", wrong: "ins.p2wrong", recover: "ins.p2recover", done: "ins.p2done",
+    warn: () => t("ins.p2warn", [systemPartition()]),
     async check(img) {
-      const size = await getHexVar("partition-size:" + systemPartition());
-      if (size === null) return "This U-Boot has no " + systemPartition() + " partition.";
-      if (img && img.blob.size > size) return "The image (" + mib(img.blob.size) + ") is larger than " + systemPartition() + " (" + mib(size) + ").";
+      const part = systemPartition();
+      const size = await getHexVar("partition-size:" + part);
+      if (size === null) return L("ins.noPart", part);
+      if (img && img.blob.size > size) return () => t("ins.tooBig", [mib(img.blob.size), part, mib(size)]);
       return null;
     },
     async run(img, progress) {
       const slot = $("p2-slot").value;
-      if (!SYSTEM_SLOTS.includes(slot)) throw new Error("Refusing slot " + slot + ".");
+      if (!SYSTEM_SLOTS.includes(slot)) throw new Error(t("ins.refuseSlot", [slot]));
       await flash("system_" + slot, img.blob, progress);
-      progress(1, "Selecting slot " + slot);
+      progress(1, L("ins.selectSlot", slot));
       await fb.runCommand("oem run:setenv lidar_slot " + slot + "; saveenv");
-      progress(1, "Rebooting");
+      progress(1, L("ins.rebooting"));
       await reboot();
     },
   },
@@ -543,7 +571,7 @@ function updateFlashButtons() {
   for (const [id, ph] of Object.entries(PHASES)) {
     $(id + "-flash").disabled = busy || mode !== ph.want || !images[ph.image];
     $(id + "-connect").disabled = busy;
-    if (busy && mode === ph.want) setPill(id + "-pill", "flashing", "on");
+    if (busy && mode === ph.want) setPill(id + "-pill", L("ins.flashing"), "on");
   }
   $("p2-slot").disabled = busy;
 }
@@ -557,24 +585,23 @@ async function connect(id) {
     await fb.connect();
     const found = await identify();
     if (found === null) {
-      setPill(id + "-pill", "unknown device", "warn");
-      setMsg(id + "-msg", "bad", "Unknown fastboot device: neither Kaeru on an Echo Plus 2nd gen nor lidar's U-Boot. Nothing was written. " +
-        "Unplug other fastboot devices and try again.");
+      setPill(id + "-pill", L("ins.unknown"), "warn");
+      setMsg(id + "-msg", "bad", L("ins.unknownMsg"));
     } else if (found !== ph.want) {
-      setPill(id + "-pill", "wrong mode", "warn");
-      setMsg(id + "-msg", "bad", ph.wrong);
+      setPill(id + "-pill", L("ins.wrongMode"), "warn");
+      setMsg(id + "-msg", "bad", L(ph.wrong));
     } else {
       const problem = ph.check ? await ph.check(images[ph.image]) : null;
       if (problem) {
-        setPill(id + "-pill", "cannot flash", "warn");
-        setMsg(id + "-msg", "bad", problem + " Nothing was written.");
+        setPill(id + "-pill", L("ins.cannot"), "warn");
+        setMsg(id + "-msg", "bad", () => t("ins.nothing", [problem()]));
       } else {
         mode = found;
-        setPill(id + "-pill", ph.found + " connected", "on");
+        setPill(id + "-pill", () => t("ins.connected", [t(ph.found)]), "on");
       }
     }
   } catch (e) {
-    setPill(id + "-pill", "not connected", "warn");
+    setPill(id + "-pill", L("ins.notConnected"), "warn");
     setMsg(id + "-msg", "bad", explain(e, true));
   }
   updateFlashButtons();
@@ -586,7 +613,7 @@ async function runPhase(id) {
   if (mode !== ph.want || !img) return;
   // the image may have been picked or replaced after connecting
   const problem = ph.check ? await ph.check(img) : null;
-  if (problem) return setMsg(id + "-msg", "bad", problem + " Nothing was written.");
+  if (problem) return setMsg(id + "-msg", "bad", () => t("ins.nothing", [problem()]));
   if (!(await confirmFlash(ph.partition(), img, ph.warn()))) return;
   busy = true;
   updateFlashButtons();
@@ -594,21 +621,22 @@ async function runPhase(id) {
   let ok = false;
   try {
     await ph.run(img, (f, text) => {
-      setProgress(id + "-prog", f, text + ", " + Math.round(f * 100) + " %");
+      setProgress(id + "-prog", f, () => t("ins.pct", [val(text), Math.round(f * 100)]));
       setArc(f);
     });
     ok = true;
   } catch (e) {
     mode = null;
-    setPill(id + "-pill", "not connected", "warn");
-    setMsg(id + "-msg", "bad", "Failed: " + explain(e) + "\n" + ph.recover);
+    setPill(id + "-pill", L("ins.notConnected"), "warn");
+    const why = explain(e);
+    setMsg(id + "-msg", "bad", () => t("ins.failed", [why(), t(ph.recover)]));
   }
   busy = false;
   if (ok) {
-    setMsg(id + "-msg", "ok", ph.done);
-    setProgress(id + "-prog", 1, "Done");
+    setMsg(id + "-msg", "ok", L(ph.done));
+    setProgress(id + "-prog", 1, L("ins.doneProg"));
     $(ph.next).disabled = false;
-    setPill(id + "-pill", "done", "on");
+    setPill(id + "-pill", L("ins.done"), "on");
   }
   updateFlashButtons();
   if (ok && id === "p2") showStep(6);
@@ -621,7 +649,7 @@ function initPhases() {
   $("p2-slot").addEventListener("change", () => {
     mode = null;        // the size check belongs to the slot
     $("p2-part").textContent = systemPartition();
-    describeImage("system", "p2-image", systemPartition());
+    describeImages();
     updateFlashButtons();
   });
   for (const id of Object.keys(PHASES)) {
@@ -631,7 +659,7 @@ function initPhases() {
   $("p1-skip").addEventListener("click", () => showStep(5));
   navigator.usb.addEventListener("disconnect", () => {
     if (busy || !mode) return;      // a failing transfer reports it itself
-    for (const [id, ph] of Object.entries(PHASES)) if (ph.want === mode) setPill(id + "-pill", "disconnected");
+    for (const [id, ph] of Object.entries(PHASES)) if (ph.want === mode) setPill(id + "-pill", L("ins.disconnected"));
     mode = null;
     updateFlashButtons();
   });
@@ -645,3 +673,4 @@ initBrowserCheck();
 initImages();
 if ("usb" in navigator) initPhases();
 showStep(1);
+i18n.onChange(relang);

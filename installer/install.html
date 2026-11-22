@@ -5,14 +5,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Installer · lidar-mainline</title>
+<title data-i18n="ins.title">Installer · lidar-mainline</title>
 <script>
-/* Theme before the first paint: the stored choice, else the system's. */
+/* Theme and language before the first paint: the stored choice, else the system's and the browser's. */
 (function () {
-  var t = null;
-  try { t = localStorage.getItem('theme'); } catch (e) {}
+  var t = null, l = null;
+  try { t = localStorage.getItem('theme'); l = localStorage.getItem('lang'); } catch (e) {}
   if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   document.documentElement.dataset.theme = t;
+  if (l !== 'en' && l !== 'de') {
+    var first = (navigator.languages || [navigator.language || '']).filter(function (x) { return /^(de|en)\b/i.test(x); })[0];
+    l = /^de/i.test(first || '') ? 'de' : 'en';
+  }
+  document.documentElement.lang = l;
 })();
 </script>
 <link rel="stylesheet" href="site.css">
@@ -27,36 +32,37 @@
   <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/><path d="M9.5 3v3.5M14.5 3v3.5M9.5 17.5V21M14.5 17.5V21M3 9.5h3.5M3 14.5h3.5M17.5 9.5H21M17.5 14.5H21"/></symbol>
 </svg>
 
-<a class="skip" href="#main">Skip to the installer</a>
+<a class="skip" href="#main" data-i18n="ins.skip">Skip to the installer</a>
 
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand-lp" href="./" aria-label="lidar-mainline, project page">
-      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><circle class="arc" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="34 100" transform="rotate(-100 16 16)"/></svg>
+    <a class="brand-lp" href="./" aria-label="lidar-mainline, project page" data-i18n-aria="nav.projectPage">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><g class="spin"><circle class="arc t1" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="34 100"/><circle class="arc t2" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="18 100" stroke-dashoffset="-16"/><circle class="arc head" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="7 100" stroke-dashoffset="-27"/></g></svg>
       <span>lidar-mainline</span>
     </a>
-    <nav class="links" aria-label="Project">
-      <a href="./#features" target="_blank" rel="noopener">Features</a>
-      <a href="./#interface" target="_blank" rel="noopener">Interface</a>
-      <a href="./#voice" target="_blank" rel="noopener">Voice</a>
-      <a href="install.html" aria-current="page">Install</a>
-      <a href="./#faq" target="_blank" rel="noopener">FAQ</a>
+    <nav class="links" aria-label="Project" data-i18n-aria="nav.project">
+      <a href="./#features" target="_blank" rel="noopener" data-i18n="nav.features">Features</a>
+      <a href="./#interface" target="_blank" rel="noopener" data-i18n="nav.interface">Interface</a>
+      <a href="./#voice" target="_blank" rel="noopener" data-i18n="nav.voice">Voice</a>
+      <a href="install.html" aria-current="page" data-i18n="nav.install">Install</a>
+      <a href="./#faq" target="_blank" rel="noopener" data-i18n="nav.faq">FAQ</a>
     </nav>
     <div class="top-act">
+      <div class="langsw" role="radiogroup" aria-label="Language" data-i18n-aria="com.language" hidden><button type="button" role="radio" data-lang="en" lang="en">EN</button><button type="button" role="radio" data-lang="de" lang="de">DE</button></div>
       <button id="theme" class="ghost icon-btn" type="button"><svg class="i" aria-hidden="true"><use href="#i-theme"/></svg><span class="sr" id="theme-label">Theme</span></button>
-      <a class="btn ghost icon-btn" href="https://github.com/LeagueRaINi/lidar-mainline" target="_blank" rel="noopener" title="Source on GitHub"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg><span class="sr">Source on GitHub</span></a>
+      <a class="btn ghost icon-btn" href="https://github.com/LeagueRaINi/lidar-mainline" target="_blank" rel="noopener" title="Source on GitHub" data-i18n-title="nav.source"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg><span class="sr" data-i18n="nav.source">Source on GitHub</span></a>
     </div>
   </div>
 </header>
 
 <div class="page-head backdrop">
   <div class="wrap">
-    <p class="eyebrow">Installer <span class="pill hint">early test release</span></p>
-    <h1>Install lidar from your browser</h1>
-    <ul class="facts-i" aria-label="How it works">
-      <li><svg class="i" aria-hidden="true"><use href="#i-usb"/></svg>Over USB, straight from this page (WebUSB)</li>
-      <li><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg>Images stay on your computer; nothing is uploaded</li>
-      <li><svg class="i" aria-hidden="true"><use href="#i-chip"/></svg><span>Writes <code>boot_a</code> and <code>system_b</code>, nothing else</span></li>
+    <p class="eyebrow">Installer <span class="pill hint" data-i18n="ins.early">early test release</span></p>
+    <h1 data-i18n="ins.h1">Install lidar from your browser</h1>
+    <ul class="facts-i" aria-label="How it works" data-i18n-aria="ins.how">
+      <li><svg class="i" aria-hidden="true"><use href="#i-usb"/></svg><span data-i18n="ins.fact1">Over USB, straight from this page (WebUSB)</span></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-lock"/></svg><span data-i18n="ins.fact2">Images stay on your computer; nothing is uploaded</span></li>
+      <li><svg class="i" aria-hidden="true"><use href="#i-chip"/></svg><span data-i18n="ins.fact3">Writes <code>boot_a</code> and <code>system_b</code>, nothing else</span></li>
     </ul>
   </div>
 </div>
@@ -64,18 +70,18 @@
 <div class="wrap shell">
 <aside class="rail">
   <div class="rail-head">
-    <svg class="logo" id="logo" viewBox="0 0 30 30" role="img" aria-labelledby="logo-title"><title id="logo-title">Progress</title><circle cx="15" cy="15" r="11.5"/><circle class="arc" id="logo-arc" cx="15" cy="15" r="11.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 15 15)"/></svg>
-    <div><p class="rail-title">Echo Plus 2nd gen</p><p class="rail-sub">Six steps, two flashes</p></div>
+    <svg class="logo" id="logo" viewBox="0 0 30 30" role="img" aria-labelledby="logo-title"><title id="logo-title" data-i18n="ins.progressTitle">Progress</title><circle cx="15" cy="15" r="11.5"/><circle class="arc" id="logo-arc" cx="15" cy="15" r="11.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 15 15)"/></svg>
+    <div><p class="rail-title" data-i18n="ins.railTitle">Echo Plus 2nd gen</p><p class="rail-sub" data-i18n="ins.railSub">Six steps, two flashes</p></div>
   </div>
-  <nav class="stepper" aria-label="Steps">
+  <nav class="stepper" aria-label="Steps" data-i18n-aria="ins.steps">
     <button data-step="1"><span class="n">1</span><span>Browser</span></button>
-    <button data-step="2"><span class="n">2</span><span>Before you start</span></button>
+    <button data-step="2"><span class="n">2</span><span data-i18n="ins.s2">Before you start</span></button>
     <button data-step="3"><span class="n">3</span><span>Images</span></button>
     <button data-step="4"><span class="n">4</span><span>U-Boot</span></button>
     <button data-step="5"><span class="n">5</span><span>System</span></button>
-    <button data-step="6"><span class="n">6</span><span>Done</span></button>
+    <button data-step="6"><span class="n">6</span><span data-i18n="ins.s6">Done</span></button>
   </nav>
-  <p class="rail-help">Stuck, or no WebUSB? The <a href="https://github.com/LeagueRaINi/lidar-mainline#installing" target="_blank" rel="noopener">README</a> has the manual way with <code>fastboot</code>.</p>
+  <p class="rail-help" data-i18n="ins.railHelp">Stuck, or no WebUSB? The <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/docs/install.md#installing" target="_blank" rel="noopener">install guide</a> has the manual way with <code>fastboot</code>.</p>
 </aside>
 
 <main id="main">
@@ -85,27 +91,27 @@
   <!-- 1: browser -->
   <section id="step-1" hidden>
     <header>
-      <p class="eyebrow">Step 1 of 6</p>
-      <h2>Browser check</h2>
-      <p class="lead">This page talks to the Echo over USB. Nothing is uploaded.</p>
+      <p class="eyebrow" data-i18n="ins.step1of6">Step 1 of 6</p>
+      <h2 data-i18n="ins.browserCheck">Browser check</h2>
+      <p class="lead" data-i18n="ins.browserLead">This page talks to the Echo over USB. Nothing is uploaded.</p>
     </header>
     <div class="card">
       <ul class="rows">
-        <li><div class="stack"><span class="name">WebUSB</span><span class="meta">Chrome, Edge, Brave or Opera on a desktop. Not in Firefox or Safari.</span></div><span class="pill" id="chk-usb">…</span></li>
-        <li><div class="stack"><span class="name">Secure page</span><span class="meta">WebUSB needs https or localhost.</span></div><span class="pill" id="chk-ctx">…</span></li>
+        <li><div class="stack"><span class="name">WebUSB</span><span class="meta" data-i18n="ins.webusbMeta">Chrome, Edge, Brave or Opera on a desktop. Not in Firefox or Safari.</span></div><span class="pill" id="chk-usb">…</span></li>
+        <li><div class="stack"><span class="name" data-i18n="ins.secure">Secure page</span><span class="meta" data-i18n="ins.secureMeta">WebUSB needs https or localhost.</span></div><span class="pill" id="chk-ctx">…</span></li>
       </ul>
       <p class="msg bad" id="browser-msg" hidden></p>
     </div>
     <div class="card">
       <details id="win-driver">
-        <summary>Windows: the WinUSB driver</summary>
-        <p>The browser can only open the Echo through the <b>WinUSB</b> driver. If <code>fastboot</code> already works with this
+        <summary data-i18n="ins.winSum">Windows: the WinUSB driver</summary>
+        <p data-i18n="ins.win1">The browser can only open the Echo through the <b>WinUSB</b> driver. If <code>fastboot</code> already works with this
           Echo on this PC, it is installed. Both phases use the same USB ID, so one driver covers both.</p>
-        <p>If the Echo is missing from the browser's list, or you get "Access denied":</p>
+        <p data-i18n="ins.win2">If the Echo is missing from the browser's list, or you get "Access denied":</p>
         <ol class="steps">
-          <li>Start Kaeru fastboot (hold <b>Action</b>, plug in power). Device Manager shows the Echo as <i>Android Bootloader
+          <li data-i18n="ins.winA">Start Kaeru fastboot (hold <b>Action</b>, plug in power). Device Manager shows the Echo as <i>Android Bootloader
             Interface</i>, <i>Android ADB Interface</i> or an unknown device, USB ID <code>0BB4:0C01</code>.</li>
-          <li>Install the driver, either way:
+          <li data-i18n="ins.winB">Install the driver, either way:
             <ul class="plain">
               <li><a href="https://zadig.akeo.ie/" target="_blank" rel="noopener">Zadig</a>: pick <code>0BB4 0C01</code>, choose
                 <b>WinUSB</b>, press Install Driver.</li>
@@ -113,37 +119,37 @@
                 Update driver → Browse my computer → Let me pick → Have Disk → <code>android_winusb.inf</code> →
                 <i>Android Bootloader Interface</i>.</li>
             </ul></li>
-          <li>Replug the Echo, and close anything else using it, such as <code>fastboot</code>.</li>
+          <li data-i18n="ins.winC">Replug the Echo, and close anything else using it, such as <code>fastboot</code>.</li>
         </ol>
       </details>
       <details>
-        <summary>Linux: USB permissions</summary>
-        <p>If you get "Access denied", save this udev rule as <code>/etc/udev/rules.d/51-fastboot.rules</code>:</p>
+        <summary data-i18n="ins.linuxSum">Linux: USB permissions</summary>
+        <p data-i18n="ins.linux1">If you get "Access denied", save this udev rule as <code>/etc/udev/rules.d/51-fastboot.rules</code>:</p>
         <pre class="text">SUBSYSTEM=="usb", ATTR{idVendor}=="0bb4", ATTR{idProduct}=="0c01", TAG+="uaccess"</pre>
-        <p class="note">Then run <code>sudo udevadm control --reload</code> and replug.</p>
+        <p class="note" data-i18n="ins.linux2">Then run <code>sudo udevadm control --reload</code> and replug.</p>
       </details>
     </div>
-    <div class="bar"><span class="grow"></span><button class="pri" data-go="2" id="next-1" disabled>Next</button></div>
+    <div class="bar"><span class="grow"></span><button class="pri" data-go="2" id="next-1" disabled data-i18n="ins.next">Next</button></div>
   </section>
 
   <!-- 2: prerequisites -->
   <section id="step-2" hidden>
     <header>
-      <p class="eyebrow">Step 2 of 6</p>
-      <h2>Before you start</h2>
-      <p class="lead">What you need, and what this changes on the Echo.</p>
+      <p class="eyebrow" data-i18n="ins.step2of6">Step 2 of 6</p>
+      <h2 data-i18n="ins.s2">Before you start</h2>
+      <p class="lead" data-i18n="ins.beforeLead">What you need, and what this changes on the Echo.</p>
     </header>
     <div class="card">
-      <h3>What you need</h3>
+      <h3 data-i18n="ins.needTitle">What you need</h3>
       <ul class="plain">
-        <li>An Echo Plus 2nd gen, <b>already unlocked with Kaeru fastboot</b> (hold <b>Action</b> while plugging in power).
+        <li data-i18n="ins.need1">An Echo Plus 2nd gen, <b>already unlocked with Kaeru fastboot</b> (hold <b>Action</b> while plugging in power).
           This page unlocks nothing: see <a id="link-prereq" target="_blank" rel="noopener">Prerequisites</a>.</li>
-        <li>Your own <code>boot_a</code> dump from the unlock. It is your way back.</li>
-        <li>USB on the contacts underneath (D+, D−, GND), for example with the project's pogo-pin jig.</li>
-        <li>The two images (next step).</li>
+        <li data-i18n="ins.need2">Your own <code>boot_a</code> dump from the unlock. It is your way back.</li>
+        <li data-i18n="ins.need3">USB on the contacts underneath (D+, D−, GND), for example with the project's pogo-pin jig.</li>
+        <li data-i18n="ins.need4">The two images (next step).</li>
       </ul>
       <figure class="echo-pads">
-        <img src="echo-pads.webp" width="1240" height="520" alt="The underside of the Echo with its label text upright and the window with six gold contacts to the right of it. Top row, left to right: TM45, D+, D−. Bottom row: TM35, GND, and 17 V at the bottom right">
+        <img src="echo-pads.webp" width="1240" height="520" data-i18n-alt="ins.altPads" alt="The underside of the Echo with its label text upright and the window with six gold contacts to the right of it. Top row, left to right: TM45, D+, D−. Bottom row: TM35, GND, and 17 V at the bottom right">
         <svg viewBox="0 0 100 41.94" aria-hidden="true">
           <circle class="free" cx="70.8" cy="9.84" r="2.4"/><text x="70.8" y="5.6">TM45</text>
           <circle class="sig" cx="76.0" cy="9.84" r="2.4"/><text x="76.0" y="5.6">D+</text>
@@ -152,61 +158,61 @@
           <circle class="gnd" cx="76.0" cy="15.08" r="2.4"/><text x="76.0" y="20.4">GND</text>
           <circle class="hot" cx="81.6" cy="15.08" r="2.4"/><text class="hot" x="81.6" y="20.4">17 V</text>
         </svg>
-        <figcaption>The contacts underneath, label text upright.</figcaption>
+        <figcaption data-i18n="ins.padsCap">The contacts underneath, label text upright.</figcaption>
       </figure>
       <div class="pads-detail">
         <table class="pads">
-          <thead><tr><th>Contact</th><th>Signal</th><th>Connect</th></tr></thead>
+          <thead><tr><th data-i18n="ins.thContact">Contact</th><th data-i18n="ins.thSignal">Signal</th><th data-i18n="ins.thConnect">Connect</th></tr></thead>
           <tbody>
-            <tr><td>top middle (TM4)</td><td>USB D+</td><td>yes</td></tr>
-            <tr><td>top right (TM5)</td><td>USB D−</td><td>yes</td></tr>
-            <tr><td>bottom middle (TM37)</td><td>ground</td><td>yes</td></tr>
-            <tr class="hot"><td>bottom right (TM33)</td><td>about 17 V, from the power adapter</td><td><b>never</b></td></tr>
-            <tr><td>top left (TM45)</td><td>USB ID</td><td>no</td></tr>
-            <tr><td>bottom left (TM35)</td><td>unknown, probably factory USB power</td><td>no</td></tr>
+            <tr><td data-i18n="ins.pad1">top middle (TM4)</td><td>USB D+</td><td data-i18n="ins.padYes">yes</td></tr>
+            <tr><td data-i18n="ins.pad2">top right (TM5)</td><td>USB D−</td><td data-i18n="ins.padYes">yes</td></tr>
+            <tr><td data-i18n="ins.pad3">bottom middle (TM37)</td><td data-i18n="ins.ground">ground</td><td data-i18n="ins.padYes">yes</td></tr>
+            <tr class="hot"><td data-i18n="ins.pad4">bottom right (TM33)</td><td data-i18n="ins.hot">about 17 V, from the power adapter</td><td data-i18n="ins.padNever"><b>never</b></td></tr>
+            <tr><td data-i18n="ins.pad5">top left (TM45)</td><td data-i18n="ins.usbId">USB ID</td><td data-i18n="ins.padNo">no</td></tr>
+            <tr><td data-i18n="ins.pad6">bottom left (TM35)</td><td data-i18n="ins.unknownPad">unknown, probably factory USB power</td><td data-i18n="ins.padNo">no</td></tr>
           </tbody>
         </table>
         <figure class="echo-jig">
-          <img src="echo-jig.webp" width="640" height="640" alt="The pogo-pin jig clamped to the underside of the Echo, its cable leading off to the right">
-          <figcaption>The pogo-pin jig (<code>pogo-jig/</code>): only D+, D− and GND are wired.</figcaption>
+          <img src="echo-jig.webp" width="640" height="640" data-i18n-alt="ins.altJig" alt="The pogo-pin jig clamped to the underside of the Echo, its cable leading off to the right">
+          <figcaption data-i18n="ins.jigCap">The pogo-pin jig (<code>pogo-jig/</code>): only D+, D− and GND are wired.</figcaption>
         </figure>
       </div>
-      <p class="callout"><b>The bottom right contact carries about 17 V.</b> Never connect or bridge it.</p>
+      <p class="callout" data-i18n="ins.hotCallout"><b>The bottom right contact carries about 17 V.</b> Never connect or bridge it.</p>
     </div>
     <div class="card">
-      <h3>What gets written</h3>
+      <h3 data-i18n="ins.written">What gets written</h3>
       <ul class="rows">
-        <li><div class="stack"><span class="name"><code>boot_a</code> ← lidar-uboot.img</span><span class="meta">Holds Fire OS's kernel today. Afterwards U-Boot, which starts lidar.</span></div></li>
-        <li><div class="stack"><span class="name"><code>system_b</code> ← lidar-test-system.ext4</span><span class="meta">Fire OS's spare update slot. Its contents are erased.</span></div></li>
+        <li><div class="stack"><span class="name"><code>boot_a</code> ← lidar-uboot.img</span><span class="meta" data-i18n="ins.bootMeta">Holds Fire OS's kernel today. Afterwards U-Boot, which starts lidar.</span></div></li>
+        <li><div class="stack"><span class="name"><code>system_b</code> ← lidar-test-system.ext4</span><span class="meta" data-i18n="ins.systemMeta">Fire OS's spare update slot. Its contents are erased.</span></div></li>
       </ul>
-      <p><b>Fire OS no longer starts afterwards.</b> Its system on <code>system_a</code> stays untouched (lidar reads the Wi-Fi
+      <p data-i18n="ins.noFireos"><b>Fire OS no longer starts afterwards.</b> Its system on <code>system_a</code> stays untouched (lidar reads the Wi-Fi
         firmware and speaker tuning from it), so flashing your <code>boot_a</code> dump through Kaeru fastboot brings it back.</p>
-      <p class="note">Nothing else is written; the installer refuses any other partition, and Kaeru fastboot stays available for
+      <p class="note" data-i18n="ins.nothingElse">Nothing else is written; the installer refuses any other partition, and Kaeru fastboot stays available for
         recovery. Later versions will also use <code>system_a</code> for updates: they will ask first and offer to save a full Fire OS
         image, without which there is no way back.</p>
-      <p class="callout">Fire OS normally runs from <code>system_a</code>. If yours runs from <code>system_b</code>, stop: this page
-        would erase it. Install by hand with <code>system_a</code> as the README describes.</p>
+      <p class="callout" data-i18n="ins.slotCallout">Fire OS normally runs from <code>system_a</code>. If yours runs from <code>system_b</code>, stop: this page
+        would erase it. Install by hand with <code>system_a</code> as the <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/docs/install.md#installing" target="_blank" rel="noopener">install guide</a> describes.</p>
     </div>
     <div class="card">
-      <label class="check"><input type="checkbox" id="pre-ok"><span>My Echo is unlocked with Kaeru fastboot and I have my own
+      <label class="check"><input type="checkbox" id="pre-ok"><span data-i18n="ins.accept">My Echo is unlocked with Kaeru fastboot and I have my own
         <code>boot_a</code> dump. I accept that <code>system_b</code> is erased and Fire OS will not start until I restore the dump.
         At my own risk.</span></label>
     </div>
-    <div class="bar"><button data-go="1">Back</button><span class="grow"></span><button class="pri" data-go="3" id="next-2" disabled>Next</button></div>
+    <div class="bar"><button data-go="1" data-i18n="ins.back">Back</button><span class="grow"></span><button class="pri" data-go="3" id="next-2" disabled data-i18n="ins.next">Next</button></div>
   </section>
 
   <!-- 3: images -->
   <section id="step-3" hidden>
     <header>
-      <p class="eyebrow">Step 3 of 6</p>
+      <p class="eyebrow" data-i18n="ins.step3of6">Step 3 of 6</p>
       <h2>Images</h2>
-      <p class="lead">Get the two images of the latest release. They stay on this computer.</p>
+      <p class="lead" data-i18n="ins.imagesLead">Get the two images of the latest release. They stay on this computer.</p>
     </header>
     <div class="card" id="release-card">
-      <div class="ch"><h3>Latest release</h3><span class="pill" id="release-pill">looking</span></div>
-      <p class="muted" id="release-note">Asking GitHub for the latest release…</p>
-      <div class="bar" id="release-get-bar" hidden><button class="pri big" id="release-get">Download and use</button>
-        <span class="get-sub">Both images, checked against the release</span></div>
+      <div class="ch"><h3 data-i18n="ins.latest">Latest release</h3><span class="pill" id="release-pill" data-i18n="ins.looking">looking</span></div>
+      <p class="muted" id="release-note" data-i18n="ins.asking">Asking GitHub for the latest release…</p>
+      <div class="bar" id="release-get-bar" hidden><button class="pri big" id="release-get" data-i18n="ins.get">Download and use</button>
+        <span class="get-sub" data-i18n="ins.getSub">Both images, checked against the release</span></div>
       <div class="prog" id="release-prog" hidden><progress max="1" value="0"></progress><span></span></div>
       <div class="bar" id="release-links" hidden>
         <a class="btn soft" id="dl-uboot" rel="noopener">lidar-uboot.img</a>
@@ -215,18 +221,18 @@
       <p class="note" id="release-more"></p>
     </div>
     <div class="card">
-      <h3>Or pick files you have</h3>
+      <h3 data-i18n="ins.pick">Or pick files you have</h3>
       <ul class="rows">
         <li><div class="stack"><span class="name">U-Boot: <code>lidar-uboot.img</code></span>
           <input type="file" id="file-uboot" accept=".img" aria-label="lidar-uboot.img">
-          <span class="meta" id="img-uboot-meta">Not chosen</span></div><span class="pill" id="img-uboot-pill">missing</span></li>
+          <span class="meta" id="img-uboot-meta" data-i18n="ins.notChosen">Not chosen</span></div><span class="pill" id="img-uboot-pill" data-i18n="ins.missing">missing</span></li>
         <li><div class="stack"><span class="name">System: <code>lidar-test-system.ext4</code></span>
           <input type="file" id="file-system" accept=".ext4,.img" aria-label="lidar-test-system.ext4">
-          <span class="meta" id="img-system-meta">Not chosen</span></div><span class="pill" id="img-system-pill">missing</span></li>
+          <span class="meta" id="img-system-meta" data-i18n="ins.notChosen">Not chosen</span></div><span class="pill" id="img-system-pill" data-i18n="ins.missing">missing</span></li>
       </ul>
       <details>
-        <summary>Images you built yourself</summary>
-        <p class="muted">Your own builds (in <code>out/</code>) show as "not verified". To check them, write a checksum file in
+        <summary data-i18n="ins.own">Images you built yourself</summary>
+        <p class="muted" data-i18n="ins.ownText">Your own builds (in <code>out/</code>) show as "not verified". To check them, write a checksum file in
           <code>out/</code> and pick it here:</p>
         <pre class="text">sha256sum lidar-uboot.img lidar-test-system.ext4 &gt; SHA256SUMS</pre>
         <input type="file" id="file-sums" aria-label="SHA256SUMS">
@@ -234,101 +240,101 @@
       </details>
     </div>
     <p class="msg bad" id="img-msg" hidden></p>
-    <div class="bar"><button data-go="2">Back</button><span class="grow"></span><button class="pri" data-go="4" id="next-3" disabled>Next</button></div>
+    <div class="bar"><button data-go="2" data-i18n="ins.back">Back</button><span class="grow"></span><button class="pri" data-go="4" id="next-3" disabled data-i18n="ins.next">Next</button></div>
   </section>
 
   <!-- 4: phase 1, Kaeru fastboot -> boot_a -->
   <section id="step-4" hidden>
     <header>
-      <p class="eyebrow">Step 4 of 6 · phase 1</p>
+      <p class="eyebrow" data-i18n="ins.step4of6">Step 4 of 6 · phase 1</p>
       <h2>U-Boot</h2>
-      <p class="lead"><code>lidar-uboot.img</code> to <code>boot_a</code>, through Kaeru's fastboot.</p>
+      <p class="lead" data-i18n="ins.ubootLead"><code>lidar-uboot.img</code> to <code>boot_a</code>, through Kaeru's fastboot.</p>
     </header>
     <div class="card">
-      <h3>Start Kaeru fastboot</h3>
+      <h3 data-i18n="ins.startKaeru">Start Kaeru fastboot</h3>
       <ol class="steps">
-        <li>Unplug power. Leave the USB connected.</li>
-        <li>Hold <b>Action</b> (the dot) and plug in power. Keep holding a few seconds.</li>
-        <li>Press Connect and pick the device.</li>
+        <li data-i18n="ins.unplug">Unplug power. Leave the USB connected.</li>
+        <li data-i18n="ins.holdAction">Hold <b>Action</b> (the dot) and plug in power. Keep holding a few seconds.</li>
+        <li data-i18n="ins.pressConnect">Press Connect and pick the device.</li>
       </ol>
       <figure class="echo-top">
-        <img src="echo-top.webp" width="720" height="720" alt="Top of the Echo: the Action button, the one with the dot, is circled">
+        <img src="echo-top.webp" width="720" height="720" data-i18n-alt="ins.altAction" alt="Top of the Echo: the Action button, the one with the dot, is circled">
         <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="49.96" cy="70.45" r="8.5"/></svg>
-        <figcaption>Hold <b>Action</b> (●), then plug in power.</figcaption>
+        <figcaption data-i18n="ins.actionCap">Hold <b>Action</b> (●), then plug in power.</figcaption>
       </figure>
-      <div class="bar"><button class="pri" id="p1-connect">Connect</button><span class="pill" id="p1-pill">not connected</span></div>
+      <div class="bar"><button class="pri" id="p1-connect" data-i18n="ins.connect">Connect</button><span class="pill" id="p1-pill" data-i18n="ins.notConnected">not connected</span></div>
     </div>
     <div class="card">
-      <h3>Flash</h3>
+      <h3 data-i18n="ins.flash">Flash</h3>
       <p class="muted" id="p1-image"></p>
-      <div class="bar"><button class="pri" id="p1-flash" disabled>Flash U-Boot to boot_a</button></div>
+      <div class="bar"><button class="pri" id="p1-flash" disabled data-i18n="ins.flashUboot">Flash U-Boot to boot_a</button></div>
       <div class="prog" id="p1-prog" hidden><progress max="1" value="0"></progress><span></span></div>
     </div>
     <p class="msg" id="p1-msg" hidden></p>
-    <div class="bar"><button data-go="3">Back</button><button class="link" id="p1-skip">U-Boot already installed? Skip this phase</button>
-      <span class="grow"></span><button class="pri" data-go="5" id="next-4" disabled>Next</button></div>
+    <div class="bar"><button data-go="3" data-i18n="ins.back">Back</button><button class="link" id="p1-skip" data-i18n="ins.skipPhase">U-Boot already installed? Skip this phase</button>
+      <span class="grow"></span><button class="pri" data-go="5" id="next-4" disabled data-i18n="ins.next">Next</button></div>
   </section>
 
   <!-- 5: phase 2, U-Boot fastboot -> system_b -->
   <section id="step-5" hidden>
     <header>
-      <p class="eyebrow">Step 5 of 6 · phase 2</p>
+      <p class="eyebrow" data-i18n="ins.step5of6">Step 5 of 6 · phase 2</p>
       <h2>System</h2>
-      <p class="lead"><code>lidar-test-system.ext4</code> to <code id="p2-part">system_b</code>, through U-Boot's fastboot. It becomes the boot slot.</p>
+      <p class="lead" data-i18n="ins.systemLead"><code>lidar-test-system.ext4</code> to <code id="p2-part">system_b</code>, through U-Boot's fastboot. It becomes the boot slot.</p>
     </header>
     <div class="card">
-      <h3>Start U-Boot fastboot</h3>
-      <p>After phase 1, U-Boot usually opens its fastboot by itself, since there is no lidar system to boot yet. If not:</p>
+      <h3 data-i18n="ins.startUboot">Start U-Boot fastboot</h3>
+      <p data-i18n="ins.ubootAuto">After phase 1, U-Boot usually opens its fastboot by itself, since there is no lidar system to boot yet. If not:</p>
       <ol class="steps">
-        <li>Unplug power. Leave the USB connected.</li>
-        <li>Hold <b>Volume Up</b> (+) and plug in power. Keep holding a few seconds.</li>
-        <li>Press Connect and pick the device.</li>
+        <li data-i18n="ins.unplug">Unplug power. Leave the USB connected.</li>
+        <li data-i18n="ins.holdUp">Hold <b>Volume Up</b> (+) and plug in power. Keep holding a few seconds.</li>
+        <li data-i18n="ins.pressConnect">Press Connect and pick the device.</li>
       </ol>
       <figure class="echo-top">
-        <img src="echo-top.webp" width="720" height="720" alt="Top of the Echo: the Volume Up button, marked +, is circled">
+        <img src="echo-top.webp" width="720" height="720" data-i18n-alt="ins.altUp" alt="Top of the Echo: the Volume Up button, marked +, is circled">
         <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="70.68" cy="49.57" r="8.5"/></svg>
-        <figcaption>Hold <b>Volume Up</b> (+), then plug in power.</figcaption>
+        <figcaption data-i18n="ins.upCap">Hold <b>Volume Up</b> (+), then plug in power.</figcaption>
       </figure>
-      <div class="bar"><button class="pri" id="p2-connect">Connect</button><span class="pill" id="p2-pill">not connected</span></div>
+      <div class="bar"><button class="pri" id="p2-connect" data-i18n="ins.connect">Connect</button><span class="pill" id="p2-pill" data-i18n="ins.notConnected">not connected</span></div>
     </div>
     <div class="card">
-      <h3>Flash</h3>
+      <h3 data-i18n="ins.flash">Flash</h3>
       <p class="muted" id="p2-image"></p>
       <p class="bar" id="p2-slot-row" hidden><label for="p2-slot">Slot</label><select id="p2-slot"></select></p>
-      <div class="bar"><button class="pri" id="p2-flash" disabled>Flash the system</button></div>
+      <div class="bar"><button class="pri" id="p2-flash" disabled data-i18n="ins.flashSystem">Flash the system</button></div>
       <div class="prog" id="p2-prog" hidden><progress max="1" value="0"></progress><span></span></div>
     </div>
     <p class="msg" id="p2-msg" hidden></p>
-    <div class="bar"><button data-go="4">Back</button><span class="grow"></span><button class="pri" data-go="6" id="next-5" disabled>Next</button></div>
+    <div class="bar"><button data-go="4" data-i18n="ins.back">Back</button><span class="grow"></span><button class="pri" data-go="6" id="next-5" disabled data-i18n="ins.next">Next</button></div>
   </section>
 
   <!-- 6: done -->
   <section id="step-6" hidden>
     <header>
-      <p class="eyebrow">Step 6 of 6</p>
-      <h2>Done</h2>
-      <p class="lead">The Echo is booting lidar.</p>
+      <p class="eyebrow" data-i18n="ins.step6of6">Step 6 of 6</p>
+      <h2 data-i18n="ins.doneTitle">Done</h2>
+      <p class="lead" data-i18n="ins.doneLead">The Echo is booting lidar.</p>
     </header>
     <div class="card">
-      <h3>Open the web interface</h3>
+      <h3 data-i18n="ins.openUi">Open the web interface</h3>
       <ol class="steps">
-        <li>Leave the USB connected: the Echo appears as a USB network adapter (and a serial port).</li>
-        <li>The Echo is <code>169.254.7.2</code>. Give that adapter another link-local address, for example
+        <li data-i18n="ins.ui1">Leave the USB connected: the Echo appears as a USB network adapter (and a serial port).</li>
+        <li data-i18n="ins.ui2">The Echo is <code>169.254.7.2</code>. Give that adapter another link-local address, for example
           <code>169.254.7.1</code>, netmask <code>255.255.0.0</code>; many systems do this by themselves.</li>
-        <li>Open <a href="http://169.254.7.2/" target="_blank" rel="noopener">http://169.254.7.2/</a> for the setup wizard.</li>
+        <li data-i18n="ins.ui3">Open <a href="http://169.254.7.2/" target="_blank" rel="noopener">http://169.254.7.2/</a> for the setup wizard.</li>
       </ol>
-      <pre class="text" aria-label="USB network">  PC  169.254.x.y ═══ USB network ═══ 169.254.7.2  Echo      →  http://169.254.7.2/</pre>
+      <pre class="text" aria-label="USB network" data-i18n-aria="ins.usbNet" data-i18n="ins.diagram">  PC  169.254.x.y ═══ USB network ═══ 169.254.7.2  Echo      →  http://169.254.7.2/</pre>
     </div>
     <div class="card">
-      <h3>If something is wrong</h3>
+      <h3 data-i18n="ins.wrong">If something is wrong</h3>
       <ul class="plain">
-        <li><b>U-Boot fastboot:</b> hold <b>Volume Up</b> while plugging in power, then repeat the System step.</li>
-        <li><b>Kaeru fastboot:</b> hold <b>Action</b> while plugging in power; <code>fastboot flash boot_a &lt;your boot_a dump&gt;</code>
+        <li data-i18n="ins.fix1"><b>U-Boot fastboot:</b> hold <b>Volume Up</b> while plugging in power, then repeat the System step.</li>
+        <li data-i18n="ins.fix2"><b>Kaeru fastboot:</b> hold <b>Action</b> while plugging in power; <code>fastboot flash boot_a &lt;your boot_a dump&gt;</code>
           restores the stock boot path.</li>
-        <li>More in the <a id="link-install" target="_blank" rel="noopener">README</a>.</li>
+        <li data-i18n="ins.fix3">More in the <a id="link-install" target="_blank" rel="noopener">install guide</a>.</li>
       </ul>
     </div>
-    <div class="bar"><button data-go="5">Back</button></div>
+    <div class="bar"><button data-go="5" data-i18n="ins.back">Back</button></div>
   </section>
 
 </main>
@@ -338,16 +344,16 @@
   <div class="wrap foot-in">
     <div>
       <p class="foot-brand">lidar-mainline</p>
-      <p>Open firmware for the Echo Plus (2nd gen). <a id="link-repo" target="_blank" rel="noopener">Source code</a> GPL-2.0-only;
+      <p data-i18n="ins.footText">Open firmware for the Echo Plus (2nd gen). <a id="link-repo" target="_blank" rel="noopener">Source code</a> GPL-2.0-only;
         USB access by <a href="https://github.com/kdrag0n/fastboot.js" target="_blank" rel="noopener">fastboot.js</a> (MIT).</p>
     </div>
-    <nav class="foot-links" aria-label="Project">
-      <a href="./" target="_blank" rel="noopener">Project page</a>
-      <a href="https://github.com/LeagueRaINi/lidar-mainline" target="_blank" rel="noopener">Source</a>
-      <a href="https://github.com/LeagueRaINi/lidar-mainline/releases" target="_blank" rel="noopener">Releases</a>
-      <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/LICENSE" target="_blank" rel="noopener">Licence</a>
+    <nav class="foot-links" aria-label="Project" data-i18n-aria="nav.project">
+      <a href="./" target="_blank" rel="noopener" data-i18n="foot.projectPage">Project page</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline" target="_blank" rel="noopener" data-i18n="foot.source">Source</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline/releases" target="_blank" rel="noopener" data-i18n="foot.releases">Releases</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/LICENSE" target="_blank" rel="noopener" data-i18n="foot.licence">Licence</a>
     </nav>
-    <p class="legal">An independent project, not affiliated with, endorsed by or sponsored by Amazon. Echo and related marks are trademarks of
+    <p class="legal" data-i18n="ins.legal">An independent project, not affiliated with, endorsed by or sponsored by Amazon. Echo and related marks are trademarks of
       Amazon.com, Inc. or its affiliates. No warranty; you flash your own device at your own risk.</p>
   </div>
 </footer>
@@ -356,14 +362,15 @@
   <h3 id="confirm-title"></h3>
   <dl class="kv" id="confirm-kv"></dl>
   <p class="callout" id="confirm-warn"></p>
-  <div class="bar"><span class="grow"></span><button id="confirm-no" autofocus>Cancel</button><button class="armed" id="confirm-yes">Flash</button></div>
+  <div class="bar"><span class="grow"></span><button id="confirm-no" autofocus data-i18n="ins.cancel">Cancel</button><button class="armed" id="confirm-yes" data-i18n="ins.flash">Flash</button></div>
 </dialog>
 
+<script src="i18n.js"></script>
 <script>
 /* Modules do not load from file://, so say so instead of showing an empty page. */
 if (location.protocol === 'file:') {
   var m = document.getElementById('boot-msg');
-  m.textContent = 'Open this page over https or from a local web server (for example "python -m http.server" in this folder, then http://localhost:8000/install.html). It cannot run from a file.';
+  m.textContent = i18n.t('ins.fileProto');
   m.hidden = false;
 }
 </script>

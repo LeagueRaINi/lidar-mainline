@@ -5,16 +5,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>lidar-mainline: open firmware for the Echo Plus (2nd gen)</title>
+<title data-i18n="lp.title">lidar-mainline: open firmware for the Echo Plus (2nd gen)</title>
 <meta name="description" content="Mainline Linux and U-Boot for the Amazon Echo Plus (2nd generation): a Bluetooth speaker with its own tuning, a light ring that follows the music, an experimental on-device voice assistant and a web interface on the speaker itself. Installed from the browser over USB.">
 <meta name="color-scheme" content="dark light">
 <script>
-/* Theme before the first paint, shared with the installer: the stored choice, else the system's. */
+/* Theme and language before the first paint, shared with the installer: the stored choice, else the
+   system's and the browser's (without JavaScript the page stays English). */
 (function () {
-  var t = null;
-  try { t = localStorage.getItem('theme'); } catch (e) {}
+  var t = null, l = null;
+  try { t = localStorage.getItem('theme'); l = localStorage.getItem('lang'); } catch (e) {}
   if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   document.documentElement.dataset.theme = t;
+  if (l !== 'en' && l !== 'de') {
+    var first = (navigator.languages || [navigator.language || '']).filter(function (x) { return /^(de|en)\b/i.test(x); })[0];
+    l = /^de/i.test(first || '') ? 'de' : 'en';
+  }
+  document.documentElement.lang = l;
 })();
 </script>
 <link rel="stylesheet" href="site.css">
@@ -39,25 +45,26 @@
   <symbol id="led" viewBox="0 0 100 100" overflow="visible"><path d="M38.22 6.05A45.5 45.5 0 0 1 61.78 6.05"/></symbol>
 </svg>
 
-<a class="skip" href="#top">Skip to content</a>
+<a class="skip" href="#top" data-i18n="lp.skip">Skip to content</a>
 
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand-lp" href="#top" aria-label="lidar-mainline, top of the page">
-      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><circle class="arc" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="34 100" transform="rotate(-100 16 16)"/></svg>
+    <a class="brand-lp" href="#top" aria-label="lidar-mainline, top of the page" data-i18n-aria="nav.top">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><g class="spin"><circle class="arc t1" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="34 100"/><circle class="arc t2" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="18 100" stroke-dashoffset="-16"/><circle class="arc head" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="7 100" stroke-dashoffset="-27"/></g></svg>
       <span>lidar-mainline</span>
     </a>
-    <nav class="links" aria-label="Sections">
-      <a href="#features">Features</a>
-      <a href="#interface">Interface</a>
-      <a href="#voice">Voice</a>
-      <a href="#install">Install</a>
-      <a href="#faq">FAQ</a>
+    <nav class="links" aria-label="Sections" data-i18n-aria="nav.sections">
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#interface" data-i18n="nav.interface">Interface</a>
+      <a href="#voice" data-i18n="nav.voice">Voice</a>
+      <a href="#install" data-i18n="nav.install">Install</a>
+      <a href="#faq" data-i18n="nav.faq">FAQ</a>
     </nav>
     <div class="top-act">
+      <div class="langsw" role="radiogroup" aria-label="Language" data-i18n-aria="com.language" hidden><button type="button" role="radio" data-lang="en" lang="en">EN</button><button type="button" role="radio" data-lang="de" lang="de">DE</button></div>
       <button id="theme" class="ghost icon-btn" type="button" hidden><svg class="i" aria-hidden="true"><use href="#i-theme"/></svg><span class="sr" id="theme-label">Theme</span></button>
-      <a class="btn ghost icon-btn" href="https://github.com/LeagueRaINi/lidar-mainline" title="Source on GitHub"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg><span class="sr">Source on GitHub</span></a>
-      <a class="btn pri top-cta" href="install.html">Install</a>
+      <a class="btn ghost icon-btn" href="https://github.com/LeagueRaINi/lidar-mainline" title="Source on GitHub" data-i18n-title="nav.source"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg><span class="sr" data-i18n="nav.source">Source on GitHub</span></a>
+      <a class="btn pri top-cta" href="install.html" data-i18n="nav.install">Install</a>
     </div>
   </div>
 </header>
@@ -67,20 +74,20 @@
   <section class="hero backdrop" aria-labelledby="hero-title">
     <div class="wrap hero-in">
       <div class="hero-copy">
-        <p class="tag"><span class="dot" aria-hidden="true"></span>Early test release v0.0.1</p>
-        <h1 id="hero-title">Your Echo Plus, <span class="grad">running open firmware.</span></h1>
-        <p class="pitch">lidar-mainline replaces Fire OS on the Amazon Echo Plus (2nd generation) with mainline Linux and U-Boot.
+        <p class="tag"><span class="dot" aria-hidden="true"></span><span data-i18n="lp.tag">Early test release v0.0.1</span></p>
+        <h1 id="hero-title" data-i18n="lp.h1">Your Echo Plus, <span class="grad">running open firmware.</span></h1>
+        <p class="pitch" data-i18n="lp.pitch">lidar-mainline replaces Fire OS on the Amazon Echo Plus (2nd generation) with mainline Linux and U-Boot.
           A Bluetooth speaker with its own tuning, a light ring that follows the music, an experimental voice assistant that
-          listens on the device, and a web interface served by the speaker itself.</p>
+          listens and answers on the device, and a web interface served by the speaker itself.</p>
         <div class="cta">
-          <a class="btn pri big" href="install.html">Install in your browser <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
-          <a class="btn big soft" href="https://github.com/LeagueRaINi/lidar-mainline"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg> Source on GitHub</a>
+          <a class="btn pri big" href="install.html"><span data-i18n="lp.ctaInstall">Install in your browser</span> <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          <a class="btn big soft" href="https://github.com/LeagueRaINi/lidar-mainline"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg> <span data-i18n="lp.ctaSource">Source on GitHub</span></a>
         </div>
-        <ul class="facts" aria-label="At a glance">
-          <li><b>Mainline</b> Linux and U-Boot</li>
-          <li><b>7</b> microphones</li>
-          <li><b>12</b> ring LEDs</li>
-          <li><b>Open</b> source</li>
+        <ul class="facts" aria-label="At a glance" data-i18n-aria="lp.glance">
+          <li data-i18n="lp.fact1"><b>Mainline</b> Linux and U-Boot</li>
+          <li data-i18n="lp.fact2"><b>Voice</b> on the device</li>
+          <li data-i18n="lp.fact3"><b>Bluetooth</b> speaker</li>
+          <li data-i18n="lp.fact4"><b>Open</b> source</li>
         </ul>
       </div>
 
@@ -88,7 +95,7 @@
         <div class="device">
           <!-- the Echo Plus (2nd gen) from above, drawn: light ring in its channel at the edge, four buttons, seven microphone holes -->
           <svg class="echo" viewBox="0 0 100 100" role="img" aria-labelledby="echo-title">
-            <title id="echo-title">An Echo Plus (2nd generation) from above: four buttons, seven microphone holes and the light ring around the edge, glowing cyan</title>
+            <title id="echo-title" data-i18n="lp.echoTitle">An Echo Plus (2nd generation) from above: four buttons, seven microphone holes and the light ring around the edge, glowing cyan</title>
             <defs>
               <radialGradient id="g-rim" cx="50%" cy="40%" r="62%"><stop offset="0" stop-color="#3b4048"/><stop offset="1" stop-color="#17191d"/></radialGradient>
               <radialGradient id="g-cap" cx="42%" cy="30%" r="78%"><stop offset="0" stop-color="#434951"/><stop offset=".6" stop-color="#2d3137"/><stop offset="1" stop-color="#22262b"/></radialGradient>
@@ -110,7 +117,7 @@
             <g class="glyphs" fill="none" stroke="#8d959f" stroke-width=".75" stroke-linecap="round">
               <circle cx="50" cy="29" r="2.4" mask="url(#mute-cut)"/><path d="M47.15 26.15l5.7 5.7"/>
               <path d="M71 47.6v4.8M68.6 50h4.8"/>
-              <path d="M26.6 50h4.8"/>
+              <path d="M29 47.6v4.8"/>
               <circle cx="50" cy="71" r=".9" fill="#c9ced4" stroke="none"/>
             </g>
             <g class="leds halo" filter="url(#blur)">
@@ -122,9 +129,9 @@
           </svg>
         </div>
         <ul class="chips" aria-hidden="true">
-          <li class="c1"><svg class="i"><use href="#i-mic"/></svg>"Hey Jarvis", on the device</li>
-          <li class="c2"><svg class="i"><use href="#i-speaker"/></svg>Bluetooth AAC and SBC</li>
-          <li class="c3"><svg class="i"><use href="#i-wave"/></svg>7-band spectrum on the ring</li>
+          <li class="c1"><svg class="i"><use href="#i-mic"/></svg><span data-i18n="lp.chip1">"Hey Jarvis", on the device</span></li>
+          <li class="c2"><svg class="i"><use href="#i-speaker"/></svg><span data-i18n="lp.chip2">Bluetooth AAC and SBC</span></li>
+          <li class="c3"><svg class="i"><use href="#i-wave"/></svg><span data-i18n="lp.chip3">7-band spectrum on the ring</span></li>
         </ul>
       </div>
     </div>
@@ -134,45 +141,46 @@
   <section class="band" id="features" aria-labelledby="features-title">
     <div class="wrap">
       <header class="head">
-        <p class="eyebrow">What it does</p>
-        <h2 id="features-title">A speaker you can open up</h2>
-        <p class="sub">Everything runs on the Echo: no account, no app, no cloud service in between.</p>
+        <p class="eyebrow" data-i18n="lp.featEyebrow">What it does</p>
+        <h2 id="features-title" data-i18n="lp.featTitle">A speaker you can open up</h2>
+        <p class="sub" data-i18n="lp.featSub">Everything runs on the Echo: no account, no app, no cloud service in between.</p>
       </header>
       <div class="grid">
         <article class="feat">
           <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-speaker"/></svg></span>
-          <h3>Speaker</h3>
-          <p>Plays as a Bluetooth speaker (AAC and SBC); pair by holding the action button, with chimes. Its own tuning, bass, mids,
+          <h3 data-i18n="lp.speaker">Speaker</h3>
+          <p data-i18n="lp.speakerText">Plays as a Bluetooth speaker (AAC and SBC); pair by holding the action button, with chimes. Its own tuning, bass, mids,
             treble and a loudness boost, sits on top of the stock tuning. Volume and mute buttons work as before.</p>
         </article>
         <article class="feat">
           <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-ring"/></svg></span>
-          <h3>Light ring</h3>
-          <p>A volume arc, red for mute, and a sound display that moves with the music, as a level or a 7-band spectrum.
+          <h3 data-i18n="lp.ring">Light ring</h3>
+          <p data-i18n="lp.ringText">A volume arc, red for mute, and a sound display that moves with the music, as a level or a 7-band spectrum.
             The ambient light sensor dims the ring with the room.</p>
         </article>
         <article class="feat">
           <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-mic"/></svg></span>
-          <h3>Voice <span class="pill hint">experimental</span></h3>
-          <p>"Hey Jarvis" wake word, seven microphones with echo cancellation and beamforming, and an assistant for timers,
-            alarms, volume and music. Speech recognition, spoken answers and Claude come with the next release.</p>
+          <h3><span data-i18n="lp.voice">Voice</span> <span class="pill hint" data-i18n="lp.experimental">experimental</span></h3>
+          <p data-i18n="lp.voiceText">"Hey Jarvis" wake word, seven microphones with echo cancellation and beamforming, speech recognition on
+            the Echo, spoken answers with local Piper voices, and an assistant for timers, alarms, volume and music. Claude answers
+            the rest, with your own API key.</p>
         </article>
         <article class="feat">
           <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-window"/></svg></span>
-          <h3>Web interface</h3>
-          <p>Served by the Echo itself: overview, music library, sound, voice, light ring, Wi-Fi, Bluetooth and security.
-            Light and dark theme, made for phones too, with an optional PIN or password.</p>
+          <h3 data-i18n="lp.webui">Web interface</h3>
+          <p data-i18n="lp.webuiText">Served by the Echo itself: overview, music library, sound, voice, light ring, Wi-Fi, Bluetooth and security.
+            Light and dark theme, in English and German, made for phones too, with an optional PIN or password.</p>
         </article>
         <article class="feat">
           <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg></span>
-          <h3>Privacy</h3>
-          <p>The hardware mute still cuts the microphones. No audio leaves the Echo: wake word and recognition run on it. With
+          <h3 data-i18n="lp.privacy">Privacy</h3>
+          <p data-i18n="lp.privacyText">The hardware mute still cuts the microphones. No audio leaves the Echo: wake word and recognition run on it. With
             a Claude key, only the text of questions the assistant cannot answer itself goes out.</p>
         </article>
         <article class="feat">
           <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg></span>
-          <h3>Open source</h3>
-          <p>Mainline Linux, U-Boot and the tools on top, mostly GPL-2.0 (see Licensing in the README). Build the images yourself; self-built images can also
+          <h3 data-i18n="lp.open">Open source</h3>
+          <p data-i18n="lp.openText">Mainline Linux, U-Boot and the tools on top, mostly GPL-2.0 (see <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/LICENSING.md">Licensing</a>). Build the images yourself; self-built images can also
             run the Zigbee and Thread radio for Home Assistant.</p>
         </article>
       </div>
@@ -183,9 +191,9 @@
   <section class="band alt" id="interface" aria-labelledby="interface-title">
     <div class="wrap">
       <header class="head">
-        <p class="eyebrow">Web interface</p>
-        <h2 id="interface-title">Served by the speaker</h2>
-        <p class="sub">Open the Echo in any browser on your network. No app to install; these are screenshots of the real thing.</p>
+        <p class="eyebrow" data-i18n="lp.uiEyebrow">Web interface</p>
+        <h2 id="interface-title" data-i18n="lp.uiTitle">Served by the speaker</h2>
+        <p class="sub" data-i18n="lp.uiSub">Open the Echo in any browser on your network. No app to install; these are screenshots of the real thing.</p>
       </header>
 
       <div class="show">
@@ -198,52 +206,52 @@
         <input type="radio" name="shot" id="s-wifi">
         <input type="radio" name="shot" id="s-security">
         <div class="tabs">
-          <label for="s-overview">Overview</label>
-          <label for="s-voice">Voice</label>
-          <label for="s-sound">Sound</label>
-          <label for="s-ring">Light ring</label>
-          <label for="s-music">Music</label>
+          <label for="s-overview" data-i18n="lp.tabOverview">Overview</label>
+          <label for="s-voice" data-i18n="lp.tabVoice">Voice</label>
+          <label for="s-sound" data-i18n="lp.tabSound">Sound</label>
+          <label for="s-ring" data-i18n="lp.tabRing">Light ring</label>
+          <label for="s-music" data-i18n="lp.tabMusic">Music</label>
           <label for="s-bluetooth">Bluetooth</label>
-          <label for="s-wifi">Wi-Fi</label>
-          <label for="s-security">Security</label>
+          <label for="s-wifi" data-i18n="lp.tabWifi">Wi-Fi</label>
+          <label for="s-security" data-i18n="lp.tabSecurity">Security</label>
         </div>
         <div class="frame">
           <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span class="url">http://169.254.7.2/</span></div>
           <div class="view">
-            <a class="shot p-overview" href="shots/overview.webp"><img src="shots/overview.webp" width="1600" height="1000" alt="Overview page: volume, now playing, status tiles for microphones, speaker tuning, Wi-Fi and Bluetooth, CPU, memory and temperatures"></a>
-            <a class="shot p-voice" href="shots/voice.webp"><img src="shots/voice.webp" width="1600" height="1000" loading="lazy" alt="Voice page: assistant and microphone switches, wake word, sensitivity, language and a live view of the direction the microphones listen in"></a>
-            <a class="shot p-sound" href="shots/sound.webp"><img src="shots/sound.webp" width="1600" height="1000" loading="lazy" alt="Sound page: volume, volume limit, tone controls for bass, mids and treble, loudness boost and speaker tuning status"></a>
-            <a class="shot p-ring" href="shots/ring.webp"><img src="shots/ring.webp" width="1600" height="1000" loading="lazy" alt="Light ring page: sound display style, dimming in the dark, brightness and volume arc settings"></a>
-            <a class="shot p-music" href="shots/music.webp"><img src="shots/music.webp" width="1600" height="1000" loading="lazy" alt="Music page: a player and a library where audio files are dropped onto the page"></a>
-            <a class="shot p-bluetooth" href="shots/bluetooth.webp"><img src="shots/bluetooth.webp" width="1600" height="1000" loading="lazy" alt="Bluetooth page: radio status, paired phones, pairing mode, speaker name, pairing time and sounds (addresses blurred)"></a>
-            <a class="shot p-wifi" href="shots/wifi.webp"><img src="shots/wifi.webp" width="1600" height="1000" loading="lazy" alt="Wi-Fi page: the connected network with signal and band, scan, and country setting"></a>
-            <a class="shot p-security" href="shots/security.webp"><img src="shots/security.webp" width="1600" height="1000" loading="lazy" alt="Security page: optional PIN or password login and where the web interface can be reached from"></a>
+            <a class="shot p-overview" href="shots/overview.webp"><img src="shots/overview.webp" width="1600" height="1000" data-i18n-alt="lp.altOverview" alt="Overview page: volume, now playing, status tiles for microphones, speaker tuning, Wi-Fi and Bluetooth, CPU, memory and temperatures"></a>
+            <a class="shot p-voice" href="shots/voice.webp"><img src="shots/voice.webp" width="1600" height="1000" loading="lazy" data-i18n-alt="lp.altVoice" alt="Voice page: assistant and microphone switches, wake word, sensitivity, language and a live view of the direction the microphones listen in"></a>
+            <a class="shot p-sound" href="shots/sound.webp"><img src="shots/sound.webp" width="1600" height="1000" loading="lazy" data-i18n-alt="lp.altSound" alt="Sound page: volume, volume limit, tone controls for bass, mids and treble, loudness boost and speaker tuning status"></a>
+            <a class="shot p-ring" href="shots/ring.webp"><img src="shots/ring.webp" width="1600" height="1000" loading="lazy" data-i18n-alt="lp.altRing" alt="Light ring page: sound display style, dimming in the dark, brightness and volume arc settings"></a>
+            <a class="shot p-music" href="shots/music.webp"><img src="shots/music.webp" width="1600" height="1000" loading="lazy" data-i18n-alt="lp.altMusic" alt="Music page: a player and a library where audio files are dropped onto the page"></a>
+            <a class="shot p-bluetooth" href="shots/bluetooth.webp"><img src="shots/bluetooth.webp" width="1600" height="1000" loading="lazy" data-i18n-alt="lp.altBluetooth" alt="Bluetooth page: radio status, paired phones, pairing mode, speaker name, pairing time and sounds (addresses blurred)"></a>
+            <a class="shot p-wifi" href="shots/wifi.webp"><img src="shots/wifi.webp" width="1600" height="1000" loading="lazy" data-i18n-alt="lp.altWifi" alt="Wi-Fi page: the connected network with signal and band, scan, and country setting"></a>
+            <a class="shot p-security" href="shots/security.webp"><img src="shots/security.webp" width="1600" height="1000" loading="lazy" data-i18n-alt="lp.altSecurity" alt="Security page: optional PIN or password login and where the web interface can be reached from"></a>
           </div>
         </div>
         <div class="caps">
-          <p class="p-overview">The speaker at a glance: volume, what is playing, microphones, tuning, connections and the hardware.</p>
-          <p class="p-voice">Wake word, sensitivity and language, with a live view of the beamformer: the bar that lights up is where the Echo listens.</p>
-          <p class="p-sound">Equalizer for bass, mids and treble and a loudness boost, on top of the stock speaker tuning.</p>
-          <p class="p-ring">What the ring shows: volume arc, mute, a level or 7-band spectrum to the music, and how it dims in the dark.</p>
-          <p class="p-music">Drop audio files on the page; they play on the Echo.</p>
-          <p class="p-bluetooth">Pairing mode, paired phones, the name phones see and the pairing chimes.</p>
-          <p class="p-wifi">The network the Echo joins, with signal, band and bit rate.</p>
-          <p class="p-security">An optional PIN or password for the whole interface, and from where it can be reached.</p>
+          <p class="p-overview" data-i18n="lp.capOverview">The speaker at a glance: volume, what is playing, microphones, tuning, connections and the hardware.</p>
+          <p class="p-voice" data-i18n="lp.capVoice">Wake word, sensitivity and language, with a live view of the beamformer: the bar that lights up is where the Echo listens.</p>
+          <p class="p-sound" data-i18n="lp.capSound">Equalizer for bass, mids and treble and a loudness boost, on top of the stock speaker tuning.</p>
+          <p class="p-ring" data-i18n="lp.capRing">What the ring shows: volume arc, mute, a level or 7-band spectrum to the music, and how it dims in the dark.</p>
+          <p class="p-music" data-i18n="lp.capMusic">Drop audio files on the page; they play on the Echo.</p>
+          <p class="p-bluetooth" data-i18n="lp.capBluetooth">Pairing mode, paired phones, the name phones see and the pairing chimes.</p>
+          <p class="p-wifi" data-i18n="lp.capWifi">The network the Echo joins, with signal, band and bit rate.</p>
+          <p class="p-security" data-i18n="lp.capSecurity">An optional PIN or password for the whole interface, and from where it can be reached.</p>
         </div>
       </div>
 
       <div class="phones">
         <div class="phones-copy">
-          <h3>Fits in one hand</h3>
-          <p>The same interface on a phone, with a tab bar at the bottom. It follows the system theme, light or dark.</p>
+          <h3 data-i18n="lp.phonesTitle">Fits in one hand</h3>
+          <p data-i18n="lp.phonesText">The same interface on a phone, with a tab bar at the bottom. It follows the system theme, light or dark.</p>
           <ul class="ticks">
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>No app, just the browser</span></li>
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Optional login with a PIN or password</span></li>
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Setup wizard on first start</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.tick1">No app, just the browser</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.tick2">Optional login with a PIN or password</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.tick3">Setup wizard on first start</span></li>
           </ul>
         </div>
-        <figure class="phone"><img src="shots/overview-phone.webp" width="600" height="1298" loading="lazy" alt="Overview page on a phone"></figure>
-        <figure class="phone tilt"><img src="shots/voice-phone.webp" width="600" height="1298" loading="lazy" alt="Voice page on a phone"></figure>
+        <figure class="phone"><img src="shots/overview-phone.webp" width="600" height="1298" loading="lazy" data-i18n-alt="lp.altPhoneOverview" alt="Overview page on a phone"></figure>
+        <figure class="phone tilt"><img src="shots/voice-phone.webp" width="600" height="1298" loading="lazy" data-i18n-alt="lp.altPhoneVoice" alt="Voice page on a phone"></figure>
       </div>
     </div>
   </section>
@@ -252,50 +260,50 @@
   <section class="band" id="voice" aria-labelledby="voice-title">
     <div class="wrap">
       <header class="head">
-        <p class="eyebrow">Voice <span class="pill hint">experimental</span></p>
-        <h2 id="voice-title">From wake word to answer, on the Echo</h2>
-        <p class="sub">The voice path runs on the speaker. Only questions the assistant cannot handle can go out, and only if you set it up.</p>
+        <p class="eyebrow"><span data-i18n="lp.voiceEyebrow">Voice</span> <span class="pill hint" data-i18n="lp.experimental">experimental</span></p>
+        <h2 id="voice-title" data-i18n="lp.voiceTitle">From wake word to answer, on the Echo</h2>
+        <p class="sub" data-i18n="lp.voiceSub">The voice path runs on the speaker. Only questions the assistant cannot handle can go out, and only if you set it up.</p>
       </header>
       <ol class="flow">
         <li>
           <span class="num">1</span>
-          <h3>Wake word</h3>
-          <p>"Hey Jarvis" is detected on the device, with an adjustable sensitivity.</p>
+          <h3 data-i18n="lp.flow1">Wake word</h3>
+          <p data-i18n="lp.flow1Text">"Hey Jarvis" is detected on the device, with an adjustable sensitivity.</p>
         </li>
         <li>
           <span class="num">2</span>
-          <h3>Direction</h3>
-          <p>Seven microphones with echo cancellation and beamforming. The ring lights up toward whoever speaks.</p>
+          <h3 data-i18n="lp.flow2">Direction</h3>
+          <p data-i18n="lp.flow2Text">Seven microphones with echo cancellation and beamforming. The ring lights up toward whoever speaks.</p>
         </li>
         <li>
           <span class="num">3</span>
-          <h3>Recognition <span class="pill hint">next release</span></h3>
-          <p>Speech is turned into text on the Echo, in English or German. The model is downloaded onto the Echo once.</p>
+          <h3 data-i18n="lp.flow3">Recognition</h3>
+          <p data-i18n="lp.flow3Text">Speech is turned into text on the Echo, in English or German. The model is downloaded onto the Echo once.</p>
         </li>
         <li>
           <span class="num">4</span>
-          <h3>Assistant</h3>
-          <p>Timers, alarms, volume, music control, time and date, built in. With the next release, anything else can go to Claude with your own API key, if you add one.</p>
+          <h3 data-i18n="lp.flow4">Assistant</h3>
+          <p data-i18n="lp.flow4Text">Timers, alarms, volume, music control, time and date, built in, answered out loud by a local voice. Anything else can go to Claude with your own API key, if you add one.</p>
         </li>
       </ol>
       <div class="voice-more">
         <figure class="beam">
-          <img src="shots/beam.webp" width="800" height="638" loading="lazy" alt="The Listening card of the web interface: twelve bars around the Echo, the one at 30 degrees lit, wake word heard 13 times">
-          <figcaption>The beamformer, live in the web interface.</figcaption>
+          <img src="shots/beam.webp" width="800" height="638" loading="lazy" data-i18n-alt="lp.altBeam" alt="The Listening card of the web interface: twelve bars around the Echo, the one at 30 degrees lit, wake word heard 13 times">
+          <figcaption data-i18n="lp.beamCap">The beamformer, live in the web interface.</figcaption>
         </figure>
         <div class="card priv">
-          <h3><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>Privacy, by design of the hardware and the software</h3>
+          <h3><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><span data-i18n="lp.privTitle">Privacy, by design of the hardware and the software</span></h3>
           <ul class="ticks">
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>The mute button still cuts the microphones in hardware; the ring turns red.</span></li>
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>No audio leaves the Echo: wake word and speech recognition run on it.</span></li>
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Only with a Claude key: the text of questions the built-in assistant cannot handle.</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.priv1">The mute button still cuts the microphones in hardware; the ring turns red.</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.priv2">No audio leaves the Echo: wake word, speech recognition and the voice run on it.</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.priv3">Only with a Claude key: the text of questions the built-in assistant cannot handle.</span></li>
           </ul>
           <div class="route" aria-hidden="true">
-            <div class="node"><b>On the Echo</b><span>wake word</span><span>recognition</span><span>assistant</span></div>
-            <div class="wire"><span>only what it cannot answer, with your key</span></div>
-            <div class="node opt"><b>Claude</b><span>optional</span></div>
+            <div class="node"><b data-i18n="lp.routeEcho">On the Echo</b><span data-i18n="lp.routeWake">wake word</span><span data-i18n="lp.routeStt">recognition</span><span data-i18n="lp.routeAssistant">assistant</span><span data-i18n="lp.routeVoice">voice</span></div>
+            <div class="wire"><span data-i18n="lp.routeWire">only what it cannot answer, with your key</span></div>
+            <div class="node opt"><b>Claude</b><span data-i18n="lp.routeOpt">optional</span></div>
           </div>
-          <p class="soon"><svg class="i" aria-hidden="true"><use href="#i-chat"/></svg><span><b>Next release:</b> speech recognition, spoken answers with local Piper voices, and Claude.</span></p>
+          <p class="soon"><svg class="i" aria-hidden="true"><use href="#i-chat"/></svg><span data-i18n="lp.online"><b>Online only when needed:</b> for the clock (NTP), the one-time download of the speech model for your language, and Claude if you add a key.</span></p>
         </div>
       </div>
     </div>
@@ -305,44 +313,44 @@
   <section class="band alt" id="install" aria-labelledby="install-title">
     <div class="wrap">
       <header class="head">
-        <p class="eyebrow">Install</p>
-        <h2 id="install-title">Flash it from the browser</h2>
-        <p class="sub">The installer talks to the Echo over USB (WebUSB), straight from the page. It writes two partitions and nothing else.</p>
+        <p class="eyebrow" data-i18n="lp.instEyebrow">Install</p>
+        <h2 id="install-title" data-i18n="lp.instTitle">Flash it from the browser</h2>
+        <p class="sub" data-i18n="lp.instSub">The installer talks to the Echo over USB (WebUSB), straight from the page. It writes two partitions and nothing else.</p>
       </header>
       <div class="install">
         <ol class="steps-lp">
           <li>
             <span class="num">1</span>
-            <div><h3>Unlock and back up</h3>
-              <p>The Echo must already be unlocked (Kaeru fastboot), and you need your own <code>boot_a</code> backup. This site has no unlock or exploit code;
-                the <a href="https://github.com/LeagueRaINi/lidar-mainline#prerequisites">README</a> lists the prerequisites.</p></div>
+            <div><h3 data-i18n="lp.step1">Unlock and back up</h3>
+              <p data-i18n="lp.step1Text">The Echo must already be unlocked (Kaeru fastboot), and you need your own <code>boot_a</code> backup. This site has no unlock or exploit code;
+                the <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/docs/install.md#prerequisites">install guide</a> lists the prerequisites.</p></div>
           </li>
           <li>
             <span class="num">2</span>
-            <div><h3>Connect USB</h3>
-              <p>A pogo-pin USB connection to the test pads underneath. The installer shows the pads with photos.</p></div>
+            <div><h3 data-i18n="lp.step2">Connect USB</h3>
+              <p data-i18n="lp.step2Text">A pogo-pin USB connection to the test pads underneath. The installer shows the pads with photos.</p></div>
           </li>
           <li>
             <span class="num">3</span>
-            <div><h3>Open the installer</h3>
-              <p>In Chrome, Edge, Brave or Opera on a desktop. One click downloads the latest release and checks it.</p></div>
+            <div><h3 data-i18n="lp.step3">Open the installer</h3>
+              <p data-i18n="lp.step3Text">In Chrome, Edge, Brave or Opera on a desktop. One click downloads the latest release and checks it.</p></div>
           </li>
           <li>
             <span class="num">4</span>
-            <div><h3>Flash and start</h3>
-              <p>U-Boot first, then the system. The Echo boots lidar, and its web interface runs the setup.</p></div>
+            <div><h3 data-i18n="lp.step4">Flash and start</h3>
+              <p data-i18n="lp.step4Text">U-Boot first, then the system. The Echo boots lidar, and its web interface runs the setup.</p></div>
           </li>
         </ol>
         <aside class="card req" aria-labelledby="req-title">
-          <img src="echo-jig.webp" width="640" height="640" loading="lazy" alt="The underside of the Echo with a pogo-pin jig on the test pads">
-          <h3 id="req-title">You need</h3>
+          <img src="echo-jig.webp" width="640" height="640" loading="lazy" data-i18n-alt="lp.altJig" alt="The underside of the Echo with a pogo-pin jig on the test pads">
+          <h3 id="req-title" data-i18n="lp.need">You need</h3>
           <ul class="ticks">
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>An Echo Plus (2nd gen), already unlocked</span></li>
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Your own <code>boot_a</code> backup</span></li>
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Pogo-pin USB to the test pads</span></li>
-            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>A desktop Chromium browser</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.need1">An Echo Plus (2nd gen), already unlocked</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.need2">Your own <code>boot_a</code> backup</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.need3">Pogo-pin USB to the test pads</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="lp.need4">A desktop Chromium browser</span></li>
           </ul>
-          <a class="btn pri big wide" href="install.html">Open the installer <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          <a class="btn pri big wide" href="install.html"><span data-i18n="lp.openInstaller">Open the installer</span> <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
         </aside>
       </div>
     </div>
@@ -352,37 +360,37 @@
   <section class="band" id="faq" aria-labelledby="faq-title">
     <div class="wrap narrow">
       <header class="head">
-        <p class="eyebrow">Status and questions</p>
-        <h2 id="faq-title">Before you flash</h2>
+        <p class="eyebrow" data-i18n="lp.faqEyebrow">Status and questions</p>
+        <h2 id="faq-title" data-i18n="lp.faqTitle">Before you flash</h2>
       </header>
       <div class="faq">
         <details open>
-          <summary>How finished is it?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
-          <p>These are early test releases (v0.0.1), and things change between them. Voice is experimental, and the installer is new:
-            read the <a href="https://github.com/LeagueRaINi/lidar-mainline#status">status in the README</a> before you start.</p>
+          <summary><span data-i18n="lp.q1">How finished is it?</span><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p data-i18n="lp.a1">These are early test releases (v0.0.1), and things change between them. Voice is experimental, and the installer is new:
+            read the <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/docs/status.md">status page</a> before you start.</p>
         </details>
         <details>
-          <summary>Is it safe?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
-          <p>The installer writes two partitions only, U-Boot and the system, and asks before each one. Fire OS stays restorable from your own backup.
+          <summary><span data-i18n="lp.q2">Is it safe?</span><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p data-i18n="lp.a2">The installer writes two partitions only, U-Boot and the system, and asks before each one. Fire OS stays restorable from your own backup.
             It is still your device and your risk: there is no warranty.</p>
         </details>
         <details>
-          <summary>Can I go back to Fire OS?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
-          <p>Yes. Hold Action while plugging in power to reach Kaeru fastboot, then flash your <code>boot_a</code> backup; the
-            <a href="https://github.com/LeagueRaINi/lidar-mainline#installing">README</a> has the commands.</p>
+          <summary><span data-i18n="lp.q3">Can I go back to Fire OS?</span><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p data-i18n="lp.a3">Yes. Hold Action while plugging in power to reach Kaeru fastboot, then flash your <code>boot_a</code> backup; the
+            <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/docs/install.md#installing">install guide</a> has the commands.</p>
         </details>
         <details>
-          <summary>Which browsers work?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
-          <p>Chrome, Edge, Brave and Opera on a desktop computer, since they have WebUSB. Firefox and Safari do not; with them, follow the
-            README and use the <code>fastboot</code> command-line tool instead.</p>
+          <summary><span data-i18n="lp.q4">Which browsers work?</span><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p data-i18n="lp.a4">Chrome, Edge, Brave and Opera on a desktop computer, since they have WebUSB. Firefox and Safari do not; with them, follow the
+            <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/docs/install.md#installing">install guide</a> and use the <code>fastboot</code> command-line tool instead.</p>
         </details>
         <details>
-          <summary>Does it need an account or a cloud service?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
-          <p>No account. The Echo goes online only for the clock (NTP), the one-time download of the speech model, and Claude if you add your own API key.</p>
+          <summary><span data-i18n="lp.q5">Does it need an account or a cloud service?</span><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p data-i18n="lp.a5">No account. The Echo goes online only for the clock (NTP), the one-time download of the speech model, and Claude if you add your own API key.</p>
         </details>
         <details>
-          <summary>What about Zigbee and Thread?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
-          <p>Self-built images can run the Echo's Zigbee and Thread radio for Home Assistant. Release images do not include that part:
+          <summary><span data-i18n="lp.q6">What about Zigbee and Thread?</span><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p data-i18n="lp.a6">Self-built images can run the Echo's Zigbee and Thread radio for Home Assistant. Release images do not include that part:
             it needs Silicon Labs software that is not redistributed with the releases.</p>
         </details>
       </div>
@@ -392,9 +400,9 @@
   <!-- closing call -->
   <section class="final" aria-labelledby="final-title">
     <div class="wrap final-in">
-      <h2 id="final-title">Ready when your Echo is.</h2>
+      <h2 id="final-title" data-i18n="lp.final">Ready when your Echo is.</h2>
       <div class="cta">
-        <a class="btn pri big" href="install.html">Install in your browser <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+        <a class="btn pri big" href="install.html"><span data-i18n="lp.ctaInstall">Install in your browser</span> <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
         <a class="btn big soft" href="https://github.com/LeagueRaINi/lidar-mainline/releases">Releases</a>
       </div>
     </div>
@@ -405,20 +413,21 @@
   <div class="wrap foot-in">
     <div>
       <p class="foot-brand">lidar-mainline</p>
-      <p>Open firmware for the Echo Plus (2nd gen). Mostly GPL-2.0; see Licensing in the README.</p>
+      <p data-i18n="lp.footText">Open firmware for the Echo Plus (2nd gen). Mostly GPL-2.0; see <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/LICENSING.md">Licensing</a>.</p>
     </div>
-    <nav class="foot-links" aria-label="Project">
-      <a href="install.html">Installer</a>
-      <a href="https://github.com/LeagueRaINi/lidar-mainline">Source</a>
-      <a href="https://github.com/LeagueRaINi/lidar-mainline/releases">Releases</a>
-      <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/LICENSE">Licence</a>
+    <nav class="foot-links" aria-label="Project" data-i18n-aria="nav.project">
+      <a href="install.html" data-i18n="foot.installer">Installer</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline" data-i18n="foot.source">Source</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline/releases" data-i18n="foot.releases">Releases</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/LICENSE" data-i18n="foot.licence">Licence</a>
     </nav>
-    <p class="legal">An independent project, not affiliated with, endorsed by or sponsored by Amazon. Echo and related marks are trademarks of
+    <p class="legal" data-i18n="lp.legal">An independent project, not affiliated with, endorsed by or sponsored by Amazon. Echo and related marks are trademarks of
       Amazon.com, Inc. or its affiliates. Claude is a product of Anthropic, which is not affiliated with this project either. No warranty;
       you flash your own device at your own risk.</p>
   </div>
 </footer>
 
+<script src="i18n.js"></script>
 <script>
 /* Theme switch, as in the installer: auto, light, dark; remembered in localStorage. */
 (function () {
@@ -428,7 +437,7 @@
   if (themes.indexOf(theme) < 0) theme = 'auto';
   function apply() {
     document.documentElement.dataset.theme = theme === 'auto' ? (light.matches ? 'light' : 'dark') : theme;
-    l.textContent = b.title = 'Theme: ' + theme;
+    l.textContent = b.title = window.i18n ? i18n.t('theme', [i18n.t('theme.' + theme)]) : 'Theme: ' + theme;
   }
   b.addEventListener('click', function () {
     theme = themes[(themes.indexOf(theme) + 1) % themes.length];
@@ -436,6 +445,7 @@
     apply();
   });
   light.addEventListener('change', apply);
+  if (window.i18n) i18n.onChange(apply);
   b.hidden = false;
   apply();
 })();

@@ -109,10 +109,23 @@ details > * + * { margin-top: 10px; }
   -webkit-backdrop-filter: blur(14px) saturate(1.5); }
 .top-in { display: flex; align-items: center; gap: 28px; height: 62px; }
 .brand-lp { display: flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; font-weight: 700;
-  letter-spacing: -.01em; font-size: 1.02rem; }
-.mark { width: 26px; height: 26px; fill: none; stroke-width: 3.2; }
+  letter-spacing: -.01em; font-size: 1.02rem; white-space: nowrap; -webkit-hyphens: manual; hyphens: manual; }
+/* the logo: a small light ring, its arc circling like the wake light, a bright head with a fading tail;
+   one turn in 6 s, brighter while hovered, still with reduced motion */
+.mark { width: 26px; height: 26px; fill: none; stroke-width: 3.2; overflow: visible; }
 .mark circle { stroke: var(--track); }
-.mark .arc { stroke: var(--glow); stroke-linecap: round; filter: drop-shadow(0 0 3px var(--glow)); }
+.mark .arc { stroke: var(--glow); stroke-linecap: round; }
+.mark .t1 { opacity: .18; }
+.mark .t2 { opacity: .45; }
+.mark .head { filter: drop-shadow(0 0 3px var(--glow)); animation: mark-glow 3s ease-in-out infinite alternate; }
+.mark .spin { transform-box: view-box; transform-origin: 50% 50%; animation: mark-spin 6s linear infinite; }
+.brand-lp:hover .mark .head { animation: none; filter: drop-shadow(0 0 6px var(--glow)); }
+@keyframes mark-spin { from { transform: rotate(-100deg); } to { transform: rotate(260deg); } }
+@keyframes mark-glow { from { filter: drop-shadow(0 0 2px var(--glow)); } to { filter: drop-shadow(0 0 5px var(--glow)); } }
+@media (prefers-reduced-motion: reduce) {
+  .mark .spin, .mark .head { animation: none; }
+  .mark .spin { transform: rotate(-100deg); }
+}
 .links { display: flex; gap: 2px; }
 .links a { padding: 7px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: .93rem; font-weight: 500; }
 .links a:hover { color: var(--fg); background: var(--btn); }
@@ -121,6 +134,14 @@ details > * + * { margin-top: 10px; }
 .top-act .icon-btn { width: 38px; min-height: 38px; padding: 0; color: var(--muted); justify-content: center; }
 .top-act .icon-btn:hover { color: var(--fg); }
 .top-cta { margin-left: 6px; padding: 0 16px; }
+/* the language: EN | DE, shown once JavaScript runs (without it the pages are English) */
+.langsw { display: inline-flex; gap: 2px; padding: 3px; margin-right: 4px; border-radius: 10px; background: var(--btn); }
+.langsw button { min-height: 28px; padding: 0 8px; border-radius: 7px; background: transparent; color: var(--muted); font-size: .78rem; }
+.langsw button:hover:not(:disabled) { background: transparent; color: var(--fg); }
+.langsw button[aria-checked="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, .14); }
+/* German runs longer: long compounds break at syllables; code and controls stay whole */
+:root[lang="de"] body { -webkit-hyphens: auto; hyphens: auto; }
+:root[lang="de"] :is(code, pre, .pill, button, .btn, input, select) { -webkit-hyphens: manual; hyphens: manual; }
 
 /* footer */
 .foot { padding: 40px 0 48px; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
@@ -138,8 +159,12 @@ details > * + * { margin-top: 10px; }
 @media (max-width: 640px) {
   .wrap { padding: 0 18px; }
   .top-in { gap: 12px; height: 56px; }
+  .top-act a.icon-btn { display: none; }      /* the source link is in the page and the footer too */
   .foot-in { grid-template-columns: minmax(0, 1fr); }
   .foot-links { justify-content: flex-start; }
+}
+@media (max-width: 480px) {
+  .top-cta { display: none; }                 /* with the language switch it does not fit; the hero has the same button */
 }
 @media (prefers-reduced-motion: reduce) {
   .big:hover:not(:disabled) { transform: none; }
