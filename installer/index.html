@@ -103,11 +103,26 @@
           power starts it. This page does not unlock anything; see
           <a id="link-prereq" target="_blank" rel="noopener">Prerequisites in the README</a>.</li>
         <li>Your own eMMC dump from the unlock, at least <code>boot_a</code>. It is the way back to the stock boot path.</li>
-        <li>The pogo-pin USB: a USB cable on the Echo's USB test points (D+ on TM4, D− on TM5, GND on TM37), for example with the project's pogo-pin jig.</li>
+        <li>The pogo-pin USB: a USB cable on the Echo's USB contacts underneath (D+ on TM4, D− on TM5, GND on TM37, marked below), for example with the project's pogo-pin jig. One contact of the block carries about 17 V: see below.</li>
         <li>The two images, <code>lidar-uboot.img</code> and <code>lidar-test-system.ext4</code> (next step).</li>
       </ul>
-      <pre class="text" aria-label="Wiring">  PC ═══ pogo-pin USB ═══ test points TM4 / TM5 / TM37      Echo ═══ its own power adapter
-                                                          (plug in power last, while holding a button)</pre>
+      <div class="photos">
+        <figure class="echo-pads">
+          <img src="echo-pads.webp" width="720" height="540" alt="The six gold contacts on the underside of the Echo, seen with the label upright. Top row, left to right: TM45, D+ (TM4), D− (TM5). Bottom row: TM35, GND (TM37), and at the bottom right 17 V (TM33), which must stay unconnected">
+          <svg viewBox="0 0 100 75" aria-hidden="true">
+            <circle class="sig" cx="42.9" cy="31.7" r="5"/><text x="42.9" y="22.5">D+</text>
+            <circle class="sig" cx="56.7" cy="31.7" r="5"/><text x="56.7" y="22.5">D−</text>
+            <circle class="gnd" cx="42.9" cy="45.2" r="5"/><text x="42.9" y="58.6">GND</text>
+            <circle class="hot" cx="56.7" cy="45.2" r="5"/><text class="hot" x="56.7" y="58.6">17 V</text>
+          </svg>
+          <figcaption>Underneath, with the label upright: the Echo's outer edge is to the right of the window, the small notch in its frame on the left. The two contacts in the left column stay free.</figcaption>
+        </figure>
+        <figure class="echo-jig">
+          <img src="echo-jig.webp" width="640" height="640" alt="The pogo-pin jig clamped to the underside of the Echo, its cable leading off to the right">
+          <figcaption>The project's pogo-pin jig in place (<code>pogo-jig/</code>): only D+, D− and GND are wired; the red wire (VBUS) is cut off and insulated. The Echo also needs its own power adapter; plug that in last, while holding a button.</figcaption>
+        </figure>
+      </div>
+      <p class="callout"><b>The bottom right contact, the one nearest the outer edge (TM33), carries about 17 V from the power adapter.</b> Never connect anything to it, and do not bridge it to its neighbours.</p>
     </div>
     <div class="card">
       <h3>What gets written</h3>
