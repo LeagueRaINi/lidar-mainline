@@ -105,8 +105,8 @@ stats() {
 	read -r l1 l5 l15 _ < /proc/loadavg
 	read -r _ u n s i w q sq _ < /proc/stat
 	model=$(tr -d '\000' < /proc/device-tree/model)
-	printf '{"time": %s, "uptime": %s, "model": "%s", "kernel": "%s",\n' \
-		"$(date +%s)" "$up" "$(esc "$model")" "$(uname -r)"
+	printf '{"time": %s, "uptime": %s, "model": "%s", "kernel": "%s", "release": "%s",\n' \
+		"$(date +%s)" "$up" "$(esc "$model")" "$(uname -r)" "$(esc "$(cat /etc/lidar-release 2>/dev/null)")"
 	printf ' "load": [%s, %s, %s],\n' "$l1" "$l5" "$l15"
 	f=
 	for c in /sys/devices/system/cpu/cpu[0-9]*; do

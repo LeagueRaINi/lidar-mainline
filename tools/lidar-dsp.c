@@ -6,12 +6,19 @@
  * the stock playback chain on it:
  *
  *   volume -> FIR equalizer chosen by volume (loudness, speaker response)
- *          -> parametric EQ -> MBCL (4-band compressor and limiter,
- *          full-band limiter) -> clip -> (L+R)/2 on both channels
+ *          -> parametric EQ -> user EQ and boost (below)
+ *          -> MBCL (4-band compressor and limiter, full-band limiter)
+ *          -> clip -> (L+R)/2 on both channels
  *
  * as reverse engineered from Fire OS's libasp.so. Stages that are a plain
- * delay or unity gain on stock (AVL for music, flat UserEQ, 0 dB crossover
- * gain) are left out.
+ * delay or unity gain on stock (AVL for music, 0 dB crossover gain) are
+ * left out.
+ *
+ * The user EQ is the owner's taste on top of the tuning: bass, mid and
+ * treble (-6..6 dB) with the bands of stock's own UserEQ stage, and a
+ * boost (0..6 dB) into the compressors. They are the settings dsp.bass,
+ * dsp.mid, dsp.treble and dsp.boost in lidar.conf (lidar-feature), read at
+ * start and again on SIGHUP. All 0 leaves the samples untouched.
  *
  * Usage:
  *   lidar-dsp [-c dir] [-i capture] [-o playback] [-v volfile] [-r readyfile]
@@ -23,6 +30,7 @@
  *       check the configuration only.
  *   lidar-dsp [-c dir] -f -- <level dB> <gain dB>
  *       offline: float32 stereo 48 kHz from stdin to stdout, fixed volume.
+ *   LIDAR_CONF names the settings file, as for lidar-feature.
  */
 #include <alsa/asoundlib.h>
 #include <cjson/cJSON.h>
@@ -718,6 +726,116 @@ static struct peq peq;
 static struct mbcl mbcl;
 static float gain = 1, gain_target = 1;
 
+/* ------------------------------------------------------------ user EQ */
+
+#define USER_FADE	960		/* change of settings: 20 ms crossfade */
+
+enum { BASS, MID, TREBLE, BOOST, NUSER };
+
+/*
+ * Bass, mid, treble and boost in dB. The bands are those of stock's UserEQ
+ * stage (UserEQ.cfg: -6..6 dB each, flat as shipped), so the bass shelf is
+ * no more than Amazon lets its own app ask of this speaker. The stage sits
+ * in front of the MBCL: whatever is set here, the band compressors and the
+ * limiters still hold every band and the sum below full scale, and a boost
+ * only drives the compressors harder (louder, peaks as before). Without the
+ * MBCL only the clip would be left, so the stage stays off then.
+ *
+ * A change runs the old and the new filters side by side for 20 ms and
+ * crossfades between them: no coefficient jumps, no clicks. Nothing is
+ * allocated; the new coefficients are a few tan() and pow().
+ */
+static struct user {
+	int want[NUSER];	/* as last read from the settings */
+	int cur[NUSER];		/* what q and g are made for */
+	int active;		/* cur is not all 0 */
+	int fade;		/* samples left of the crossfade from old */
+	float g, gold;
+	struct biquad q[3], old[3];
+} user = { .g = 1 };
+
+static const char *conf = "/media/system/etc/lidar.conf";
+
+/* an integer as lidar-feature accepts it: "-6".."6" without "-0" */
+static int user_value(const char *s, int lo)
+{
+	int neg = *s == '-';
+
+	s += neg;
+	if (*s < (neg ? '1' : '0') || *s > '6' || (s[1] && s[1] != '\n'))
+		return 0;
+	return neg ? (lo < 0 ? '0' - *s : 0) : *s - '0';
+}
+
+/* the last valid entry counts, an invalid or missing one is 0 */
+static void user_read(void)
+{
+	static const char *keys[NUSER] = { "dsp.bass=", "dsp.mid=", "dsp.treble=", "dsp.boost=" };
+	int v[NUSER] = { 0 };
+	char line[256];
+	FILE *f = fopen(conf, "r");
+
+	if (f) {
+		while (fgets(line, sizeof(line), f))
+			for (int i = 0; i < NUSER; i++) {
+				size_t n = strlen(keys[i]);
+
+				if (!strncmp(line, keys[i], n))
+					v[i] = user_value(line + n, i == BOOST ? 0 : -6);
+			}
+		fclose(f);
+	}
+	if (!mbcl.enabled && (v[BASS] || v[MID] || v[TREBLE] || v[BOOST])) {
+		fprintf(stderr, "lidar-dsp: no MBCL in the tuning, user EQ and boost left out\n");
+		return;
+	}
+	memcpy(user.want, v, sizeof(v));
+}
+
+/* make q and g for the wanted settings, fading over from the current ones */
+static void user_apply(int fade)
+{
+	const int *w = user.want;
+
+	memcpy(user.old, user.q, sizeof(user.q));
+	user.gold = user.g;
+	bq_design(&user.q[0], w[BASS] ? LOW_SHELF : BYPASS, 120, M_SQRT1_2, w[BASS]);
+	bq_design(&user.q[1], w[MID] ? PEAK : BYPASS, 800, M_SQRT1_2, w[MID]);
+	bq_design(&user.q[2], w[TREBLE] ? HIGH_SHELF : BYPASS, 6000, M_SQRT1_2, w[TREBLE]);
+	user.g = db2lin(w[BOOST]);
+	memcpy(user.cur, w, sizeof(user.cur));
+	user.active = w[BASS] || w[MID] || w[TREBLE] || w[BOOST];
+	user.fade = fade;
+}
+
+static inline float user_eq(struct biquad *q, int c, float x)
+{
+	return bq_run(&q[2], c, bq_run(&q[1], c, bq_run(&q[0], c, x)));
+}
+
+static void user_run(float *l, float *r)
+{
+	/* one change at a time: the next waits for the fade to end */
+	if (!user.fade && memcmp(user.want, user.cur, sizeof(user.cur)))
+		user_apply(USER_FADE);
+	if (!user.fade && !user.active)
+		return;
+	for (int n = 0; n < FRAME; n++) {
+		float x[2] = { l[n], r[n] }, y[2];
+
+		for (int c = 0; c < 2; c++)
+			y[c] = user.g * user_eq(user.q, c, x[c]);
+		if (user.fade) {
+			float a = (float)user.fade-- / USER_FADE;
+
+			for (int c = 0; c < 2; c++)
+				y[c] += a * (user.gold * user_eq(user.old, c, x[c]) - y[c]);
+		}
+		l[n] = y[0];
+		r[n] = y[1];
+	}
+}
+
 static void chain_load(void)
 {
 	cJSON *afe = load_json("AFE.cfg");
@@ -754,6 +872,8 @@ static void chain_load(void)
 	cJSON_Delete(afe);
 	fprintf(stderr, "lidar-dsp: FIR %s (%d zones), %d PEQ biquads, MBCL %s\n",
 		fir.enabled ? "on" : "off", fir.nzones, peq.n, mbcl.enabled ? "on" : "off");
+	user_read();
+	user_apply(0);
 }
 
 /*
@@ -788,6 +908,7 @@ static void chain_run(float *io)
 			l[n] = bq_run(&peq.q[i], 0, l[n]);
 			r[n] = bq_run(&peq.q[i], 1, r[n]);
 		}
+	user_run(l, r);
 	if (mbcl.enabled)
 		mbcl_run(&mbcl, l, r);
 	for (int n = 0; n < FRAME; n++) {
@@ -880,12 +1001,14 @@ static void announce(const char *ready, int up)
 	}
 }
 
-static volatile sig_atomic_t stop;
+static volatile sig_atomic_t stop, reload;
 
 static void on_signal(int sig)
 {
-	(void)sig;
-	stop = 1;
+	if (sig == SIGHUP)
+		reload = 1;
+	else
+		stop = 1;
 }
 
 /*
@@ -953,9 +1076,13 @@ restart:
 
 		for (int tries = 0; tries < 2 && have < FRAME; tries++) {
 			n = snd_pcm_readi(in, acc + 2 * have, 4 * FRAME - have);
+			if (n == -EINTR) {	/* a SIGHUP, not trouble: does not count */
+				tries--;
+				continue;
+			}
 			if (n == -EAGAIN) {
-				if (tries == 0)
-					snd_pcm_wait(in, 4);
+				if (tries == 0 && snd_pcm_wait(in, 4) == -EINTR)
+					tries--;
 				continue;
 			}
 			if (n < 0) {	/* capture trouble: silence meanwhile */
@@ -974,6 +1101,10 @@ restart:
 		memmove(acc, acc + 2 * FRAME, have * 2 * sizeof(short));
 		if (++frames % 2 == 0)	/* 16 ms: volume and mute act at once */
 			read_volume(volfile);
+		if (reload) {	/* the settings changed */
+			reload = 0;
+			user_read();
+		}
 		chain_run(buf);
 		if (fmt == SND_PCM_FORMAT_S32_LE)
 			for (int i = 0; i < 2 * FRAME; i++)
@@ -981,7 +1112,19 @@ restart:
 		else
 			for (int i = 0; i < 2 * FRAME; i++)
 				o16[i] = lrintf(buf[i] * 32767.0f);
-		n = snd_pcm_writei(out, fmt == SND_PCM_FORMAT_S32_LE ? (void *)o32 : (void *)o16, FRAME);
+		/* A signal (SIGHUP: settings) interrupts the blocking write inside
+		 * alsa-lib's poll with -EINTR, whatever SA_RESTART says: not an
+		 * error, carry on with what is left of the frame */
+		for (snd_pcm_uframes_t done = 0; done < FRAME;) {
+			n = fmt == SND_PCM_FORMAT_S32_LE ?
+				snd_pcm_writei(out, o32 + 2 * done, FRAME - done) :
+				snd_pcm_writei(out, o16 + 2 * done, FRAME - done);
+			if (n == -EINTR)
+				continue;
+			if (n < 0)
+				break;
+			done += n;
+		}
 		if (n < 0) {
 			fprintf(stderr, "lidar-dsp: playback: %s\n", snd_strerror(n));
 			if (snd_pcm_prepare(out) < 0)
@@ -1022,13 +1165,18 @@ int main(int argc, char **argv)
 		default: return 2;
 		}
 	}
+	if (getenv("LIDAR_CONF"))
+		conf = getenv("LIDAR_CONF");
 	/* flush denormals to zero: decaying filter tails on silence */
+#ifdef __aarch64__
 	{
 		unsigned long fpcr;
 
 		__asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
 		__asm__ volatile("msr fpcr, %0" : : "r"(fpcr | (1UL << 24)));
 	}
+#endif
+	signal(SIGHUP, on_signal);	/* lidar-feature HUPs every lidar-dsp, -k and -f runs too */
 	chain_load();
 	if (check)
 		return 0;

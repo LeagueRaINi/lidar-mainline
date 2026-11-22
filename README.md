@@ -118,7 +118,8 @@ decompression.
 | `Containerfile` | Debian build container with cross compilers and tools |
 | `tools/lidarboot.py` | boot image pack/unpack for Amazon LK |
 | `tools/mk-testimg.sh` | ext4 test system: kernel, DTB, Alpine initramfs with shells on UART and USB |
-| `tools/alpine-fetch.py` | installs Alpine aarch64 packages into the test initramfs |
+| `tools/alpine-fetch.py` | installs Alpine aarch64 packages into the test initramfs, pinned by `tools/alpine.lock`; `--update` rewrites the lock |
+| `tools/mk-release.sh` | checks the built images (version, nothing that must not be passed on) and collects the release files with `SHA256SUMS` |
 | `tools/devmem.c`, `tools/lidar-regdump.sh` | register access and a diffable dump of the SoC state for bring-up |
 | `tools/lidar-bootanim.sh` | light-ring boot animation: twin comets over a drifting colour wheel, then a rainbow sweep and fade when boot completes |
 | `tools/lidar-feature.sh` | service switches (core on, extras off by default) and settings in `/etc/lidar.conf` |
@@ -206,8 +207,9 @@ Wi-Fi, Bluetooth and the EFR32 UART.
    (`/dev/ttyACM0` on Linux hosts, a COM port on Windows). It also exports a
    USB NCM network interface: the device is `169.254.7.2/16`, so give the
    host's interface any other link-local address. If the `telnet` extra is
-   on (the test image enables it), a second root shell without
-   authentication listens on `telnet 169.254.7.2` for when the serial shell
+   on (an image you build yourself enables it, a release does not), a
+   second root shell without authentication listens on
+   `telnet 169.254.7.2` for when the serial shell
    is busy. By default it only accepts connections arriving on `usb0`; see
    `telnet listen` under Services.
 
@@ -256,6 +258,42 @@ USB access uses [fastboot.js](https://github.com/kdrag0n/fastboot.js) v1.1.3
 (MIT), vendored unmodified in `installer/vendor/` with its licence and
 checksum.
 
+### Releases
+
+A tag `vMAJOR.MINOR.PATCH` (annotated; its message becomes the release
+notes) makes `.github/workflows/release.yml` build `lidar-uboot.img` and
+`lidar-test-system.ext4` in the container and open a draft release with
+them, `SHA256SUMS` and `lidar-release.txt` (kernel, Alpine packages). A
+suffix (`v1.3.0-rc.1`) marks a pre-release. The image reports its version
+in `/etc/lidar-release` (`local` for your own builds), and the web
+interface shows it.
+
+Release images differ from the ones you build yourself:
+
+- No Silicon Labs software (`LIDAR_NO_SILABS=1`), so no Zigbee and no
+  Thread: build the image yourself for those (`efr32/`).
+- The `telnet` extra is off.
+
+`tools/mk-release.sh` checks the image before a release is made and
+refuses one with MSLA software, Fire OS files, settings or telnet in it.
+The sources of the Alpine packages listed in `lidar-release.txt` are in
+Alpine's [aports](https://gitlab.alpinelinux.org/alpine/aports) tree.
+
+**Pins.** One commit builds the same images every time, or not at all:
+Linux and U-Boot by tag (`build.sh`), everything else the build downloads
+by commit or SHA-256 (`tools/mk-testimg.sh`, `tools/mk-wakeword.sh`), the
+Alpine release and each package with version and SHA-256 in
+`tools/alpine.lock`. Alpine serves only the newest build of a package, so
+the lock goes stale when Alpine updates one, and the build then stops and
+names it. To bump, or after adding a package to `mk-testimg.sh`:
+
+```sh
+podman run --rm -v "$PWD:/work" lidar-build python3 /work/tools/alpine-fetch.py --update [new-package...]
+```
+
+and commit the lock. For an older tag whose packages Alpine no longer
+serves, use that release's images.
+
 ## Services
 
 Services sit on top of the base system, in two groups:
@@ -301,9 +339,10 @@ Flashing a slot's image replaces its `/etc/lidar.conf`, so the image's
 choices (telnet included) come back. Changing a service needs a shell on
 the device, or editing the file in the image before flashing.
 
-The test image ships an `/etc/lidar.conf` that also enables the `telnet`
-extra. U-Boot passes the booted slot as `lidar.slot=${lidar_slot}` on the
-kernel command line, and the test image mounts that slot read-only at
+An image you build yourself ships an `/etc/lidar.conf` that also enables
+the `telnet` extra; a release's is empty. U-Boot passes the booted slot as
+`lidar.slot=${lidar_slot}` on the kernel command line, and the test image
+mounts that slot read-only at
 `/media/system`. If it cannot, the defaults apply.
 
 ```sh
@@ -348,6 +387,8 @@ lidar-feature unset wifi country          # back to the default
 | `volume ring` | `on` | `on`, `off` | show volume changes on the LED ring (needs the `ring` service) |
 | `volume sound` | `on` | `on`, `off` | short tone at the new level when the volume buttons change it |
 | `volume keepalive` | `on` | `on`, `off` | `off`: no silent stream holding the speaker output open. No idle amplifier hiss, but every sound then clicks at its start and end |
+| `dsp bass` / `dsp mid` / `dsp treble` | 0 | -6..6 | tone in dB on top of the speaker tuning: shelf below 120 Hz, peak at 800 Hz, shelf above 6 kHz. Applies at once |
+| `dsp boost` | 0 | 0-6 | loudness boost in dB into the tuning's compressor and limiter: louder at the same volume, peaks stay limited. Applies at once |
 | `ring auto_brightness` | `on` | `on`, `off` | ring brightness follows the ambient light sensor, as on stock; `off`: always full |
 | `ring min_brightness` | 15 | 5-100 | ring brightness in a dark room, in percent of full |
 | `zigbee listen` | `usb` | `usb`, `any` | `usb`: the coordinator port only accepts connections on `usb0`; `any`: on every interface, Wi-Fi included |
@@ -446,10 +487,13 @@ these files (from `system_a` or lidar's copy of them, at boot; nothing is redist
    zones with a 400 ms crossfade;
 3. the parametric EQ (`ParametricEQ.cfg`: bass shelves +3 dB at 70 Hz and
    +9 dB at 110 Hz, -3 dB at 160 Hz);
-4. the multiband compressor/limiter (`MBCL.cfg`): +6 dB in, four bands
+4. the owner's tone settings, if any (`dsp bass`, `mid`, `treble`, ±6 dB:
+   the three bands of stock's own user EQ, which Fire OS ships flat) and
+   `dsp boost` (0 to 6 dB of gain);
+5. the multiband compressor/limiter (`MBCL.cfg`): +6 dB in, four bands
    (100/220/5000 Hz Linkwitz-Riley crossovers), a slow RMS compressor and a
    2 ms look-ahead peak limiter per band, a full-band limiter, a hard clip;
-5. both channels mixed to mono for the single speaker.
+6. both channels mixed to mono for the single speaker.
 
 So with the service on, the same volume percentage is noticeably louder and
 fuller than without, as on stock, and the compressor only works hard near
@@ -457,6 +501,20 @@ full volume. The limiters keep the output below digital full scale; the
 safety cap still applies, since the codec sits at the cap and the volume is
 taken off digitally. The line-out jack gets the same tuned mono signal
 (stock bypasses the chain for external outputs).
+
+Tone and boost sit in front of the compressor/limiter, so whatever is set,
+every band and the sum stay below full scale: more bass or boost makes the
+compressors work harder instead of the speaker. Near full volume a boost
+therefore adds little; at low and middle volumes it is the full 6 dB.
+`lidar-feature set dsp bass 3` applies at once while the tuning runs
+(`lidar-dsp` re-reads the settings on SIGHUP and crossfades to them in 20
+ms, without clicks), otherwise when it next starts; a tuning without a
+multiband compressor leaves tone and boost off, since nothing would limit
+them. With all four at 0 the output is bit for bit that of the tuning
+alone. Verified
+on the PC: response as set, output identical with all at 0, peaks capped at
+full scale with everything at +6, no step larger than the signal's own on a
+change.
 
 How it runs: the mixed speaker stream (dmix) goes into `snd-aloop`, clocked
 by the codec, and `lidar-dsp` processes it in 8 ms frames into the codec
@@ -740,10 +798,14 @@ The loopback is taken after the speaker tuning and before the codec: with
 on the direct path the codec applies it afterwards. `lidar-viz` adds what
 is missing from `/run/lidar-volume.state`, so both paths look the same.
 
-- `level` (default) shows the level at the speaker plus half the volume's
-  gain once more, -45 dB dark to -6 dB full: louder music and a higher
-  volume make the arc longer, and it gets short quickly as the volume goes
-  down (dark at low volume).
+- `level` (default) shows the last 43 ms against a reference that follows
+  the loudest recent level and sinks 6 dB in 4 s: at the reference the arc
+  is full, 18 dB below it dark. Music after the speaker tuning's
+  compressor varies only a few dB around its average, so a fixed scale
+  barely moved; this way every beat shows, at any volume. The arc rises
+  within a few frames and falls back over about 0.3 s, so it swings with
+  the beat rather than flickering. Each frame first reads whatever audio
+  piled up, so the display is never behind.
 - `spectrum` runs a 2048-point FFT and measures each band against its own
   reference level, which follows the loudest recent level and halves in
   4 s, so it looks the same at any volume.
@@ -752,7 +814,9 @@ is missing from `/run/lidar-volume.state`, so both paths look the same.
   `lidar-viz` keeps off the ring. Brightness follows the light sensor as the
   rest of the ring (`/run/lidar-ring.level`).
 - Dark while the speaker is muted, at volume 0, and while nothing plays
-  (silence is judged before the volume).
+  (silence is judged before the volume). Dark too while one of our own
+  sounds plays (volume tone, Bluetooth sounds): whatever plays one writes
+  the time it ends, in seconds since boot, to `/run/lidar-viz.quiet`.
 - Verified on hardware: both styles with music over Bluetooth, the volume
   arc, mute, privacy red and pairing taking the ring and handing it back.
 
@@ -1175,3 +1239,11 @@ into `lidar-wakeword` or shipped beside it:
 
 Their licence texts and the model collection's NOTICE are installed in
 `/usr/share/licenses/lidar-wakeword`.
+
+Also downloaded at build time and shipped in the image: the MT7668 ROM patch
+`mediatek/mt7668pr2h.bin` from linux-firmware, under `LICENCE.mediatek`
+(redistributable for devices with MediaTek chipsets; text in
+`/usr/share/licenses/linux-firmware`), and the Alpine Linux packages named
+in `tools/alpine.lock`, each under its own licence (`fdk-aac`, which
+Bluetooth AAC uses, under Fraunhofer's FDK licence, which grants no patent
+licence).

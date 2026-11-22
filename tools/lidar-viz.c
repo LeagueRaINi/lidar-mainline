@@ -14,7 +14,8 @@
  *
  *   level     the level at the speaker: an arc from LED 1 down both sides,
  *             green, yellow, red at the end, with a peak mark that falls
- *             back; longer with louder music and a higher volume
+ *             back; against the recent loudest level, so beats move it at
+ *             any volume
  *   spectrum  a 2048-point FFT, 7 bands from 50 Hz to 10 kHz, mirrored:
  *             bass on LED 1, treble on LED 7 opposite, red to violet; each
  *             band against its own reference level, the same at any volume
@@ -38,6 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 #define RATE	48000
 #define HOP	1200		/* 25 ms: 40 frames per second */
@@ -52,6 +54,7 @@
 #define LEVEL	"/run/lidar-ring.level"
 #define VOLUME	"/run/lidar-volume.state"
 #define DSP	"/run/lidar-dsp/ready"
+#define QUIET	"/run/lidar-viz.quiet"	/* our own sounds play until then */
 
 static volatile sig_atomic_t quit;
 static int kmsg = -1;
@@ -75,6 +78,23 @@ static void say(const char *fmt, ...)
 }
 
 static int exists(const char *path) { return access(path, F_OK) == 0; }
+
+/* One of our own sounds (chimes, later speech) plays: the players write the
+ * time it ends, in seconds since boot, to QUIET */
+static int quiet(void)
+{
+	FILE *f = fopen(QUIET, "r");
+	struct timespec t;
+	double until;
+	int ok;
+
+	if (!f)
+		return 0;
+	ok = fscanf(f, "%lf", &until) == 1;
+	fclose(f);
+	clock_gettime(CLOCK_BOOTTIME, &t);
+	return ok && t.tv_sec + t.tv_nsec / 1e9 < until;
+}
 
 /* up to n integers from a file: how many were read, -1 if there is no file */
 static int read_ints(const char *path, int *v, int n)
@@ -222,7 +242,7 @@ struct state {
 	float power[NFFT / 2];
 	float band[BANDS], band_ref[BANDS];
 	int band_lo[BANDS], band_hi[BANDS];
-	float lvl, peak;
+	float lvl, peak, lvl_ref;
 	int peak_hold;
 };
 
@@ -231,6 +251,7 @@ static void analysis_init(struct state *s)
 	const float hz = (float)RATE / NFFT;
 
 	memset(s, 0, sizeof(*s));
+	s->lvl_ref = -60;
 	for (int i = 0; i < NFFT; i++)
 		s->win[i] = 0.5f - 0.5f * cosf(2 * (float)M_PI * i / (NFFT - 1));
 	/* 7 log-spaced bands, 50 Hz to 10 kHz */
@@ -264,7 +285,9 @@ static void spectrum(struct state *s, int silent, float out[N][3])
 
 		for (int k = s->band_lo[b]; k <= s->band_hi[b]; k++)
 			e += s->power[k];
-		s->band_ref[b] = fmaxf(fmaxf(e, s->band_ref[b] * AGC_DECAY), 1e-9f);
+		/* silent (also while our own sounds play): the reference only
+		 * sinks, so a chime does not dim the music after it */
+		s->band_ref[b] = fmaxf(fmaxf(silent ? 0 : e, s->band_ref[b] * AGC_DECAY), 1e-9f);
 		/* 30 dB below the reference is dark */
 		if (!silent)
 			v = fmaxf(0, 1 + 10 * log10f(e / s->band_ref[b]) / 30);
@@ -277,28 +300,29 @@ static void spectrum(struct state *s, int silent, float out[N][3])
 }
 
 /*
- * Level: the level at the speaker (the signal after the system volume) plus
- * half the volume's gain once more, LVL_LO to LVL_HI dB over the 7
- * positions. Louder music and a higher volume both make the arc longer, and
- * it gets short quickly as the volume goes down.
+ * Level: the last 43 ms against a reference that follows the loudest recent
+ * level and sinks 6 dB in 4 s, over LVL_RANGE dB on the 7 positions. Music
+ * after the speaker tuning's compressor varies only a few dB around its
+ * average, so a fixed scale barely moves; against the reference every beat
+ * shows, the same at any volume (as the spectrum).
  */
-#define LVL_LO		-45.0f
-#define LVL_HI		-6.0f
-#define VOL_EXTRA	0.5f
+#define LVL_RANGE	18.0f
+#define REF_SINK	(6.0f / (FPS * 4))
 
-static void level(struct state *s, float speaker_db, float vol_db, int silent, float out[N][3])
+static void level(struct state *s, float db, int silent, float out[N][3])
 {
 	static const float col[3][3] = {
 		{ 0.1f, 1, 0.2f }, { 1, 0.75f, 0 }, { 1, 0.1f, 0.05f },
 	};
 	float pos = 0;
 
-	if (!silent) {
-		float db = speaker_db + VOL_EXTRA * vol_db;
-
-		pos = fminf(1, fmaxf(0, (db - LVL_LO) / (LVL_HI - LVL_LO))) * 7;
-	}
-	s->lvl = smooth(s->lvl, pos, 0.7f, 0.15f);
+	/* sinks in silence too: a quieter source after a pause is not dark */
+	s->lvl_ref = fmaxf(silent ? -60 : db, s->lvl_ref - REF_SINK);
+	if (!silent)
+		pos = fminf(1, fmaxf(0, (db - (s->lvl_ref - LVL_RANGE)) / LVL_RANGE)) * 7;
+	/* rises within a few frames, falls back over about 0.3 s: swings with
+	 * the beat instead of flickering on every transient */
+	s->lvl = smooth(s->lvl, pos, 0.5f, 0.12f);
 	if (s->lvl >= s->peak) {
 		s->peak = s->lvl;
 		s->peak_hold = FPS * 6 / 10;
@@ -373,7 +397,7 @@ usage:
 	static int16_t buf[HOP * 2];
 	snd_pcm_t *pcm = NULL;
 	int percent = 100, dark = 0, tick = 0, said_busy = 0;
-	float vol_db = 0, in_loop_db = 0;
+	float in_loop_db = 0;
 
 	analysis_init(&st);
 	while (!quit) {
@@ -389,14 +413,13 @@ usage:
 			r = read_ints(VOLUME, v, 3);
 			if (r == 3) {
 				dark = v[0] == 0 || v[1] == 1;
-				/* the whole volume, relative to codec 0 dB in
-				 * steps of 0.5 dB; lidar-dsp's share is the part
-				 * below the cap (v[2]) */
-				vol_db = (v[0] - 127) / 2.0f;
+				/* lidar-dsp's share of the volume is the part
+				 * below the cap (v[2]), in steps of 0.5 dB: silence
+				 * is judged before it */
 				in_loop_db = exists(DSP) ? (v[0] - v[2]) / 2.0f : 0;
 			} else if (r < 0) {
 				dark = 0;		/* no volume service */
-				vol_db = in_loop_db = 0;
+				in_loop_db = 0;
 			}
 		}
 		if (!pcm) {
@@ -437,10 +460,16 @@ usage:
 			}
 			continue;
 		}
-		/* the newest n frames, mono, into the history */
-		memmove(st.hist, st.hist + n, sizeof(float) * (NFFT - n));
-		for (int i = 0; i < n; i++)
-			st.hist[NFFT - n + i] = (buf[2 * i] + buf[2 * i + 1]) / 65536.0f;
+		/* the newest n frames, mono, into the history; then whatever piled
+		 * up while the ring was written, so the display is never behind */
+		for (;;) {
+			memmove(st.hist, st.hist + n, sizeof(float) * (NFFT - n));
+			for (int i = 0; i < n; i++)
+				st.hist[NFFT - n + i] = (buf[2 * i] + buf[2 * i + 1]) / 65536.0f;
+			snd_pcm_sframes_t av = snd_pcm_avail_update(pcm);
+			if (av < HOP || (n = snd_pcm_readi(pcm, buf, HOP)) <= 0)
+				break;
+		}
 		float rms = 0;
 		for (int i = 0; i < NFFT; i++)
 			rms += st.hist[i] * st.hist[i];
@@ -448,9 +477,9 @@ usage:
 
 		/* silence is judged before the volume, the level at the speaker */
 		float rgb[N][3];
-		int silent = dark || loop_db - in_loop_db < SILENT_DB;
+		int silent = dark || quiet() || loop_db - in_loop_db < SILENT_DB;
 		if (style_level)
-			level(&st, loop_db + vol_db - in_loop_db, vol_db, silent, rgb);
+			level(&st, loop_db - in_loop_db, silent, rgb);	/* before the volume */
 		else
 			spectrum(&st, silent, rgb);
 		if (mine())

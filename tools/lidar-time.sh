@@ -11,7 +11,9 @@
 #                             (init, before the services)
 #        lidar-time daemon    ntpd once the network is up (init)
 #        lidar-time save      save the time now
-# ntpd runs this script with step|stratum|periodic|unsync (-S).
+# ntpd runs this script with step|stratum|periodic|unsync (-S). Once NTP has
+# answered, /run/lidar-time.synced exists: the clock is right, not just the
+# last saved time (alarms wait for it).
 DIR=/var/lib/lidar-time
 SERVER=pool.ntp.org
 
@@ -42,10 +44,15 @@ daemon)
 	sleep 30	# ntpd ended (e.g. no DNS answer): init starts it again
 	;;
 step)
+	: > /run/lidar-time.synced
 	save
 	log "clock set from NTP, $(date)"
 	;;
-stratum | periodic | save) save ;;
+stratum | periodic)
+	: > /run/lidar-time.synced
+	save
+	;;
+save) save ;;
 unsync) ;;
 *)
 	sed -n '3,14p' "$0" | sed 's/^# \{0,1\}//'

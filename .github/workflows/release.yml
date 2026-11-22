@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Builds the images for a version tag and opens a draft release with them.
+#
+#   git tag -a v1.2.0        the tag message becomes the release notes
+#   git push origin v1.2.0
+#
+# Tags are semantic versions with a leading v; one with a suffix (v1.3.0-rc.1)
+# becomes a pre-release. The release stays a draft until someone publishes it
+# by hand. "Run workflow" builds any branch the same way without a release;
+# its images are kept as a workflow artifact for two weeks.
+#
+# The build is the one from the README, in the container from Containerfile:
+# build.sh fetch, uboot, linux, testimg. LIDAR_NO_SILABS=1 leaves Silicon
+# Labs' software (MSLA) out of the image, and tools/mk-release.sh refuses to
+# go on if it, a Fire OS file or anything private is in there after all.
+# Nothing is cached: a release is built from freshly fetched, pinned sources.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# bash by name: with pipefail
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Version and release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          notes=$RUNNER_TEMP/notes.md
+          if [ "$REF_TYPE" = tag ]; then
+            version=$REF_NAME
+            [[ $version =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] ||
+              { echo "::error::tag $REF_NAME is not a version like v1.2.0 or v1.3.0-rc.1"; exit 1; }
+            # The tag itself, not the commit checkout leaves under its name
+            obj=$(gh api "repos/$GH_REPO/git/ref/tags/$REF_NAME" --jq '.object.type + " " + .object.sha')
+            if [ "${obj% *}" != tag ]; then
+              echo "::error::$REF_NAME is not an annotated tag (git tag -a): its message is the release notes"
+              exit 1
+            fi
+            gh api "repos/$GH_REPO/git/tags/${obj#* }" --jq .message |
+              sed '/^-----BEGIN [A-Z ]*SIGNATURE-----$/,$d' > "$notes"
+          else
+            version=v0.0.0-ci.${GITHUB_SHA::7}
+            echo "Test build of $GITHUB_SHA, not a release." > "$notes"
+          fi
+          cat >> "$notes" <<'EOF'
+
+          ---
+          Install: see the README of this tag. `lidar-uboot.img` goes to `boot_a`, `lidar-test-system.ext4` to `system_b`; check both against `SHA256SUMS` first. `lidar-release.txt` lists what the system image is made of.
+
+          Not in these images:
+          - Zigbee and Thread: the radio firmware, `zigbeed` and `cpcd` are Silicon Labs' software under their MSLA and are only in images you build yourself (`efr32/README.md`).
+          - The MT7668 Wi-Fi firmware and the speaker tuning: taken from your own unit's Fire OS on first boot, never distributed.
+
+          Source: this tag, on top of the Linux and U-Boot releases named in `build.sh`; Alpine Linux packages as listed in `lidar-release.txt`, with their sources in Alpine's aports tree.
+          EOF
+          echo "LIDAR_VERSION=$version" >> "$GITHUB_ENV"
+          echo "version $version"
+      - name: Build the container
+        run: docker build -t lidar-build -f Containerfile .
+      - name: Fetch Linux and U-Boot
+        run: |
+          mkdir "$RUNNER_TEMP/src"
+          # The container as in the README, with a directory in place of the
+          # lidar-src volume
+          cat > "$RUNNER_TEMP/lidar-build" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm -e LIDAR_VERSION -e LIDAR_COMMIT -e LIDAR_NO_SILABS=1 \
+            -v "$RUNNER_TEMP/src:/src" -v "$GITHUB_WORKSPACE:/work" lidar-build bash "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/lidar-build"
+          "$RUNNER_TEMP/lidar-build" /work/build.sh fetch
+      - name: U-Boot
+        run: |
+          "$RUNNER_TEMP/lidar-build" /work/build.sh uboot
+      - name: Linux
+        run: |
+          "$RUNNER_TEMP/lidar-build" /work/build.sh linux
+      - name: System image
+        run: |
+          "$RUNNER_TEMP/lidar-build" /work/build.sh testimg
+      - name: Check and collect the release files
+        env:
+          LIDAR_COMMIT: ${{ github.sha }}
+        run: |
+          "$RUNNER_TEMP/lidar-build" /work/tools/mk-release.sh "$LIDAR_VERSION"
+          # the container's files belong to root
+          sudo cp "$RUNNER_TEMP/notes.md" out/release/notes.md
+          df -h / | tail -n 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lidar-${{ env.LIDAR_VERSION }}
+          path: out/release/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 1
+
+  # The only job that may write to the repository; it runs nothing from it.
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: lidar-${{ github.ref_name }}
+          path: release
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd release
+          sha256sum -c SHA256SUMS
+          # A second run for the same tag replaces its draft, never a
+          # published release
+          if state=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$state" != true ]; then
+              echo "::error::release $TAG is already published"
+              exit 1
+            fi
+            gh release delete "$TAG" --yes
+          fi
+          pre=
+          case $TAG in *-*) pre=--prerelease ;; esac
+          gh release create "$TAG" --draft --verify-tag ${pre:+"$pre"} --title "lidar-mainline $TAG" \
+            --notes-file notes.md \
+            lidar-uboot.img lidar-test-system.ext4 lidar-release.txt SHA256SUMS

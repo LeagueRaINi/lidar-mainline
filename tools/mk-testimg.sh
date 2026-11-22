@@ -12,16 +12,20 @@
 #   fastboot oem run:"setenv lidar_slot b; saveenv; boot"
 set -euo pipefail
 B=${1:-/src/build/lidar}
-REL=https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/aarch64
+# The Alpine release and every package are pinned in tools/alpine.lock
+# (alpine-fetch.py --update writes it)
+LOCK=/work/tools/alpine.lock
+read -r _ ALPINE ROOTFS_SUM < <(grep '^release ' $LOCK)
+REL=https://dl-cdn.alpinelinux.org/alpine/v${ALPINE%.*}/releases/aarch64
+ROOTFS=alpine-minirootfs-$ALPINE-aarch64.tar.gz
 OUT=/work/out
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 
 mkdir -p "$T/initramfs" "$T/fs/boot/extlinux"
-ROOTFS=$(curl -fsSL "$REL/latest-releases.yaml" |
-	sed -n 's/^ *file: \(alpine-minirootfs-.*-aarch64\.tar\.gz\)$/\1/p' | head -n1)
-[ -n "$ROOTFS" ] || { echo "could not resolve Alpine minirootfs" >&2; exit 1; }
-curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$T/initramfs"
+curl -fsSL "$REL/$ROOTFS" -o "$T/$ROOTFS"
+echo "$ROOTFS_SUM  $T/$ROOTFS" | sha256sum -c --quiet
+tar -xzf "$T/$ROOTFS" -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
 	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod cjson \
 	alsa-ucm-conf bluez-btmgmt bluez dbus bluez-alsa bluez-alsa-utils bluez-tools
@@ -36,6 +40,9 @@ cat > "$T/initramfs/etc/fw_env.config" <<'EOF'
 /dev/disk/by-partlabel/misc 0x70000 0x10000
 /dev/disk/by-partlabel/misc 0x60000 0x10000
 EOF
+# The release this image belongs to: release.yml passes the tag, anything
+# else is a local build
+echo "${LIDAR_VERSION:-local}" > "$T/initramfs/etc/lidar-release"
 # MT7668 ROM patch from linux-firmware (redistributable), for Bluetooth and
 # Wi-Fi alike: under mainline btmtksdio the Bluetooth firmware crashes on
 # Amazon's newer patch (2025 build) at its first LE or vendor command.
@@ -43,6 +50,10 @@ LF=https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/p
 mkdir -p "$T/initramfs/lib/firmware/mediatek"
 curl -fsSL "$LF/mediatek/mt7668pr2h.bin?h=20261019" -o "$T/initramfs/lib/firmware/mediatek/mt7668pr2h.bin"
 echo "465ed634c61b46b34bb21240736f33d3d347fefec7cbfbd1cb6e63334aec4cc9  $T/initramfs/lib/firmware/mediatek/mt7668pr2h.bin" |
+	sha256sum -c --quiet
+mkdir -p "$T/initramfs/usr/share/licenses/linux-firmware"
+curl -fsSL "$LF/LICENSES/LICENCE.mediatek?h=20261019" -o "$T/initramfs/usr/share/licenses/linux-firmware/LICENCE.mediatek"
+echo "a90d3f66704d85889945fec5525ea77622549da83aced1aac99828383f8f1805  $T/initramfs/usr/share/licenses/linux-firmware/LICENCE.mediatek" |
 	sha256sum -c --quiet
 # the WLAN driver asks for the same patch under its own name
 ln -s mediatek/mt7668pr2h.bin "$T/initramfs/lib/firmware/mt7668_patch_e2_hdr.bin"
@@ -99,15 +110,16 @@ aarch64-linux-gnu-gcc -O2 -Wall -static -o "$T/lidar-listen" /work/tools/lidar-l
 install -m755 "$T/lidar-listen" "$T/initramfs/usr/bin/lidar-listen"
 # lidar-voice and lidar-dsp link against Alpine libraries: clang builds them
 # for musl against an Alpine sysroot, cached per Alpine release in /src and
-# rebuilt when the package list changes.
-SYSROOT=/src/alpine-sysroot-$(cat "$T/initramfs/etc/alpine-release")
+# rebuilt when the package list or the lock changes.
+SYSROOT=/src/alpine-sysroot-$ALPINE
 SYSPKGS="musl-dev libstdc++-dev gcc alsa-lib-dev webrtc-audio-processing-2-dev cjson-dev"
-if [ "$(cat "$SYSROOT/.complete" 2>/dev/null)" != "$SYSPKGS" ]; then
+SYSKEY="$SYSPKGS $(sha256sum < $LOCK | cut -c1-16)"
+if [ "$(cat "$SYSROOT/.complete" 2>/dev/null)" != "$SYSKEY" ]; then
 	rm -rf "$SYSROOT"
 	mkdir -p "$SYSROOT"
-	curl -fsSL "$REL/$ROOTFS" | tar -xz -C "$SYSROOT"
+	tar -xzf "$T/$ROOTFS" -C "$SYSROOT"
 	python3 /work/tools/alpine-fetch.py "$SYSROOT" $SYSPKGS
-	echo "$SYSPKGS" > "$SYSROOT/.complete"
+	echo "$SYSKEY" > "$SYSROOT/.complete"
 fi
 clang++ --target=aarch64-alpine-linux-musl --sysroot="$SYSROOT" -fuse-ld=lld \
 	-std=c++17 -O2 -ffp-contract=fast -Wall -Wextra -Wno-nullability-completeness \
@@ -169,7 +181,9 @@ install -m755 /work/tools/lidar-time.sh "$T/initramfs/usr/bin/lidar-time"
 # libcpc.so.3, which otbr-agent needs at run time. Both keep cpc-daemon's
 # default socket folder, /dev/shm, which has to exist before cpcd starts.
 # cpc-daemon is under Silicon Labs' MSLA, like zigbeed and the RCP below:
-# this image is for your own use, not for passing on.
+# this image is for your own use, not for passing on. Releases are built
+# with LIDAR_NO_SILABS=1, without any of it: no Zigbee, no Thread.
+if [ -z "${LIDAR_NO_SILABS:-}" ]; then
 CPCD_TAG=v4.4.6
 CPCD_COMMIT=5e10b3e45ace73058327425a3fbedf06b4bcccbb
 CPCD=/src/cpc-daemon
@@ -287,6 +301,9 @@ if [ -f $ZIGBEED ]; then
 else
 	echo "warning: $ZIGBEED missing (build it with efr32/zigbeed.sh): no Zigbee" >&2
 fi
+else
+	echo "LIDAR_NO_SILABS: no cpcd, otbr-agent, zigbeed or RCP image in this image" >&2
+fi
 # Feedback sounds in the speaker's native format (48 kHz, 16 bit stereo).
 # - volume-tone (lidar-volume): 90 ms at 520 Hz, -10 dBFS, 20 ms
 #   raised-cosine fades
@@ -399,7 +416,7 @@ mount -t configfs configfs /sys/kernel/config 2>/dev/null
 mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
 # Previous boot's console/oops log, if it was a warm reboot
 mount -t pstore pstore /sys/fs/pstore 2>/dev/null
-echo "lidar test initramfs: $(uname -r)"
+echo "lidar $(cat /etc/lidar-release): $(uname -r)"
 # No udev: name the GPT partitions ourselves (fw_env.config uses misc, the
 # service config lives on the booted slot), so this comes first.
 mkdir -p /dev/disk/by-partlabel /run /media/system
@@ -646,12 +663,15 @@ label lidar-test
 	append console=ttyS0,921600n8 earlycon=uart8250,mmio32,0x11005000 loglevel=7 lidar.slot=${lidar_slot}
 EOF
 
-# The core services are on by default; this bring-up image also opts in to
-# the extras it is used with. Edit with lidar-feature on the device.
+# The core services are on by default; a local bring-up image also opts in
+# to the extras it is used with, a release (LIDAR_VERSION) to none. Edit
+# with lidar-feature on the device.
 mkdir -p "$T/fs/etc"
-cat > "$T/fs/etc/lidar.conf" <<'EOF'
-feature.telnet=1
-EOF
+if [ -n "${LIDAR_VERSION:-}" ]; then
+	: > "$T/fs/etc/lidar.conf"
+else
+	echo feature.telnet=1 > "$T/fs/etc/lidar.conf"
+fi
 chmod 600 "$T/fs/etc/lidar.conf"
 
 rm -f "$OUT/lidar-test-system.ext4"

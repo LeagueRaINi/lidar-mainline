@@ -31,7 +31,8 @@
 #        lidar-feature keep <dir>  (bind <dir> from the booted slot: where
 #                                   services keep data across reboots)
 #
-# Changes take effect on the next boot.
+# Changes take effect on the next boot, except the dsp settings: lidar-dsp
+# re-reads them at once (SIGHUP).
 CONF=${LIDAR_CONF:-/media/system/etc/lidar.conf}
 
 # name category default description
@@ -77,6 +78,10 @@ volume initial 30 0-100 volume at boot, percent of the range up to the cap
 volume ring on on|off on: show volume changes on the LED ring (needs the ring service), as stock does
 volume sound on on|off on: a short tone at the new level when the volume buttons change it, as stock does
 volume keepalive on on|off on: speaker output stays open, as stock (no clicks, sounds start at once, faint hiss); off: opens per sound
+dsp bass 0 -6|-5|-4|-3|-2|-1|0|1|2|3|4|5|6 bass in dB on top of the speaker tuning (shelf below 120 Hz); applies at once
+dsp mid 0 -6|-5|-4|-3|-2|-1|0|1|2|3|4|5|6 mids in dB on top of the speaker tuning (around 800 Hz); applies at once
+dsp treble 0 -6|-5|-4|-3|-2|-1|0|1|2|3|4|5|6 treble in dB on top of the speaker tuning (shelf above 6 kHz); applies at once
+dsp boost 0 0-6 loudness boost in dB into the compressor and limiter of the speaker tuning: louder at the same volume, peaks stay limited; applies at once
 ring auto_brightness on on|off on: ring brightness follows the light sensor, as stock does; off: always full
 ring min_brightness 15 5-100 ring brightness in the dark, percent of full
 webui setup_done no no|yes yes: the first-run setup of the web interface was finished; no: the web interface opens it for clients on the USB network
@@ -299,11 +304,20 @@ set)
 	}
 	shown=$val
 	case $ALLOWED in passphrase | secret | crypt) shown='(set)' ;; esac
-	conf_put "$2.$3" "$val" && echo "$2 $3: $shown (takes effect on next boot)"
+	conf_put "$2.$3" "$val" || exit 1
+	if [ "$2" != dsp ]; then
+		echo "$2 $3: $shown (takes effect on next boot)"
+	elif killall -HUP lidar-dsp 2>/dev/null; then	# re-reads its settings
+		echo "$2 $3: $shown"
+	else
+		echo "$2 $3: $shown (applies when the speaker tuning runs)"
+	fi
 	;;
 unset)
 	need_setting "$2" "$3"
-	conf_put "$2.$3" && echo "$2 $3: back to default (${DEF:-unset})"
+	conf_put "$2.$3" || exit 1
+	[ "$2" != dsp ] || killall -HUP lidar-dsp 2>/dev/null
+	echo "$2 $3: back to default (${DEF:-unset})"
 	;;
 keep)
 	case $2 in /*) ;; *) echo "usage: lidar-feature keep <absolute dir>" >&2; exit 2 ;; esac

@@ -73,6 +73,12 @@ wait_cpcd() {
 	return 1
 }
 
+# Release images carry none of Silicon Labs' software (LIDAR_NO_SILABS)
+case $1 in cpcd | zigbee | thread)
+	command -v cpcd >/dev/null ||
+		{ log "$1: this image has no radio software (release build): see efr32/README.md"; sleep 3600; exit 1; }
+	;;
+esac
 case $1 in
 cpcd)
 	# libcpc's sockets live in /dev/shm
