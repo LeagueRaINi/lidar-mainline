@@ -23,7 +23,8 @@
  *
  * Writes 16 kHz 16-bit mono to stdout, and the beam state to a JSON file
  * (-s, default /run/lidar-voice.json) ten times a second: the selected beam
- * and its angle, every beam's level and level over noise.
+ * and its angle, the talker direction ("doa", null before any speech; see
+ * Doa), every beam's level and level over noise.
  *
  * Geometry, measured on the device: the six ring mics are 32 mm from the
  * centre mic (and from each other), ring mic n at 60*n degrees clockwise
@@ -430,20 +431,111 @@ struct Selector {
 	}
 };
 
+/* ---- talker direction ---- */
+
+/*
+ * The beam selection above follows the cleanest beam with hysteresis, which
+ * suits the audio but often stays one beam off for a short word (measured:
+ * "Hey Jarvis" from the action button chose 90 or 150 degrees instead of
+ * 120). The direction the ring shows comes from SRP-PHAT instead: the
+ * phase-only spectra of the mics, steered to every 10 degrees, summed over
+ * the speech band of each frame in which a beam stands 6 dB over its noise
+ * floor, decaying with 1 s. 11 of 11 test utterances from four sides came
+ * out within 5 degrees of the true direction.
+ */
+constexpr int kDirs = 36;
+
+struct Doa {
+	std::vector<cf> steer;			/* [dir][bin][mic], conjugated */
+	std::vector<cf> xn;			/* [bin][mic], this hop's phases */
+	std::array<double, kDirs> acc{};
+	int lo = 0, hi = 0, nm = 0;
+	int last = -1;				/* degrees, from the last speech hop */
+
+	void design(double radius, int nmics, int lo_bin, int hi_bin)
+	{
+		nm = nmics;
+		lo = lo_bin;
+		hi = hi_bin;
+		steer.assign(static_cast<size_t>(kDirs) * (hi - lo + 1) * nm, cf(0, 0));
+		xn.assign(static_cast<size_t>(hi - lo + 1) * nm, cf(0, 0));
+		for (int d = 0; d < kDirs; d++) {
+			const double th = d * 2 * M_PI / kDirs;
+
+			for (int k = lo; k <= hi; k++)
+				for (int m = 0; m < nm; m++) {
+					const double phi = m * M_PI / 3;
+					const double r = m < kRing ? radius : 0;
+					const double tau = -(r * std::cos(phi) * std::cos(th) + r * std::sin(phi) * std::sin(th)) / kC;
+					const double f = k * static_cast<double>(kRate) / kN;
+
+					steer[(static_cast<size_t>(d) * (hi - lo + 1) + (k - lo)) * nm + m] =
+						std::conj(cf(std::polar(1.0, -2 * M_PI * f * tau)));
+				}
+		}
+	}
+
+	/*
+	 * One hop; speech: a beam stands clearly over its noise floor. The sum
+	 * fades with time, so after a pause the next words decide on their own;
+	 * the direction is taken only on speech hops, so silence (in which the
+	 * sum fades towards zero) keeps the last one.
+	 */
+	void update(const std::vector<std::vector<cf>> &spec, bool speech)
+	{
+		static const double decay = std::exp(-kHop / (1.0 * kRate));
+
+		for (double &a : acc)
+			a *= decay;
+		if (!speech)
+			return;
+		const int nb = hi - lo + 1;
+
+		for (int k = lo; k <= hi; k++)
+			for (int m = 0; m < nm; m++) {
+				const cf x = spec[m][k];
+				const float mag = std::abs(x);
+
+				xn[(k - lo) * nm + m] = mag > 1e-20f ? x / mag : cf(0, 0);
+			}
+		for (int d = 0; d < kDirs; d++) {
+			const cf *w = &steer[static_cast<size_t>(d) * nb * nm];
+			double p = 0;
+
+			for (int i = 0; i < nb; i++) {
+				cf s(0, 0);
+
+				for (int m = 0; m < nm; m++)
+					s += w[i * nm + m] * xn[i * nm + m];
+				p += std::norm(s);
+			}
+			acc[d] += p;
+		}
+		last = static_cast<int>(std::max_element(acc.begin(), acc.end()) - acc.begin()) * 360 / kDirs;
+	}
+
+	/* degrees, clockwise from mic 0, or -1 before any speech */
+	int degrees() const { return last; }
+};
+
 double dbfs(double power, double samples)
 {
 	return 10 * std::log10(power / samples + 1e-12);
 }
 
-void write_state(const std::string &path, int beam, const Selector &s, bool fixed)
+void write_state(const std::string &path, int beam, const Selector &s, bool fixed, int doa)
 {
 	std::string tmp = path + ".new";
 	FILE *f = fopen(tmp.c_str(), "w");
 
 	if (!f)
 		return;
-	fprintf(f, "{\"beam\": %d, \"angle\": %d, \"fixed\": %s, \"level\": [", beam, beam * 30,
-		fixed ? "true" : "false");
+	fprintf(f, "{\"beam\": %d, \"angle\": %d, \"fixed\": %s, ", beam, beam * 30, fixed ? "true" : "false");
+	if (doa >= 0)
+		fprintf(f, "\"doa\": %d, ", doa);
+	else
+		fprintf(f, "\"doa\": null, ");
+	fprintf(f, "\"level\": [");
 	for (int b = 0; b < kBeams; b++)
 		fprintf(f, "%s%.1f", b ? ", " : "", 10 * std::log10(s.level[b] + 1e-12));
 	fprintf(f, "], \"snr\": [");
@@ -549,8 +641,10 @@ int main(int argc, char **argv)
 	std::vector<std::vector<cf>> spec(kMics, std::vector<cf>(kN));
 	std::vector<cf> y(kN);
 	Selector sel;
+	Doa doa;
 	int beam = fixed_beam >= 0 ? fixed_beam : 0, last_beam = beam, rc = 0;
 	const int lo = 300 * kN / kRate, hi = 3400 * kN / kRate;
+	doa.design(radius_mm / 1000, nm, lo, hi);
 	bool apm_err = false;
 
 	std::vector<int16_t> out(kFrames);
@@ -649,6 +743,7 @@ int main(int argc, char **argv)
 				beam = sel.update(power);
 			else
 				sel.update(power);
+			doa.update(spec, *std::max_element(sel.snr.begin(), sel.snr.end()) >= 6);
 
 			for (int k = 0; k < kBins; k++) {
 				cf s(0, 0);
@@ -682,7 +777,7 @@ int main(int argc, char **argv)
 			std::copy(ola.begin() + kHop, ola.end(), ola.begin());
 			std::fill(ola.end() - kHop, ola.end(), 0.0f);
 			if (++hops % 6 == 0)		/* ~100 ms */
-				write_state(state, beam, sel, fixed_beam >= 0);
+				write_state(state, beam, sel, fixed_beam >= 0, doa.degrees());
 		}
 
 		/* clean-up and output in 10 ms frames */
