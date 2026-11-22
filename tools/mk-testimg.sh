@@ -28,7 +28,7 @@ echo "$ROOTFS_SUM  $T/$ROOTFS" | sha256sum -c --quiet
 tar -xzf "$T/$ROOTFS" -C "$T/initramfs"
 python3 /work/tools/alpine-fetch.py "$T/initramfs" alsa-utils i2c-tools evtest iw wpa_supplicant \
 	wireless-regdb busybox-extras uboot-tools webrtc-audio-processing-2 socat libgpiod cjson \
-	alsa-ucm-conf bluez-btmgmt bluez dbus bluez-alsa bluez-alsa-utils bluez-tools
+	alsa-ucm-conf bluez-btmgmt bluez dbus bluez-alsa bluez-alsa-utils bluez-tools e2fsprogs-extra
 # Package scripts do not run here: the system bus's own user, which dbus'
 # install script would add
 grep -q '^messagebus:' "$T/initramfs/etc/passwd" ||
@@ -150,6 +150,10 @@ install -m755 "$T/wakeword/lidar-wakeword" "$T/initramfs/usr/bin/lidar-wakeword"
 install -D -m644 -t "$T/initramfs/usr/share/lidar/wakeword" \
 	"$T/wakeword/hey_jarvis.tflite" "$T/wakeword/hey_jarvis.json"
 install -D -m644 -t "$T/initramfs/usr/share/licenses/lidar-wakeword" "$T"/wakeword/licenses/*
+# Voice assistant core: grammar, timers, alarms, answers; its language files
+bash /work/tools/lidar-assistant/build.sh "$T/assistant" "$SYSROOT"
+install -m755 "$T/assistant/lidar-assistant" "$T/initramfs/usr/bin/lidar-assistant"
+install -D -m644 -t "$T/initramfs/usr/share/lidar/assistant" /work/tools/lidar-assistant/lang/*.txt
 install -D -m644 /work/tools/webui/index.html "$T/initramfs/usr/share/lidar/www/index.html"
 install -D -m755 /work/tools/webui/api.cgi "$T/initramfs/usr/share/lidar/www/cgi-bin/api"
 install -m755 /work/tools/lidar-radio.sh "$T/initramfs/usr/bin/lidar-radio"
@@ -163,6 +167,7 @@ install -m755 /work/tools/lidar-efr32.sh "$T/initramfs/usr/bin/lidar-efr32"
 install -m755 /work/tools/lidar-wifi.sh "$T/initramfs/usr/bin/lidar-wifi"
 install -m755 /work/tools/lidar-fireos.sh "$T/initramfs/usr/bin/lidar-fireos"
 install -m755 /work/tools/lidar-time.sh "$T/initramfs/usr/bin/lidar-time"
+install -m755 /work/tools/lidar-models.sh "$T/initramfs/usr/bin/lidar-models"
 # Thread border router: ot-br-posix, pinned, built for musl against the
 # sysroot like the tools above. Its sources (with submodules) are cached in
 # /src. The vendor and product name end up in the border agent's mDNS
@@ -555,6 +560,16 @@ fi
 # keeps off the ring while lidar-ring shows something
 if lidar-feature enabled visualizer && [ -e /sys/class/leds/ring1:red/brightness ]; then
 	echo "::respawn:/bin/sh -c 'while [ ! -e /run/boot-done ] || pidof lidar-bootanim >/dev/null; do sleep 0.5; done; exec /usr/bin/lidar-viz -s $(lidar-feature get visualizer style)'" \
+		>> /etc/inittab
+fi
+# Voice assistant: alarms and speech models are kept on the booted slot (too
+# large for RAM); local time from voice timezone (a checked POSIX TZ string)
+lidar-feature keep /var/lib/lidar-models >/dev/null 2>&1 ||
+	echo "lidar: /var/lib/lidar-models not kept: no speech models" > /dev/kmsg
+if lidar-feature enabled assistant; then
+	lidar-feature keep /var/lib/lidar-assistant >/dev/null 2>&1 ||
+		echo "lidar: /var/lib/lidar-assistant not kept: alarms are lost at reboot" > /dev/kmsg
+	echo '::respawn:/bin/sh -c '\''export TZ=$(lidar-feature get voice timezone); exec /usr/bin/lidar-assistant -l $(lidar-feature get voice language) -m $(lidar-feature get voice ring_volume) >/dev/null'\''' \
 		>> /etc/inittab
 fi
 # The EFR32 radio serves Zigbee and Thread at once (multi-PAN RCP): cpcd

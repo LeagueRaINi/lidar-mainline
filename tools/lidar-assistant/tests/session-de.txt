@@ -1,0 +1,38 @@
+wie spät ist es
+!clock 2026-11-22 18:00
+wie spät ist es
+welcher tag ist heute
+lautstärke auf fünf
+wie laut ist es
+leiser
+ton aus
+ton an
+stelle einen timer auf zehn minuten
+pizzatimer auf zwölf minuten
+brötchen timer eine stunde und eine minute
+wie lange noch
+lösche den pizza timer
+timer auf anderthalb stunden
+lösche den timer
+lösche alle timer
+timer auf eine sekunde
+!advance 1
+stopp
+stopp
+wecker um halb sieben
+wecker um ein uhr mittags
+wecker werktags um sechs uhr dreißig
+wecker am wochenende um neun
+wecker am freitag um siebzehn uhr
+wecker montags und mittwochs um sieben
+welche wecker sind gestellt
+!advance 1800
+wecker aus
+lösche den wecker um sechs uhr dreißig
+lösche den wecker
+welche wecker sind gestellt
+lösche alle wecker
+lösche alle wecker
+nächstes lied
+weiter
+spiele jazz

@@ -1,0 +1,158 @@
+Volume
+Louder
+Quieter
+Speaker muted
+Speaker on
+The volume service is not running
+timer set for
+timer
+timer cancelled
+All timers cancelled
+No timers are running
+There is no such timer
+There are several timers, say which one or cancel all timers
+left
+That is too many
+Alarm set for
+Cancelled the alarm for
+All alarms cancelled
+No alarms are set
+There is no alarm at that time
+There are several alarms, say which time or cancel all alarms
+Alarm at
+That time has already passed
+I don't know the time yet
+hour
+hours
+minute
+minutes
+second
+seconds
+It's
+Today is
+today
+tomorrow
+on
+every
+every day
+on weekdays
+on weekends
+and
+oh
+AM
+PM
+Paused
+Resuming
+Next track
+Previous track
+That did not work
+I can't do that
+Monday
+Tuesday
+Wednesday
+Thursday
+Friday
+Saturday
+Sunday
+January
+February
+March
+April
+May
+June
+July
+August
+September
+October
+November
+December
+zero
+one
+two
+three
+four
+five
+six
+seven
+eight
+nine
+ten
+eleven
+twelve
+thirteen
+fourteen
+fifteen
+sixteen
+seventeen
+eighteen
+nineteen
+twenty
+twenty-one
+twenty-two
+twenty-three
+twenty-four
+twenty-five
+twenty-six
+twenty-seven
+twenty-eight
+twenty-nine
+thirty
+thirty-one
+thirty-two
+thirty-three
+thirty-four
+thirty-five
+thirty-six
+thirty-seven
+thirty-eight
+thirty-nine
+forty
+forty-one
+forty-two
+forty-three
+forty-four
+forty-five
+forty-six
+forty-seven
+forty-eight
+forty-nine
+fifty
+fifty-one
+fifty-two
+fifty-three
+fifty-four
+fifty-five
+fifty-six
+fifty-seven
+fifty-eight
+fifty-nine
+first
+third
+fourth
+fifth
+sixth
+seventh
+eighth
+ninth
+tenth
+eleventh
+twelfth
+thirteenth
+fourteenth
+fifteenth
+sixteenth
+seventeenth
+eighteenth
+nineteenth
+twentieth
+twenty-first
+twenty-second
+twenty-third
+twenty-fourth
+twenty-fifth
+twenty-sixth
+twenty-seventh
+twenty-eighth
+twenty-ninth
+thirtieth
+thirty-first

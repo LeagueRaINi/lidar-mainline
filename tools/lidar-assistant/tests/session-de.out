@@ -1,0 +1,150 @@
+> wie spät ist es
+action time_get
+result {"action":"time_get","arguments":{},"ok":false,"code":"no_clock","say":"Ich kenne die Uhrzeit noch nicht."}
+say de Ich kenne die Uhrzeit noch nicht.
+> !clock 2026-11-22 18:00
+> wie spät ist es
+action time_get
+result {"action":"time_get","arguments":{},"ok":true,"code":"ok","say":"Es ist achtzehn Uhr."}
+say de Es ist achtzehn Uhr.
+> welcher tag ist heute
+action date_get
+result {"action":"date_get","arguments":{},"ok":true,"code":"ok","say":"Heute ist Sonntag der zweiundzwanzigste November."}
+say de Heute ist Sonntag der zweiundzwanzigste November.
+> lautstärke auf fünf
+action volume_set level=5
+run lidar-volume set 50
+result {"action":"volume_set","arguments":{"level":"5"},"ok":true,"code":"ok","say":"Lautstärke fünf."}
+say de Lautstärke fünf.
+> wie laut ist es
+action volume_get
+result {"action":"volume_get","arguments":{},"ok":true,"code":"ok","say":"Lautstärke fünf."}
+say de Lautstärke fünf.
+> leiser
+action volume_change direction=down
+run lidar-volume down
+result {"action":"volume_change","arguments":{"direction":"down"},"ok":true,"code":"ok","say":"Leiser."}
+say de Leiser.
+> ton aus
+action volume_mute mute=on
+run lidar-volume mute
+result {"action":"volume_mute","arguments":{"mute":"on"},"ok":true,"code":"ok","say":"Lautsprecher stumm."}
+say de Lautsprecher stumm.
+> ton an
+action volume_mute mute=off
+run lidar-volume unmute
+result {"action":"volume_mute","arguments":{"mute":"off"},"ok":true,"code":"ok","say":"Lautsprecher an."}
+say de Lautsprecher an.
+> stelle einen timer auf zehn minuten
+action timer_set seconds=600
+result {"action":"timer_set","arguments":{"seconds":"600"},"ok":true,"code":"ok","say":"Timer auf zehn Minuten gestellt."}
+say de Timer auf zehn Minuten gestellt.
+> pizzatimer auf zwölf minuten
+action timer_set name=pizza seconds=720
+result {"action":"timer_set","arguments":{"name":"pizza","seconds":"720"},"ok":true,"code":"ok","say":"Pizza Timer auf zwölf Minuten gestellt."}
+say de Pizza Timer auf zwölf Minuten gestellt.
+> brötchen timer eine stunde und eine minute
+action timer_set name=brötchen seconds=3660
+result {"action":"timer_set","arguments":{"name":"brötchen","seconds":"3660"},"ok":true,"code":"ok","say":"Brötchen Timer auf eine Stunde und eine Minute gestellt."}
+say de Brötchen Timer auf eine Stunde und eine Minute gestellt.
+> wie lange noch
+action timer_list
+result {"action":"timer_list","arguments":{},"ok":true,"code":"ok","say":"Timer noch zehn Minuten. Pizza Timer noch zwölf Minuten. Brötchen Timer noch eine Stunde und eine Minute."}
+say de Timer noch zehn Minuten. Pizza Timer noch zwölf Minuten. Brötchen Timer noch eine Stunde und eine Minute.
+> lösche den pizza timer
+action timer_cancel name=pizza
+result {"action":"timer_cancel","arguments":{"name":"pizza"},"ok":true,"code":"ok","say":"Pizza Timer gelöscht."}
+say de Pizza Timer gelöscht.
+> timer auf anderthalb stunden
+action timer_set seconds=5400
+result {"action":"timer_set","arguments":{"seconds":"5400"},"ok":true,"code":"ok","say":"Timer auf eine Stunde und dreißig Minuten gestellt."}
+say de Timer auf eine Stunde und dreißig Minuten gestellt.
+> lösche den timer
+action timer_cancel
+result {"action":"timer_cancel","arguments":{},"ok":false,"code":"several_timers","say":"Es laufen mehrere Timer, sag welchen oder lösche alle Timer."}
+say de Es laufen mehrere Timer, sag welchen oder lösche alle Timer.
+> lösche alle timer
+action timer_cancel all=1
+result {"action":"timer_cancel","arguments":{"all":"1"},"ok":true,"code":"ok","say":"Alle Timer gelöscht."}
+say de Alle Timer gelöscht.
+> timer auf eine sekunde
+action timer_set seconds=1
+result {"action":"timer_set","arguments":{"seconds":"1"},"ok":true,"code":"ok","say":"Timer auf eine Sekunde gestellt."}
+say de Timer auf eine Sekunde gestellt.
+> !advance 1
+ring start
+> stopp
+action stop
+ring stop
+result {"action":"stop","arguments":{},"ok":true,"code":"ring_stopped","say":""}
+> stopp
+action stop
+run lidar-bluetooth media pause
+result {"action":"stop","arguments":{},"ok":true,"code":"paused","say":""}
+> wecker um halb sieben
+action alarm_set h12=1 hour=6 minute=30
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"6","minute":"30"},"ok":true,"code":"ok","say":"Wecker gestellt auf achtzehn Uhr dreißig heute."}
+say de Wecker gestellt auf achtzehn Uhr dreißig heute.
+> wecker um ein uhr mittags
+action alarm_set hour=13 minute=0
+result {"action":"alarm_set","arguments":{"hour":"13","minute":"0"},"ok":true,"code":"ok","say":"Wecker gestellt auf dreizehn Uhr morgen."}
+say de Wecker gestellt auf dreizehn Uhr morgen.
+> wecker werktags um sechs uhr dreißig
+action alarm_set h12=1 hour=6 minute=30 repeat=mon,tue,wed,thu,fri
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"6","minute":"30","repeat":"mon,tue,wed,thu,fri"},"ok":true,"code":"ok","say":"Wecker gestellt auf sechs Uhr dreißig an Wochentagen."}
+say de Wecker gestellt auf sechs Uhr dreißig an Wochentagen.
+> wecker am wochenende um neun
+action alarm_set h12=1 hour=9 minute=0 repeat=sat,sun
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"9","minute":"0","repeat":"sat,sun"},"ok":true,"code":"ok","say":"Wecker gestellt auf neun Uhr am Wochenende."}
+say de Wecker gestellt auf neun Uhr am Wochenende.
+> wecker am freitag um siebzehn uhr
+action alarm_set day=fri hour=17 minute=0
+result {"action":"alarm_set","arguments":{"day":"fri","hour":"17","minute":"0"},"ok":true,"code":"ok","say":"Wecker gestellt auf siebzehn Uhr am Freitag."}
+say de Wecker gestellt auf siebzehn Uhr am Freitag.
+> wecker montags und mittwochs um sieben
+action alarm_set h12=1 hour=7 minute=0 repeat=mon,wed
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"7","minute":"0","repeat":"mon,wed"},"ok":true,"code":"ok","say":"Wecker gestellt auf sieben Uhr jeden Montag und Mittwoch."}
+say de Wecker gestellt auf sieben Uhr jeden Montag und Mittwoch.
+> welche wecker sind gestellt
+action alarm_list
+result {"action":"alarm_list","arguments":{},"ok":true,"code":"ok","say":"Wecker um achtzehn Uhr dreißig heute. Wecker um sechs Uhr dreißig an Wochentagen. Wecker um sieben Uhr jeden Montag und Mittwoch. Wecker um dreizehn Uhr morgen. Wecker um siebzehn Uhr am Freitag. Wecker um neun Uhr am Wochenende."}
+say de Wecker um achtzehn Uhr dreißig heute. Wecker um sechs Uhr dreißig an Wochentagen. Wecker um sieben Uhr jeden Montag und Mittwoch. Wecker um dreizehn Uhr morgen. Wecker um siebzehn Uhr am Freitag. Wecker um neun Uhr am Wochenende.
+> !advance 1800
+ring start
+> wecker aus
+action alarm_cancel
+ring stop
+result {"action":"alarm_cancel","arguments":{},"ok":true,"code":"ring_stopped","say":""}
+> lösche den wecker um sechs uhr dreißig
+action alarm_cancel h12=1 hour=6 minute=30
+result {"action":"alarm_cancel","arguments":{"h12":"1","hour":"6","minute":"30"},"ok":true,"code":"ok","say":"Wecker gelöscht für sechs Uhr dreißig an Wochentagen."}
+say de Wecker gelöscht für sechs Uhr dreißig an Wochentagen.
+> lösche den wecker
+action alarm_cancel
+result {"action":"alarm_cancel","arguments":{},"ok":false,"code":"several_alarms","say":"Es sind mehrere Wecker gestellt, sag welche Uhrzeit oder lösche alle Wecker."}
+say de Es sind mehrere Wecker gestellt, sag welche Uhrzeit oder lösche alle Wecker.
+> welche wecker sind gestellt
+action alarm_list
+result {"action":"alarm_list","arguments":{},"ok":true,"code":"ok","say":"Wecker um sieben Uhr jeden Montag und Mittwoch. Wecker um dreizehn Uhr morgen. Wecker um siebzehn Uhr am Freitag. Wecker um neun Uhr am Wochenende."}
+say de Wecker um sieben Uhr jeden Montag und Mittwoch. Wecker um dreizehn Uhr morgen. Wecker um siebzehn Uhr am Freitag. Wecker um neun Uhr am Wochenende.
+> lösche alle wecker
+action alarm_cancel all=1
+result {"action":"alarm_cancel","arguments":{"all":"1"},"ok":true,"code":"ok","say":"Alle Wecker gelöscht."}
+say de Alle Wecker gelöscht.
+> lösche alle wecker
+action alarm_cancel all=1
+result {"action":"alarm_cancel","arguments":{"all":"1"},"ok":false,"code":"no_alarms","say":"Es ist kein Wecker gestellt."}
+say de Es ist kein Wecker gestellt.
+> nächstes lied
+action media command=next
+run lidar-bluetooth media next
+result {"action":"media","arguments":{"command":"next"},"ok":true,"code":"ok","say":"Nächster Titel."}
+say de Nächster Titel.
+> weiter
+action media command=resume
+run lidar-bluetooth media play
+result {"action":"media","arguments":{"command":"resume"},"ok":true,"code":"ok","say":"Weiter geht's."}
+say de Weiter geht's.
+> spiele jazz
+action unmatched
+unmatched spiele jazz

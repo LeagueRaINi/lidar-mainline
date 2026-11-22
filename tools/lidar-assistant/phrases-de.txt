@@ -1,0 +1,161 @@
+Lautstärke
+Lauter
+Leiser
+Lautsprecher stumm
+Lautsprecher an
+Der Lautstärkedienst läuft nicht
+Timer auf
+gestellt
+Timer
+Timer gelöscht
+Alle Timer gelöscht
+Es läuft kein Timer
+Diesen Timer gibt es nicht
+Es laufen mehrere Timer, sag welchen oder lösche alle Timer
+noch
+Das sind zu viele
+Wecker gestellt auf
+Wecker gelöscht für
+Alle Wecker gelöscht
+Es ist kein Wecker gestellt
+Um diese Zeit gibt es keinen Wecker
+Es sind mehrere Wecker gestellt, sag welche Uhrzeit oder lösche alle Wecker
+Wecker um
+Diese Zeit ist schon vorbei
+Ich kenne die Uhrzeit noch nicht
+Stunde
+Stunden
+Minute
+Minuten
+Sekunde
+Sekunden
+Es ist
+Heute ist
+der
+heute
+morgen
+am
+jeden
+jeden Tag
+an Wochentagen
+am Wochenende
+und
+Uhr
+Pausiert
+Weiter geht's
+Nächster Titel
+Vorheriger Titel
+Das hat nicht geklappt
+Das geht nicht
+Montag
+Dienstag
+Mittwoch
+Donnerstag
+Freitag
+Samstag
+Sonntag
+Januar
+Februar
+März
+April
+Mai
+Juni
+Juli
+August
+September
+Oktober
+November
+Dezember
+null
+eins
+zwei
+drei
+vier
+fünf
+sechs
+sieben
+acht
+neun
+zehn
+elf
+zwölf
+dreizehn
+vierzehn
+fünfzehn
+sechzehn
+siebzehn
+achtzehn
+neunzehn
+zwanzig
+einundzwanzig
+zweiundzwanzig
+dreiundzwanzig
+vierundzwanzig
+fünfundzwanzig
+sechsundzwanzig
+siebenundzwanzig
+achtundzwanzig
+neunundzwanzig
+dreißig
+einunddreißig
+zweiunddreißig
+dreiunddreißig
+vierunddreißig
+fünfunddreißig
+sechsunddreißig
+siebenunddreißig
+achtunddreißig
+neununddreißig
+vierzig
+einundvierzig
+zweiundvierzig
+dreiundvierzig
+vierundvierzig
+fünfundvierzig
+sechsundvierzig
+siebenundvierzig
+achtundvierzig
+neunundvierzig
+fünfzig
+einundfünfzig
+zweiundfünfzig
+dreiundfünfzig
+vierundfünfzig
+fünfundfünfzig
+sechsundfünfzig
+siebenundfünfzig
+achtundfünfzig
+neunundfünfzig
+ein
+eine
+erste
+zweite
+dritte
+vierte
+fünfte
+sechste
+siebte
+achte
+neunte
+zehnte
+elfte
+zwölfte
+dreizehnte
+vierzehnte
+fünfzehnte
+sechzehnte
+siebzehnte
+achtzehnte
+neunzehnte
+zwanzigste
+einundzwanzigste
+zweiundzwanzigste
+dreiundzwanzigste
+vierundzwanzigste
+fünfundzwanzigste
+sechsundzwanzigste
+siebenundzwanzigste
+achtundzwanzigste
+neunundzwanzigste
+dreißigste
+einunddreißigste

@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# lidar-assistant: German. "key = text", one per line; a "words." key may
+# come several times, its lines add up.
+#
+# say.*: what the assistant answers. Answers are put together from these
+# parts, number words and names, e.g. "[Pizza] Timer auf" "zwölf" "Minuten"
+# "gestellt". A part may be empty where German needs none.
+#
+# words.*: what the grammar listens for, any case, with or without accents.
+# Numbers, durations, times of day and weekdays are rules in grammar.cc.
+
+say.volume = Lautstärke
+say.louder = Lauter
+say.quieter = Leiser
+say.muted = Lautsprecher stumm
+say.unmuted = Lautsprecher an
+say.no_volume = Der Lautstärkedienst läuft nicht
+# "[Pizza] Timer auf <Dauer> gestellt"
+say.timer_set = Timer auf
+say.timer_set_end = gestellt
+say.timer = Timer
+say.timer_cancelled = Timer gelöscht
+say.timers_cancelled = Alle Timer gelöscht
+say.no_timers = Es läuft kein Timer
+say.no_such_timer = Diesen Timer gibt es nicht
+say.several_timers = Es laufen mehrere Timer, sag welchen oder lösche alle Timer
+# "[Pizza] Timer noch <Dauer>"
+say.left = noch
+say.left_end =
+say.too_many = Das sind zu viele
+say.alarm_set = Wecker gestellt auf
+say.alarm_cancelled = Wecker gelöscht für
+say.alarms_cancelled = Alle Wecker gelöscht
+say.no_alarms = Es ist kein Wecker gestellt
+say.no_such_alarm = Um diese Zeit gibt es keinen Wecker
+say.several_alarms = Es sind mehrere Wecker gestellt, sag welche Uhrzeit oder lösche alle Wecker
+say.alarm_at = Wecker um
+say.time_past = Diese Zeit ist schon vorbei
+say.no_clock = Ich kenne die Uhrzeit noch nicht
+say.hour = Stunde
+say.hours = Stunden
+say.minute = Minute
+say.minutes = Minuten
+say.second = Sekunde
+say.seconds = Sekunden
+say.time = Es ist
+# "Heute ist Sonntag der zweiundzwanzigste November"
+say.date = Heute ist
+say.date_the = der
+say.today = heute
+say.tomorrow = morgen
+say.on_day = am
+say.every = jeden
+say.every_day = jeden Tag
+say.weekdays = an Wochentagen
+say.weekends = am Wochenende
+say.and = und
+say.oh =
+say.am =
+say.pm =
+# "sieben Uhr dreißig"
+say.uhr = Uhr
+say.paused = Pausiert
+say.resumed = Weiter geht's
+say.next = Nächster Titel
+say.previous = Vorheriger Titel
+say.failed = Das hat nicht geklappt
+say.bad_args = Das geht nicht
+say.monday = Montag
+say.tuesday = Dienstag
+say.wednesday = Mittwoch
+say.thursday = Donnerstag
+say.friday = Freitag
+say.saturday = Samstag
+say.sunday = Sonntag
+say.january = Januar
+say.february = Februar
+say.march = März
+say.april = April
+say.may = Mai
+say.june = Juni
+say.july = Juli
+say.august = August
+say.september = September
+say.october = Oktober
+say.november = November
+say.december = Dezember
+
+# may be left over anywhere in a command
+words.filler = bitte hey jarvis ok okay kannst könntest würdest du mir mich mal ich möchte will
+words.filler = den die das der dem einen eine ein einem einer auf um für in im am an von zu es
+words.filler = ist jetzt doch danke und gibt haben wir habe denn so dann äh ähm hallo mit bis
+words.filler = meinen meine mein noch schon gerade
+# "stelle keinen ...": never matched here
+words.negation = nicht kein keine keinen nie niemals ohne
+# may stand between "für" and a timer's name
+words.articles = den die das der dem meinen meine mein
+words.cancel = lösche lösch löschen stoppe stopp stop stoppen beende beenden abbrechen brich
+words.cancel = entferne entfernen aus ausschalten ausmachen abstellen abschalten deaktiviere
+words.cancel = deaktivieren
+words.all = alle allen sämtliche
+
+words.timer = timer timers countdown eieruhr kurzzeitwecker kurzzeittimer
+words.timer_list = wie welche welcher restzeit übrig verbleibend verbleibt verbleiben status
+words.timer_list = zeige zeig liste wann was viele
+words.timer_filler = stelle stell stellen setze setz starte start starten mach mache erstelle
+words.timer_filler = neuen neuer namens namen name läuft laufen sind lange lang viel zeit ab
+words.timer_filler = geht dauert fertig bleibt bleiben aktuell weiteren gestellt eingestellt
+words.timer_filler = aktiv ende braucht
+words.name_intro = namens namen name für
+
+words.alarm = wecker weck wecke wecken alarm alarme weckruf
+words.alarm_list = wie welche welcher welchen wann zeige zeig liste viele was hab habe
+words.alarm_filler = stelle stell stellen setze setz mach mache erstelle neuen neuer klingelt
+words.alarm_filler = klingeln gestellt eingestellt sind uhr ab soll nächsten nächste nächster
+
+words.volume = lautstärke lauter leiser laut
+words.volume_up = lauter hoch rauf höher erhöhen erhöhe mehr
+words.volume_down = leiser runter herunter niedriger verringern verringere senken senke weniger
+words.volume_get = wie welche aktuelle
+words.percent = prozent
+words.volume_filler = lautstärke laut mach mache stelle stell dreh drehe setze setz schalte
+words.volume_filler = stufe etwas bisschen wenig viel musik ton lautsprecher ganz eingestellt
+
+words.mute = stumm stummschalten stummschaltung lautlos
+words.mute_filler = stumm stummschalten stummschaltung lautlos ton schalte schalten schalt
+words.mute_filler = stelle stellen stell mach mache lautsprecher musik wieder dich sei
+
+words.time_filler = uhrzeit spät wie wieviel viel uhr sag sage aktuelle welche was
+words.date_filler = datum wochentag wievielte wievielten tag welcher welchen welches was heute
+words.date_filler = heutige aktuelle sag sage
+
+# an utterance of nothing but these (and fillers) is "stop"
+words.stop = stopp stop stoppe halt aufhören hör abbrechen ruhe still ruhig aus schluss genug
+words.stop = reicht ausmachen ausschalten beenden abstellen abschalten
+words.stop_filler = sei mach mache alles schalte damit sofort
+
+words.previous = zurück vorheriges vorheriger vorherige vorherigen voriges voriger vorigen
+words.previous = letztes letzter
+words.next = nächstes nächster nächste nächsten überspringen überspringe überspring skip
+words.pause = pause pausiere pausieren anhalten halte halt stoppe stopp stop stoppen aus
+words.pause = ausmachen
+words.resume = weiter fortsetzen fortfahren weiterspielen weitermachen abspielen spiel spiele
+words.resume = spielen play
+words.media_filler = musik lied titel song wiedergabe stück track zum zur mach mache wieder
+words.media_filler = geht gehts springe spring

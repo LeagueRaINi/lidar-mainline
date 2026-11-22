@@ -40,7 +40,7 @@ hardware · 🛠️ planned · ➖ not planned. Details are under [Status](#stat
 | Ambient light sensor | ✅ | ✅ relative readings (no lux calibration) |
 | Temperature sensors | ✅ | ✅ |
 | **Software** | | |
-| Voice assistant | ✅ Alexa | 🛠️ local userspace: the wake word detector `lidar-wakeword` behind `lidar-voice` and the `voice` settings are there, the assistant itself is not |
+| Voice assistant | ✅ Alexa | 🛠️ local userspace: wake word (`lidar-wakeword` behind `lidar-voice`), the assistant core (`lidar-assistant`: timers, alarms, volume, music, time and date by typed command, English and German) and the speech model download (`lidar-models`) are there; speech recognition, speech output and Claude are not yet |
 | Services, with settings | n/a | ✅ `lidar-feature`: core services on, extras off by default |
 | Alexa cloud services | ✅ | ➖ |
 | Kernel and U-Boot upstreaming | n/a | 🛠️ patch series drafted |
@@ -130,12 +130,14 @@ decompression.
 | `tools/lidar-voice.cc` | experimental: the voice of whoever speaks to the Echo, from all 7 mics: echo cancellation on every mic (WebRTC AEC3), 12 superdirective beams, the best beam by speech over noise, noise suppression; 16 kHz mono out, beam state for the ring and the web interface |
 | `tools/lidar-wakeword.cc` | wake word detector ("Hey Jarvis") for the output of `lidar-voice`: microWakeWord model on TensorFlow Lite Micro, one line per detection (below) |
 | `tools/mk-wakeword.sh` | fetches the pinned TensorFlow Lite Micro, microfrontend, FlatBuffers and KISS FFT sources and the wake word model, and builds `lidar-wakeword` for the test image or for the build host |
+| `tools/lidar-assistant/` | voice assistant core (`assistant` service): English and German grammar for timers, alarms, volume, music, time and date, the actions behind it (also as a tool list for a language model), spoken answers as text; `lang/*.txt` hold each language's phrases and word lists, `build.sh test` runs its tests on the build host |
 | `tools/lidar-radio.sh` | the EFR32 radio for Zigbee and Thread at once: uploads the multi-PAN RCP if needed and runs `cpcd`, `zigbeed` with its TCP bridge, and `otbr-agent`, with both networks kept on the booted slot |
 | `tools/lidar-bluetooth.sh` | Bluetooth speaker: bluetoothd, bluealsa and its player, pairing mode on the action button with LED ring and sounds, the phone's volume tied to `lidar-volume`, pairing keys kept on the booted slot |
 | `tools/lidar-efr32.sh` | the EFR32's Gecko bootloader from the SoC: start the application, upload an image, exchange bytes with the application |
 | `tools/lidar-wifi.sh` | Wi-Fi client from `wifi ssid`/`passphrase` (`wifi` service): start, stop, status and scan; used at boot and by the web interface |
 | `tools/lidar-fireos.sh` | the files lidar takes from Fire OS (Wi-Fi firmware, speaker tuning): kept on the booted slot, staged at boot, backup export and import |
 | `tools/lidar-time.sh` | the clock (no RTC on this board): NTP once the network is up, the last synced time saved on the booted slot and set at the next boot |
+| `tools/lidar-models.sh` | speech models of the voice assistant: downloads the recognizer and the voice of one language on the device, pinned by sha256; grows the system filesystem to its partition |
 | `tools/lidar-xmodem.c` | XMODEM-CRC sender for the EFR32's Gecko bootloader |
 | `tools/lidar-dsp.c` | speaker tuning as on Fire OS (`dsp` service): volume-dependent FIR EQ, parametric EQ, 4-band compressor/limiter, from the owner's Fire OS configuration |
 | `tools/webui/` | web interface (`webui` service): `index.html` (the whole frontend) and `api.cgi` (BusyBox httpd CGI) |
@@ -364,6 +366,7 @@ lidar-feature reset telnet         # back to the default (off)
 | `zigbee` | extra | off | Zigbee coordinator for Home Assistant (ZHA) on TCP port 6638 (below); runs alongside `thread` on the same radio |
 | `thread` | extra | off | Thread border router for Home Assistant, REST API on port 8081 (below); runs alongside `zigbee` on the same radio |
 | `visualizer` | extra | off | sound display on the LED ring (below) |
+| `assistant` | extra | off | voice assistant core: timers, alarms, volume, music, time and date by typed command (below) |
 
 Settings are refused if invalid, and a missing or invalid entry means the
 default.
@@ -407,13 +410,16 @@ lidar-feature unset wifi country          # back to the default
 | `webui fireos_image_saved` | `no` | `no`, `yes` | `yes`: the owner confirmed in the setup that the Fire OS image (`system_a`) was downloaded and saved. Nothing else depends on it yet |
 | `voice wake_word` | `hey_jarvis` | `hey_jarvis` | word the voice assistant listens for; the only one for now |
 | `voice language` | `en` | `en`, `de` | language the voice assistant understands and speaks: English, German |
+| `voice timezone` | `UTC0` | POSIX TZ string | time zone of alarms and the time, e.g. `CET-1CEST,M3.5.0,M10.5.0/3` (Central Europe) |
+| `voice ring_volume` | 30 | 0-100 | volume an alarm or timer rings at, at least; the speaker is unmuted for it. 0: volume and mute stay as they are |
+| `voice voice_de` | `thorsten` | `thorsten`, `eva_k` | German voice: natural and slower, or smaller and about twice as fast; installed by `lidar-models` |
 | `voice sensitivity` | `medium` | `low`, `medium`, `high` | how readily the wake word triggers: `low` misses more, `high` triggers more often by mistake |
 | `voice api_key` | unset | 16-200 printable ASCII characters, no spaces | Claude API key of the voice assistant. Stored in plain text in `lidar.conf`, which only root can read; `lidar-feature settings` shows it as `(set)` |
 
 - `voice` is a group of settings without a service switch: it does not
-  appear in `lidar-feature list`. The assistant that will use them is not
-  part of the image yet, so nothing reads them so far; `lidar-wakeword`
-  does not take its cutoff from `voice sensitivity` either.
+  appear in `lidar-feature list`. The `assistant` service reads `voice
+  language`, `timezone` and `ring_volume`; `lidar-wakeword` does not take
+  its cutoff from `voice sensitivity` yet.
 - `lidar-feature set <name> <key>` without a value reads it from standard
   input, which keeps a passphrase or key out of the process list. The web
   interface hands on setting values and the Wi-Fi passphrase that way.
@@ -563,39 +569,71 @@ matters.
 ### Web interface
 
 With the `webui` service, `http://169.254.7.2/` on the USB host shows the
-Echo's state and plays music on it, also without Wi-Fi or Bluetooth set
-up:
+Echo's state, plays music on it and holds every setting, also without
+Wi-Fi or Bluetooth set up. It is one page without anything loaded from
+elsewhere, with a light and a dark theme, a side bar on wide screens and,
+on a phone, four shortcuts at the bottom and the whole menu under "More".
+Each service switch and each setting sits in the category it belongs to:
 
-- **Dashboard:** the three board temperature sensors, CPU load and clock,
-  memory, the light sensor, the supply rails, USB traffic, the privacy
-  switch, whether the speaker tuning runs, and the LED ring as it is lit.
-- **Volume:** the system volume and mute (`lidar-volume`).
+- **Overview:** the LED ring as it is lit, the system volume and mute
+  (`lidar-volume`), what plays, the privacy switch, whether the speaker
+  tuning runs, Wi-Fi and Bluetooth at a glance, CPU load, memory, the three
+  board temperature sensors, the clock, the light sensor, USB traffic and
+  the supply rails.
 - **Music:** songs are dropped onto the page; the browser decodes them (any
   format it can play), converts them to 48 kHz 16-bit stereo and uploads
   them. `lidar-player` plays the library in order, with pause, seek and
   skip. The library lives in RAM (`webui storage_mb`) and is gone after a
   reboot.
-- **Network:** Wi-Fi status (network, signal, band, bit rate, addresses),
-  a scan list to pick a network from, connect (saved as `wifi ssid` and
-  `wifi passphrase` and joined at once, through `lidar-wifi`) and forget.
-  With the `bluetooth` service (it loads the Bluetooth driver): power and a
-  scan of nearby devices (name, address, type, signal) through `btmgmt`,
-  the speaker's state, pairing mode on and off, and the paired phones with
-  a button to forget each. Thread and Zigbee state: role, network, channel, PAN ID,
-  border routing.
-- **Services:** switch services on and off and edit their settings, with
-  inputs that only offer the allowed values; then reboot from the page.
-  Switching `telnet` on asks first: it is a root shell without a password
-  for everyone on the USB network. The login has its own card there.
+- **Sound:** the volume and its settings (`volume initial`,
+  `max_attenuation`, `sound`, `keepalive`), the tone controls as sliders
+  (`dsp bass`, `mid`, `treble`, `boost`, heard while they move; "Flat" puts
+  bass, mids and treble back to 0) and the `volume` and `dsp` services.
+- **Voice:** the `assistant` service, wake word, sensitivity, language (and
+  the German voice with German), the Claude API key (write-only, with a
+  test), the time zone (common ones by city, any other as a POSIX TZ
+  string) and the alarm volume. Timers and alarms will be listed here.
+- **Light ring:** the ring as it is lit, the `ring`, `visualizer` and
+  `bootanim` services, brightness (`ring auto_brightness`,
+  `min_brightness`), `visualizer style` and the volume arc (`volume ring`).
+- **Wi-Fi:** status (network, signal, band, bit rate, addresses), a scan
+  list to pick a network from, connect (saved as `wifi ssid` and `wifi
+  passphrase` and joined at once, through `lidar-wifi`) and forget, the
+  `wifi` service and `wifi country`.
+- **Bluetooth:** with the `bluetooth` service (it loads the Bluetooth
+  driver): power, the speaker's state, pairing mode on and off, the paired
+  phones with a button to forget each, a scan of nearby devices (name,
+  address, type, signal) through `btmgmt`, and the `bluetooth` settings.
+- **Smart home:** the `zigbee` and `thread` services with their settings
+  and state (Thread: role, network, channel, PAN ID, border routing).
+- **Security:** the login (below), `webui listen`, and `telnet` with
+  `telnet listen`. Switching `telnet` on asks first: it is a root shell
+  without a password for everyone on the USB network.
+- **System:** release and kernel, reboot, "Run setup again", the `webui`
+  service (switching it off asks first) and `webui storage_mb`, the files
+  from Fire OS with backup and restore, and the download of the Fire OS
+  image.
 - **Debug:** the kernel log with a filter and live follow, the previous
   boot's log from pstore (after a crash or a warm reboot), processes,
-  storage, mounts and modules, and a reboot button.
+  storage, mounts and modules.
 - **Files:** a read-only file browser with text preview (first 256 KB) and
   download. Device nodes, `/proc/kmsg`, `/proc/kcore`, process memory and
   debugfs are refused: reading some of them blocks, and debugfs register
   dumps of clock-gated blocks can stall the bus. `lidar.conf` on the
   booted slot is refused too, because it holds the Wi-Fi passphrase and
   the API key in plain text. Everything else is served.
+
+A switch, slider or choice is sent the moment it is used, and its row says
+what became of it: saved, or saved and in effect after a reboot (then a bar
+with "Reboot now" stays at the top). The page takes that from the API:
+`set`, `unset`, `enable` and `disable` answer `{"ok": true, "reboot":
+true|false, "message": "<what lidar-feature printed>"}`; only the `dsp`
+settings apply at once. The controls follow what `lidar-feature` allows
+(`on|off` a switch, a range a slider, a few values buttons, more a list).
+A service or setting the page has no place for yet, from a newer image,
+shows under "Advanced" in the category of its service, or under System, so
+none is ever missing. Over Wi-Fi the switches show but are disabled, and the
+settings are not sent (see Login below).
 
 **First-run setup.** Until it has been finished once (`webui setup_done`),
 the web interface opens a setup for clients on the USB network; "Run setup
@@ -612,7 +650,7 @@ again" under System starts it later. Every step can be skipped.
    Fire OS is still on `system_a`. The partition is only read, never
    mounted. The image is private: keep it, never share or publish it.
    Ticking "I saved the file" sets `webui fireos_image_saved`.
-4. *Wi-Fi*: scan and join, as under Network.
+4. *Wi-Fi*: scan and join, as under Wi-Fi.
 5. *Device name*: the name phones show for the Bluetooth speaker
    (`bluetooth name`), after a reboot. It is not a network hostname.
 6. *Voice assistant*: wake word, language, sensitivity and the Claude API
@@ -639,7 +677,7 @@ backend, not against the Echo.
 **Login.** The owner can protect the web interface with one PIN (digits
 only, at least 6) or one password (at least 10 printable ASCII characters);
 there are no user names. It is set in the first step of the setup and
-changed or removed under System, Login, and `webui auth` says of whom it is
+changed or removed under Security, Login, and `webui auth` says of whom it is
 asked:
 
 - `off` (the default until one is set): no login.
@@ -815,8 +853,9 @@ is missing from `/run/lidar-volume.state`, so both paths look the same.
   rest of the ring (`/run/lidar-ring.level`).
 - Dark while the speaker is muted, at volume 0, and while nothing plays
   (silence is judged before the volume). Dark too while one of our own
-  sounds plays (volume tone, Bluetooth sounds): whatever plays one writes
-  the time it ends, in seconds since boot, to `/run/lidar-viz.quiet`.
+  sounds plays (volume tone, Bluetooth sounds, a ringing timer or alarm):
+  whatever plays one writes the time it ends, in seconds since boot, to
+  `/run/lidar-viz.quiet` (the later end wins).
 - Verified on hardware: both styles with music over Bluetooth, the volume
   arc, mute, privacy red and pairing taking the ring and handing it back.
 
@@ -870,6 +909,81 @@ Neither the model nor the TensorFlow sources are in this repository:
 checksum (see Licensing). The licence texts go into the image, in
 `/usr/share/licenses/lidar-wakeword`. `tools/mk-wakeword.sh <dir>` without
 a sysroot builds the detector for the build host, to try it on recordings.
+
+### Assistant
+
+`lidar-assistant` (the `assistant` service, off by default) takes what was
+said as text, one utterance per line on `/run/lidar-assistant.fifo`, and
+carries it out: volume and speaker mute (`lidar-volume`), named timers,
+alarms (once, on a weekday, weekdays, weekends or every day), time and
+date, pause, resume, next and previous (`lidar-bluetooth media`, also the
+web player), and "stop" for whatever rings or plays. English or German
+(`voice language`); the phrases it answers with and the words it listens
+for are in `/usr/share/lidar/assistant/<language>.txt`. Speech recognition
+and speech output are not part of the image yet: answers are printed as
+`say <language> <text>`, and what the grammar does not understand as
+`unmatched <text>` (later the question for Claude).
+
+- **Try it:** `echo "set a pizza timer for twelve minutes" >
+  /run/lidar-assistant.fifo` acts at once; the service discards its
+  printed answers until speech output exists. `lidar-assistant -t -d
+  /tmp/x` shows them as you type (on a clock of its own, for tests, and
+  away from the service's alarms).
+- **Timers** run on the time since boot and are gone after a reboot.
+  **Alarms** are kept on the booted slot (`/var/lib/lidar-assistant`), in
+  the time zone of `voice timezone` (a POSIX TZ string, e.g.
+  `CET-1CEST,M3.5.0,M10.5.0/3`); they are neither set nor do they ring
+  before the clock came from the network (`/run/lidar-time.synced`), and
+  one more than 10 minutes late is dropped.
+- **Ringing:** a two-tone chime that starts quiet and rises over 30 s, or
+  `/var/lib/lidar-assistant/alarm.wav` if there is one (48 kHz 16-bit
+  stereo), with the speaker unmuted and at `voice ring_volume` at least,
+  until "stop", any button, or `echo '!stop' > /run/lidar-assistant.fifo`;
+  10 minutes at most. The volume goes back afterwards unless someone
+  changed it meanwhile. The microphones are never unmuted by voice: their
+  mute is a hardware latch.
+- **State:** `/run/lidar-assistant.json` (timers with `ends` in seconds
+  since boot, alarms, what rings), written when it changes.
+- `lidar-assistant -S` prints the actions as a tool list for a language
+  model, with their parameters and ranges; `-P` every phrase and number
+  word the answers are made of, for a speech cache.
+- Verified on the Echo: time, date, named timers and their remaining time,
+  alarm set, list and cancel in German with the local time zone, volume;
+  a timer rang and stopped at a button press. Not yet: an alarm actually
+  ringing at its time, media control against a phone.
+
+### Speech models
+
+The recognizer and the voice of the assistant are too large for the image
+(about 130 MB per language) and are downloaded on the Echo, one language at
+a time:
+
+```sh
+lidar-models install en            # or: de, de -v eva_k
+lidar-models status | verify | remove en
+```
+
+- Recognizer: sherpa-onnx streaming zipformer "Kroko" (2025-08-06) from the
+  sherpa-onnx releases; licence: see https://huggingface.co/Banafo/Kroko-ASR.
+- Voices: Piper `en_US-kristin-medium` (LibriVox, public domain),
+  `de_DE-thorsten-medium` (Thorsten-Voice, CC0, the rdh-based version) or
+  `de_DE-eva_k-x_low` (M-AILABS; smaller and faster; `voice voice_de`),
+  from rhasspy/piper-voices on Hugging Face at a pinned revision.
+- Every file is pinned by URL and sha256 in the script. A download is
+  checked before it is unpacked, the result is checked again, and only then
+  the `current` symlink switches; the other language is removed afterwards.
+- They live in `/var/lib/lidar-models` on the booted slot
+  (`current/stt`, `current/tts`, `current/info`). Flashing a new system
+  image removes them.
+- The image's filesystem is 256 MB on a partition of about 1.2 GB: one
+  language fits, switching languages needs room for both. `lidar-models
+  grow-fs` grows the mounted filesystem to its partition (`resize2fs`); it
+  only grows and does nothing if there is nothing to add.
+- Progress of an install: `/run/lidar-models.progress`, one tab-separated
+  line `<state> <percent> <language> <voice> <message>` with state
+  `download`, `unpack`, `verify`, `done` or `error`.
+- Tested on the PC (BusyBox ash, real downloads, grow-fs on a loop
+  device); on the Echo only `status` so far.
 
 ### Zigbee and Thread
 

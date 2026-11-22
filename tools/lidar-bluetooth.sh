@@ -29,6 +29,9 @@
 #        lidar-bluetooth devices          paired phones: address, connected
 #                                         (yes/no) and name, tab-separated
 #        lidar-bluetooth forget <address> remove a paired phone
+#        lidar-bluetooth media play|pause|next|previous
+#                                         every connected phone's player
+#                                         (AVRCP) and the web player
 RUN=/run/lidar-bluetooth
 FIFO=$RUN.fifo
 PAIRING=$RUN.pairing
@@ -183,18 +186,29 @@ button_watch() {
 	}
 }
 
-# Playback paused for pairing mode: AVRCP Pause to every connected phone
-# (its player object), and the web interface's player. Nothing resumes it.
-pause_all() {
-	dbus-send --system --print-reply --dest=org.bluez / \
+# AVRCP to every connected phone (its player object), and the web
+# interface's player. Fails if it reached neither.
+media() { # play|pause|next|previous
+	case $1 in
+	play) m=Play; f=resume ;;
+	pause) m=Pause; f=pause ;;
+	next) m=Next; f=next ;;
+	previous) m=Previous; f=prev ;;
+	*) echo "usage: lidar-bluetooth media play|pause|next|previous" >&2; exit 2 ;;
+	esac
+	n=$(dbus-send --system --print-reply --dest=org.bluez / \
 		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
 		sed -n 's|.*object path "\(/org/bluez/[^"]*/player[0-9]*\)"$|\1|p' | sort -u |
 		while read -r p; do
 			dbus-send --system --type=method_call --dest=org.bluez "$p" \
-				org.bluez.MediaPlayer1.Pause 2>/dev/null
-		done
-	to_fifo /run/lidar-player.fifo pause
+				org.bluez.MediaPlayer1.$m 2>/dev/null && echo "$p"
+		done | wc -l)
+	to_fifo /run/lidar-player.fifo $f && n=$((n + 1))
+	[ "$n" -gt 0 ]
 }
+
+# Playback paused for pairing mode. Nothing resumes it.
+pause_all() { media pause || :; }
 
 # bluealsa's events:
 # - "PCMAdded <pcm>": a phone opened an audio stream. Outside pairing mode
@@ -328,6 +342,7 @@ pair)
 	*) echo "usage: lidar-bluetooth pair [stop]" >&2; exit 2 ;;
 	esac
 	;;
+media) media "$2" ;;
 status)
 	if ! bluetoothd_up >/dev/null; then
 		echo "bluetoothd: not running"

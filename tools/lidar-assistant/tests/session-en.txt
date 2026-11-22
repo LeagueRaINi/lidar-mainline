@@ -1,0 +1,63 @@
+!state
+what time is it
+set an alarm for seven
+!clock 2026-11-22 18:00
+what time is it
+what's the date
+volume five
+what's the volume
+louder
+mute
+unmute
+set a timer for ten minutes
+pizza timer twelve minutes
+how much time is left
+!advance 300
+how long is left on the pizza timer
+cancel the egg timer
+cancel the timer
+set a timer for one hour and five minutes
+!advance 420
+!state
+stop the timer
+stop
+set a timer for ninety seconds
+!advance 90
+!advance 700
+set a timer for five minutes
+set a timer for six minutes
+cancel the timer
+cancel all timers
+how much time is left
+set an alarm for seven
+set an alarm for seven thirty tomorrow morning
+wake me at six on weekdays
+set an alarm for nine on weekends
+set an alarm every monday and wednesday at six am
+set an alarm for seven
+what alarms do i have
+!state
+!advance 2100
+!state
+!stop
+cancel the seven thirty alarm
+cancel the eight o'clock alarm
+cancel the alarm
+alarm today at five pm
+alarm on friday at five pm
+alarm at twelve oh five am
+what alarms do i have
+!advance 36000
+stop the alarm
+cancel all alarms
+what alarms do i have
+next song
+pause
+resume
+play some jazz
+!action timer_set seconds=172800
+!action timer_set seconds=61 name=Tea
+!action alarm_set hour=7 repeat=mon,funday
+!action alarm_set hour=7 minute=5 repeat=sat
+!action reboot
+how much time is left

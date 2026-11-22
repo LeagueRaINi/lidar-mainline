@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# lidar-assistant: English. "key = text", one per line; a "words." key may
+# come several times, its lines add up.
+#
+# say.*: what the assistant answers. Answers are put together from these
+# parts, number words and names, e.g. "[pizza] timer set for" "twelve"
+# "minutes". A part may be empty where English needs none.
+#
+# words.*: what the grammar listens for, any case, with or without accents.
+# Numbers, durations, times of day and weekdays are rules in grammar.cc.
+
+say.volume = Volume
+say.louder = Louder
+say.quieter = Quieter
+say.muted = Speaker muted
+say.unmuted = Speaker on
+say.no_volume = The volume service is not running
+# "[pizza] timer set for <duration>"
+say.timer_set = timer set for
+say.timer_set_end =
+say.timer = timer
+say.timer_cancelled = timer cancelled
+say.timers_cancelled = All timers cancelled
+say.no_timers = No timers are running
+say.no_such_timer = There is no such timer
+say.several_timers = There are several timers, say which one or cancel all timers
+# "[pizza] timer <duration> left"
+say.left =
+say.left_end = left
+say.too_many = That is too many
+say.alarm_set = Alarm set for
+say.alarm_cancelled = Cancelled the alarm for
+say.alarms_cancelled = All alarms cancelled
+say.no_alarms = No alarms are set
+say.no_such_alarm = There is no alarm at that time
+say.several_alarms = There are several alarms, say which time or cancel all alarms
+say.alarm_at = Alarm at
+say.time_past = That time has already passed
+say.no_clock = I don't know the time yet
+say.hour = hour
+say.hours = hours
+say.minute = minute
+say.minutes = minutes
+say.second = second
+say.seconds = seconds
+say.time = It's
+# "Today is Sunday November twenty-second"
+say.date = Today is
+say.date_the =
+say.today = today
+say.tomorrow = tomorrow
+say.on_day = on
+say.every = every
+say.every_day = every day
+say.weekdays = on weekdays
+say.weekends = on weekends
+say.and = and
+# "seven oh five AM"
+say.oh = oh
+say.am = AM
+say.pm = PM
+say.uhr =
+say.paused = Paused
+say.resumed = Resuming
+say.next = Next track
+say.previous = Previous track
+say.failed = That did not work
+say.bad_args = I can't do that
+say.monday = Monday
+say.tuesday = Tuesday
+say.wednesday = Wednesday
+say.thursday = Thursday
+say.friday = Friday
+say.saturday = Saturday
+say.sunday = Sunday
+say.january = January
+say.february = February
+say.march = March
+say.april = April
+say.may = May
+say.june = June
+say.july = July
+say.august = August
+say.september = September
+say.october = October
+say.november = November
+say.december = December
+
+# may be left over anywhere in a command
+words.filler = please hey jarvis ok okay can could would will you i id like want to the a an
+words.filler = my me for at on in of it is its now just thanks thank and this that there are
+words.filler = do have so then um uh well hi hello with thats
+# "don't ...": never matched here
+words.negation = not dont never no doesnt cant wont isnt without
+# may stand between "for" and a timer's name
+words.articles = the a an my
+words.cancel = cancel delete remove clear stop end kill dismiss disable
+words.all = all
+
+words.timer = timer timers countdown
+words.timer_list = how left remaining remains remain status list show check what which whats
+words.timer_list = when many running active
+words.timer_filler = set start create add make new begin put run called named name time much
+words.timer_filler = long does will go off still another up going until till done finish
+words.timer_filler = finishes ends any
+words.name_intro = called named for
+
+words.alarm = alarm alarms wake
+words.alarm_list = what which whats when list show check many any tell how
+words.alarm_filler = set create add make new up time clock ring go off does will get us oclock
+words.alarm_filler = next
+
+words.volume = volume louder quieter softer loud
+words.volume_up = up louder increase raise higher more
+words.volume_down = down quieter softer lower decrease reduce less
+words.volume_get = what whats how which current
+words.percent = percent
+words.volume_filler = volume loud turn crank set make put change level bit little much some
+words.volume_filler = speaker sound music by too
+
+words.mute = mute unmute muted unmuted
+words.mute_filler = mute unmute muted unmuted speaker speakers sound audio turn switch yourself
+words.mute_filler = volume music
+
+words.time_filler = time what whats tell current got know right clock
+words.date_filler = date day what whats which tell todays today week current
+
+# an utterance of nothing but these (and fillers) is "stop"
+words.stop = stop cancel quiet silence enough shut quit dismiss hush off
+words.stop_filler = up be thats turn switch alright all everything
+
+words.previous = previous back rewind
+words.next = next skip forward
+words.pause = pause stop halt hold
+words.resume = resume continue unpause play playing carry
+words.media_filler = music song songs track playback title tune go keep

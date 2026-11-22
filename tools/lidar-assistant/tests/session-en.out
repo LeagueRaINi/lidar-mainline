@@ -1,0 +1,228 @@
+> !state
+state {"language":"en","clock":false,"uptime":0,"ringing":[],"timers":[],"alarms":[]}
+> what time is it
+action time_get
+result {"action":"time_get","arguments":{},"ok":false,"code":"no_clock","say":"I don't know the time yet."}
+say en I don't know the time yet.
+> set an alarm for seven
+action alarm_set h12=1 hour=7 minute=0
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"7","minute":"0"},"ok":false,"code":"no_clock","say":"I don't know the time yet."}
+say en I don't know the time yet.
+> !clock 2026-11-22 18:00
+> what time is it
+action time_get
+result {"action":"time_get","arguments":{},"ok":true,"code":"ok","say":"It's six PM."}
+say en It's six PM.
+> what's the date
+action date_get
+result {"action":"date_get","arguments":{},"ok":true,"code":"ok","say":"Today is Sunday November twenty-second."}
+say en Today is Sunday November twenty-second.
+> volume five
+action volume_set level=5
+run lidar-volume set 50
+result {"action":"volume_set","arguments":{"level":"5"},"ok":true,"code":"ok","say":"Volume five."}
+say en Volume five.
+> what's the volume
+action volume_get
+result {"action":"volume_get","arguments":{},"ok":true,"code":"ok","say":"Volume five."}
+say en Volume five.
+> louder
+action volume_change direction=up
+run lidar-volume up
+result {"action":"volume_change","arguments":{"direction":"up"},"ok":true,"code":"ok","say":"Louder."}
+say en Louder.
+> mute
+action volume_mute mute=on
+run lidar-volume mute
+result {"action":"volume_mute","arguments":{"mute":"on"},"ok":true,"code":"ok","say":"Speaker muted."}
+say en Speaker muted.
+> unmute
+action volume_mute mute=off
+run lidar-volume unmute
+result {"action":"volume_mute","arguments":{"mute":"off"},"ok":true,"code":"ok","say":"Speaker on."}
+say en Speaker on.
+> set a timer for ten minutes
+action timer_set seconds=600
+result {"action":"timer_set","arguments":{"seconds":"600"},"ok":true,"code":"ok","say":"Timer set for ten minutes."}
+say en Timer set for ten minutes.
+> pizza timer twelve minutes
+action timer_set name=pizza seconds=720
+result {"action":"timer_set","arguments":{"name":"pizza","seconds":"720"},"ok":true,"code":"ok","say":"Pizza timer set for twelve minutes."}
+say en Pizza timer set for twelve minutes.
+> how much time is left
+action timer_list
+result {"action":"timer_list","arguments":{},"ok":true,"code":"ok","say":"Timer ten minutes left. Pizza timer twelve minutes left."}
+say en Timer ten minutes left. Pizza timer twelve minutes left.
+> !advance 300
+> how long is left on the pizza timer
+action timer_list name=pizza
+result {"action":"timer_list","arguments":{"name":"pizza"},"ok":true,"code":"ok","say":"Pizza timer seven minutes left."}
+say en Pizza timer seven minutes left.
+> cancel the egg timer
+action timer_cancel name=egg
+result {"action":"timer_cancel","arguments":{"name":"egg"},"ok":false,"code":"no_such_timer","say":"There is no such timer."}
+say en There is no such timer.
+> cancel the timer
+action timer_cancel
+result {"action":"timer_cancel","arguments":{},"ok":true,"code":"ok","say":"Timer cancelled."}
+say en Timer cancelled.
+> set a timer for one hour and five minutes
+action timer_set seconds=3900
+result {"action":"timer_set","arguments":{"seconds":"3900"},"ok":true,"code":"ok","say":"Timer set for one hour and five minutes."}
+say en Timer set for one hour and five minutes.
+> !advance 420
+ring start
+> !state
+state {"language":"en","clock":true,"uptime":720,"ringing":[{"kind":"timer","name":"pizza"}],"timers":[{"name":"","seconds":3900,"ends":4200,"remaining":3480}],"alarms":[]}
+> stop the timer
+action timer_cancel
+ring stop
+result {"action":"timer_cancel","arguments":{},"ok":true,"code":"ring_stopped","say":""}
+> stop
+action stop
+run lidar-bluetooth media pause
+result {"action":"stop","arguments":{},"ok":true,"code":"paused","say":""}
+> set a timer for ninety seconds
+action timer_set seconds=90
+result {"action":"timer_set","arguments":{"seconds":"90"},"ok":true,"code":"ok","say":"Timer set for one minute and thirty seconds."}
+say en Timer set for one minute and thirty seconds.
+> !advance 90
+ring start
+> !advance 700
+ring stop
+> set a timer for five minutes
+action timer_set seconds=300
+result {"action":"timer_set","arguments":{"seconds":"300"},"ok":true,"code":"ok","say":"Timer set for five minutes."}
+say en Timer set for five minutes.
+> set a timer for six minutes
+action timer_set seconds=360
+result {"action":"timer_set","arguments":{"seconds":"360"},"ok":true,"code":"ok","say":"Timer set for six minutes."}
+say en Timer set for six minutes.
+> cancel the timer
+action timer_cancel
+result {"action":"timer_cancel","arguments":{},"ok":false,"code":"several_timers","say":"There are several timers, say which one or cancel all timers."}
+say en There are several timers, say which one or cancel all timers.
+> cancel all timers
+action timer_cancel all=1
+result {"action":"timer_cancel","arguments":{"all":"1"},"ok":true,"code":"ok","say":"All timers cancelled."}
+say en All timers cancelled.
+> how much time is left
+action timer_list
+result {"action":"timer_list","arguments":{},"ok":false,"code":"no_timers","say":"No timers are running."}
+say en No timers are running.
+> set an alarm for seven
+action alarm_set h12=1 hour=7 minute=0
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"7","minute":"0"},"ok":true,"code":"ok","say":"Alarm set for seven PM today."}
+say en Alarm set for seven PM today.
+> set an alarm for seven thirty tomorrow morning
+action alarm_set day=tomorrow hour=7 minute=30
+result {"action":"alarm_set","arguments":{"day":"tomorrow","hour":"7","minute":"30"},"ok":true,"code":"ok","say":"Alarm set for seven thirty AM tomorrow."}
+say en Alarm set for seven thirty AM tomorrow.
+> wake me at six on weekdays
+action alarm_set h12=1 hour=6 minute=0 repeat=mon,tue,wed,thu,fri
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"6","minute":"0","repeat":"mon,tue,wed,thu,fri"},"ok":true,"code":"ok","say":"Alarm set for six AM on weekdays."}
+say en Alarm set for six AM on weekdays.
+> set an alarm for nine on weekends
+action alarm_set h12=1 hour=9 minute=0 repeat=sat,sun
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"9","minute":"0","repeat":"sat,sun"},"ok":true,"code":"ok","say":"Alarm set for nine AM on weekends."}
+say en Alarm set for nine AM on weekends.
+> set an alarm every monday and wednesday at six am
+action alarm_set hour=6 minute=0 repeat=mon,wed
+result {"action":"alarm_set","arguments":{"hour":"6","minute":"0","repeat":"mon,wed"},"ok":true,"code":"ok","say":"Alarm set for six AM every Monday and Wednesday."}
+say en Alarm set for six AM every Monday and Wednesday.
+> set an alarm for seven
+action alarm_set h12=1 hour=7 minute=0
+result {"action":"alarm_set","arguments":{"h12":"1","hour":"7","minute":"0"},"ok":true,"code":"ok","say":"Alarm set for seven PM today."}
+say en Alarm set for seven PM today.
+> what alarms do i have
+action alarm_list
+result {"action":"alarm_list","arguments":{},"ok":true,"code":"ok","say":"Alarm at seven PM today. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at seven thirty AM tomorrow. Alarm at nine AM on weekends."}
+say en Alarm at seven PM today. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at seven thirty AM tomorrow. Alarm at nine AM on weekends.
+> !state
+state {"language":"en","clock":true,"uptime":1510,"ringing":[],"timers":[],"alarms":[{"id":1,"hour":19,"minute":0,"repeat":[],"next":1795370400},{"id":3,"hour":6,"minute":0,"repeat":["mon","tue","wed","thu","fri"],"next":1795410000},{"id":5,"hour":6,"minute":0,"repeat":["mon","wed"],"next":1795410000},{"id":2,"hour":7,"minute":30,"repeat":[],"next":1795415400},{"id":4,"hour":9,"minute":0,"repeat":["sat","sun"],"next":1795852800}]}
+> !advance 2100
+ring start
+> !state
+state {"language":"en","clock":true,"uptime":3610,"ringing":[{"kind":"alarm","hour":19,"minute":0}],"timers":[],"alarms":[{"id":3,"hour":6,"minute":0,"repeat":["mon","tue","wed","thu","fri"],"next":1795410000},{"id":5,"hour":6,"minute":0,"repeat":["mon","wed"],"next":1795410000},{"id":2,"hour":7,"minute":30,"repeat":[],"next":1795415400},{"id":4,"hour":9,"minute":0,"repeat":["sat","sun"],"next":1795852800}]}
+> !stop
+ring stop
+> cancel the seven thirty alarm
+action alarm_cancel h12=1 hour=7 minute=30
+result {"action":"alarm_cancel","arguments":{"h12":"1","hour":"7","minute":"30"},"ok":true,"code":"ok","say":"Cancelled the alarm for seven thirty AM tomorrow."}
+say en Cancelled the alarm for seven thirty AM tomorrow.
+> cancel the eight o'clock alarm
+action alarm_cancel h12=1 hour=8 minute=0
+result {"action":"alarm_cancel","arguments":{"h12":"1","hour":"8","minute":"0"},"ok":false,"code":"no_such_alarm","say":"There is no alarm at that time."}
+say en There is no alarm at that time.
+> cancel the alarm
+action alarm_cancel
+result {"action":"alarm_cancel","arguments":{},"ok":false,"code":"several_alarms","say":"There are several alarms, say which time or cancel all alarms."}
+say en There are several alarms, say which time or cancel all alarms.
+> alarm today at five pm
+action alarm_set day=today hour=17 minute=0
+result {"action":"alarm_set","arguments":{"day":"today","hour":"17","minute":"0"},"ok":false,"code":"time_past","say":"That time has already passed."}
+say en That time has already passed.
+> alarm on friday at five pm
+action alarm_set day=fri hour=17 minute=0
+result {"action":"alarm_set","arguments":{"day":"fri","hour":"17","minute":"0"},"ok":true,"code":"ok","say":"Alarm set for five PM on Friday."}
+say en Alarm set for five PM on Friday.
+> alarm at twelve oh five am
+action alarm_set hour=0 minute=5
+result {"action":"alarm_set","arguments":{"hour":"0","minute":"5"},"ok":true,"code":"ok","say":"Alarm set for twelve oh five AM tomorrow."}
+say en Alarm set for twelve oh five AM tomorrow.
+> what alarms do i have
+action alarm_list
+result {"action":"alarm_list","arguments":{},"ok":true,"code":"ok","say":"Alarm at twelve oh five AM tomorrow. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at five PM on Friday. Alarm at nine AM on weekends."}
+say en Alarm at twelve oh five AM tomorrow. Alarm at six AM on weekdays. Alarm at six AM every Monday and Wednesday. Alarm at five PM on Friday. Alarm at nine AM on weekends.
+> !advance 36000
+ring start
+ring stop
+> stop the alarm
+action alarm_cancel
+result {"action":"alarm_cancel","arguments":{},"ok":false,"code":"several_alarms","say":"There are several alarms, say which time or cancel all alarms."}
+say en There are several alarms, say which time or cancel all alarms.
+> cancel all alarms
+action alarm_cancel all=1
+result {"action":"alarm_cancel","arguments":{"all":"1"},"ok":true,"code":"ok","say":"All alarms cancelled."}
+say en All alarms cancelled.
+> what alarms do i have
+action alarm_list
+result {"action":"alarm_list","arguments":{},"ok":false,"code":"no_alarms","say":"No alarms are set."}
+say en No alarms are set.
+> next song
+action media command=next
+run lidar-bluetooth media next
+result {"action":"media","arguments":{"command":"next"},"ok":true,"code":"ok","say":"Next track."}
+say en Next track.
+> pause
+action media command=pause
+run lidar-bluetooth media pause
+result {"action":"media","arguments":{"command":"pause"},"ok":true,"code":"ok","say":"Paused."}
+say en Paused.
+> resume
+action media command=resume
+run lidar-bluetooth media play
+result {"action":"media","arguments":{"command":"resume"},"ok":true,"code":"ok","say":"Resuming."}
+say en Resuming.
+> play some jazz
+action unmatched
+unmatched play some jazz
+> !action timer_set seconds=172800
+result {"action":"timer_set","arguments":{"seconds":"172800"},"ok":false,"code":"bad_arguments","say":"I can't do that."}
+say en I can't do that.
+> !action timer_set seconds=61 name=Tea
+result {"action":"timer_set","arguments":{"name":"Tea","seconds":"61"},"ok":true,"code":"ok","say":"Tea timer set for one minute and one second."}
+say en Tea timer set for one minute and one second.
+> !action alarm_set hour=7 repeat=mon,funday
+result {"action":"alarm_set","arguments":{"hour":"7","repeat":"mon,funday"},"ok":false,"code":"bad_arguments","say":"I can't do that."}
+say en I can't do that.
+> !action alarm_set hour=7 minute=5 repeat=sat
+result {"action":"alarm_set","arguments":{"hour":"7","minute":"5","repeat":"sat"},"ok":true,"code":"ok","say":"Alarm set for seven oh five AM every Saturday."}
+say en Alarm set for seven oh five AM every Saturday.
+> !action reboot
+result {"action":"reboot","arguments":{},"ok":false,"code":"no_such_action","say":"I can't do that."}
+say en I can't do that.
+> how much time is left
+action timer_list
+result {"action":"timer_list","arguments":{},"ok":true,"code":"ok","say":"Tea timer one minute and one second left."}
+say en Tea timer one minute and one second left.

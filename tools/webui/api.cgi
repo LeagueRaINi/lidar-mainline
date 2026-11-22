@@ -38,6 +38,15 @@ hdr() {
 fail() { hdr; printf '{"error": "%s"}\n' "$1"; exit 0; }
 ok() { hdr; printf '{"ok": true}\n'; exit 0; }
 
+# The answer to a changed service or setting: what lidar-feature said about
+# it ($1), and whether the change waits for the next boot
+changed() {
+	r=false; case $1 in *'next boot'*) r=true ;; esac
+	hdr
+	printf '{"ok": true, "reboot": %s, "message": "%s"}\n' $r "$(esc "$1")"
+	exit 0
+}
+
 # Clients on the USB network: a 169.254.0.0/16 address (httpd writes IPv6
 # peers as [addr], IPv4 ones on its dual-stack socket as ::ffff:addr) whose
 # route is usb0. Replies to it then only ever leave through usb0, so a Wi-Fi
@@ -399,7 +408,7 @@ setting_name() { # $val = <feature>.<key> -> $sf, $sk
 	sf=${val%%.*}; sk=${val#*.}
 	case $sf$sk in '' | *[!a-z0-9_]*) fail "bad setting" ;; esac
 	# the login has its own request, which asks for the current one
-	case $sf.$sk in webui.auth | webui.auth_*) fail "the login is changed with auth_set (System, Login)" ;; esac
+	case $sf.$sk in webui.auth | webui.auth_*) fail "the login is changed with auth_set (Security, Login)" ;; esac
 }
 
 # body: the new value, handed on as standard input: a secret must not show
@@ -407,8 +416,8 @@ setting_name() { # $val = <feature>.<key> -> $sf, $sk
 set_setting() {
 	setting_name
 	body_len 256
-	msg=$(head -c "$len" | lidar-feature set "$sf" "$sk" 2>&1 >/dev/null) || fail "$(esc "$msg")"
-	ok
+	msg=$(head -c "$len" | lidar-feature set "$sf" "$sk" 2>&1) || fail "$(esc "$msg")"
+	changed "$msg"
 }
 
 # First-run setup: whether it was finished and whether this client may run
@@ -875,14 +884,16 @@ system) system_info ;;
 settings) settings ;;
 enable | disable)
 	case $val in '' | *[!a-z0-9]*) fail "bad service" ;; esac
-	lidar-feature "$key" "$val" >/dev/null 2>&1 || fail "cannot change $val"
-	ok
+	msg=$(lidar-feature "$key" "$val" 2>/dev/null) || fail "cannot change $val"
+	changed "$msg"
 	;;
 set) set_setting ;;
 unset)
 	setting_name
-	lidar-feature unset "$sf" "$sk" >/dev/null 2>&1 || fail "unknown setting"
-	ok
+	msg=$(lidar-feature unset "$sf" "$sk" 2>/dev/null) || fail "unknown setting"
+	# lidar-feature only says so for set; the dsp settings apply at once
+	[ "$sf" = dsp ] || msg="$msg (takes effect on next boot)"
+	changed "$msg"
 	;;
 ls) ls_dir ;;
 file) get_file ;;

@@ -1,0 +1,265 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# lidar-assistant grammar tests: language | utterance | action it has to
+# give (arguments in alphabetical order). Run by "build.sh test".
+
+# English: volume
+en | turn it up | volume_change direction=up
+en | Turn the volume up, please. | volume_change direction=up
+en | louder | volume_change direction=up
+en | make it a bit louder | volume_change direction=up
+en | turn it down | volume_change direction=down
+en | volume down | volume_change direction=down
+en | quieter please | volume_change direction=down
+en | that's too loud | volume_change direction=down
+en | set the volume to five | volume_set level=5
+en | volume 7 | volume_set level=7
+en | Volume ten. | volume_set level=10
+en | volume to zero | volume_set level=0
+en | set volume to fifty percent | volume_set level=5
+en | turn the volume up to eight | volume_set level=8
+en | volume eleven | unmatched
+en | what's the volume | volume_get
+en | how loud is it | volume_get
+en | turn the lights down | unmatched
+en | mute | volume_mute mute=on
+en | mute the speaker | volume_mute mute=on
+en | unmute | volume_mute mute=off
+en | unmute the speaker please | volume_mute mute=off
+en | turn mute off | volume_mute mute=off
+en | mute the microphone | unmatched
+
+# English: stop
+en | stop | stop
+en | Stop! | stop
+en | shut up | stop
+en | be quiet | stop
+en | cancel | stop
+en | that's enough | stop
+en | hey jarvis stop it | stop
+en | stop the alarm | alarm_cancel
+en | stop the timer | timer_cancel
+
+# English: timers
+en | set a timer for ten minutes | timer_set seconds=600
+en | Set a timer for 10 minutes. | timer_set seconds=600
+en | pizza timer twelve minutes | timer_set name=pizza seconds=720
+en | set a pizza timer for twelve minutes | timer_set name=pizza seconds=720
+en | set a timer for pizza for 12 minutes | timer_set name=pizza seconds=720
+en | set a ten minute timer for the pasta | timer_set name=pasta seconds=600
+en | set a timer called tea for four minutes | timer_set name=tea seconds=240
+en | timer for one hour and thirty minutes | timer_set seconds=5400
+en | set a timer for an hour and a half | timer_set seconds=5400
+en | start a timer for two and a half minutes | timer_set seconds=150
+en | timer half an hour | timer_set seconds=1800
+en | set a timer for a quarter of an hour | timer_set seconds=900
+en | set a timer for ninety seconds | timer_set seconds=90
+en | set a timer for one minute thirty seconds | timer_set seconds=90
+en | set a timer for a hundred and twenty seconds | timer_set seconds=120
+en | set a timer for twenty five minutes | timer_set seconds=1500
+en | set a timer for twenty-five minutes | timer_set seconds=1500
+en | set a timer for 5 min | timer_set seconds=300
+en | cancel the timer | timer_cancel
+en | cancel the pizza timer | timer_cancel name=pizza
+en | cancel all timers | timer_cancel all=1
+en | turn off the timer | timer_cancel
+en | how much time is left on the timer | timer_list
+en | how long is left on the pizza timer | timer_list name=pizza
+en | how much time is left | timer_list
+en | what timers are running | timer_list
+en | set a timer | unmatched
+en | set a timer for ten | unmatched
+en | don't set a timer for ten minutes | unmatched
+en | set a timer for ten minutes and turn the volume up | unmatched
+en | set a timer for when the pizza is done | unmatched
+
+# English: alarms
+en | set an alarm for seven | alarm_set h12=1 hour=7 minute=0
+en | set an alarm for seven thirty | alarm_set h12=1 hour=7 minute=30
+en | set an alarm for 7:30 | alarm_set h12=1 hour=7 minute=30
+en | set an alarm for 7 a.m. | alarm_set hour=7 minute=0
+en | set an alarm for 7am | alarm_set hour=7 minute=0
+en | wake me up at six thirty tomorrow morning | alarm_set day=tomorrow hour=6 minute=30
+en | set an alarm for half past seven | alarm_set h12=1 hour=7 minute=30
+en | alarm at quarter to eight | alarm_set h12=1 hour=7 minute=45
+en | set an alarm for a quarter past six in the evening | alarm_set hour=18 minute=15
+en | alarm at ten to nine pm | alarm_set hour=20 minute=50
+en | set an alarm for five minutes past nine | alarm_set h12=1 hour=9 minute=5
+en | set an alarm for seven oh five | alarm_set h12=1 hour=7 minute=5
+en | set an alarm for quarter to one | alarm_set h12=1 hour=12 minute=45
+en | set an alarm for seven o'clock every day | alarm_set h12=1 hour=7 minute=0 repeat=mon,tue,wed,thu,fri,sat,sun
+en | wake me at six on weekdays | alarm_set h12=1 hour=6 minute=0 repeat=mon,tue,wed,thu,fri
+en | set an alarm for nine on weekends | alarm_set h12=1 hour=9 minute=0 repeat=sat,sun
+en | set an alarm for eight am every monday | alarm_set hour=8 minute=0 repeat=mon
+en | set an alarm every monday and wednesday at six am | alarm_set hour=6 minute=0 repeat=mon,wed
+en | set an alarm monday to friday at seven fifteen am | alarm_set hour=7 minute=15 repeat=mon,tue,wed,thu,fri
+en | alarm on friday at five pm | alarm_set day=fri hour=17 minute=0
+en | set an alarm for 19:15 | alarm_set hour=19 minute=15
+en | set an alarm for noon | alarm_set hour=12 minute=0
+en | set an alarm for midnight | alarm_set hour=0 minute=0
+en | alarm tonight at eleven | alarm_set day=today hour=23 minute=0
+en | set an alarm for twelve thirty pm | alarm_set hour=12 minute=30
+en | set an alarm for twelve am | alarm_set hour=0 minute=0
+en | wake me in twenty minutes | timer_set seconds=1200
+en | wake me up in an hour | timer_set seconds=3600
+en | cancel the alarm | alarm_cancel
+en | cancel all alarms | alarm_cancel all=1
+en | cancel the seven thirty alarm | alarm_cancel h12=1 hour=7 minute=30
+en | delete my seven am alarm | alarm_cancel hour=7 minute=0
+en | turn off the alarm | alarm_cancel
+en | what alarms do i have | alarm_list
+en | when is my alarm | alarm_list
+en | what time is my alarm | alarm_list
+en | do i have any alarms set | alarm_list
+en | set an alarm | unmatched
+en | set an alarm for twenty five o'clock | unmatched
+en | set an alarm for monday and tuesday at six | unmatched
+en | set an alarm for seven on christmas day | unmatched
+
+# English: time, date, music
+en | what time is it | time_get
+en | What's the time? | time_get
+en | tell me the time please | time_get
+en | hey jarvis what time is it | time_get
+en | what time is it in tokyo | unmatched
+en | what's the date | date_get
+en | what day is it today | date_get
+en | what is today's date | date_get
+en | pause | media command=pause
+en | pause the music | media command=pause
+en | stop the music | media command=pause
+en | resume | media command=resume
+en | continue playing | media command=resume
+en | play | media command=resume
+en | next song | media command=next
+en | skip this song | media command=next
+en | skip | media command=next
+en | previous track | media command=previous
+en | go back | media command=previous
+en | play some jazz | unmatched
+en | what's the weather like tomorrow | unmatched
+en | turn on the kitchen lights | unmatched
+en | ... | unmatched
+
+# German: volume
+de | lauter | volume_change direction=up
+de | Mach lauter! | volume_change direction=up
+de | mach die musik etwas leiser | volume_change direction=down
+de | lautstärke runter | volume_change direction=down
+de | das ist zu laut | volume_change direction=down
+de | lautstärke auf fünf | volume_set level=5
+de | Stell die Lautstärke auf acht. | volume_set level=8
+de | LAUTSTÄRKE 3 | volume_set level=3
+de | lautstärke auf fünfzig prozent | volume_set level=5
+de | lautstärke zwanzig | unmatched
+de | wie laut ist es | volume_get
+de | stumm | volume_mute mute=on
+de | schalte den lautsprecher stumm | volume_mute mute=on
+de | ton aus | volume_mute mute=on
+de | ton an | volume_mute mute=off
+de | stummschaltung aufheben | volume_mute mute=off
+de | schalte das mikrofon stumm | unmatched
+
+# German: stop
+de | stopp | stop
+de | Stopp! | stop
+de | hör auf | stop
+de | aufhören | stop
+de | ruhe | stop
+de | aus | stop
+de | das reicht | stop
+de | wecker aus | alarm_cancel
+de | stopp den timer | timer_cancel
+
+# German: timers
+de | stelle einen timer auf zehn minuten | timer_set seconds=600
+de | Stelle einen Timer auf 10 Minuten. | timer_set seconds=600
+de | timer zwölf minuten | timer_set seconds=720
+de | pizza timer zwölf minuten | timer_set name=pizza seconds=720
+de | pizzatimer auf zwölf minuten | timer_set name=pizza seconds=720
+de | stelle einen timer für die nudeln auf acht minuten | timer_set name=nudeln seconds=480
+de | brötchen timer fünfzehn minuten | timer_set name=brötchen seconds=900
+de | timer auf zweiundzwanzig minuten | timer_set seconds=1320
+de | timer auf zwei und zwanzig minuten | timer_set seconds=1320
+de | timer eine stunde und fünf minuten | timer_set seconds=3900
+de | timer auf anderthalb stunden | timer_set seconds=5400
+de | timer auf zweieinhalb minuten | timer_set seconds=150
+de | timer auf eine halbe stunde | timer_set seconds=1800
+de | stelle einen timer auf eine dreiviertelstunde | timer_set seconds=2700
+de | timer dreißig sekunden | timer_set seconds=30
+de | timer auf eine minute dreißig sekunden | timer_set seconds=90
+de | timer auf hundertzwanzig sekunden | timer_set seconds=120
+de | lösche den timer | timer_cancel
+de | lösche den pizza timer | timer_cancel name=pizza
+de | lösche alle timer | timer_cancel all=1
+de | brich den timer ab | timer_cancel
+de | stell den timer ab | timer_cancel
+de | wie lange läuft der timer noch | timer_list
+de | wie lange läuft der pizzatimer noch | timer_list name=pizza
+de | wie viel zeit ist noch übrig | timer_list
+de | wie lange noch | timer_list
+de | stelle einen timer | unmatched
+de | stelle keinen timer auf zehn minuten | unmatched
+de | stelle einen timer bis die pizza fertig ist | unmatched
+
+# German: alarms
+de | stelle einen wecker auf sieben uhr | alarm_set h12=1 hour=7 minute=0
+de | wecker auf sieben uhr dreißig | alarm_set h12=1 hour=7 minute=30
+de | wecker um 7:30 | alarm_set h12=1 hour=7 minute=30
+de | wecker um halb sieben | alarm_set h12=1 hour=6 minute=30
+de | wecker um halb eins | alarm_set h12=1 hour=12 minute=30
+de | wecke mich um viertel nach acht | alarm_set h12=1 hour=8 minute=15
+de | wecker auf viertel vor acht | alarm_set h12=1 hour=7 minute=45
+de | wecker um dreiviertel acht | alarm_set h12=1 hour=7 minute=45
+de | wecker um fünf vor halb sieben | alarm_set h12=1 hour=6 minute=25
+de | wecker um zehn nach sechs abends | alarm_set hour=18 minute=10
+de | weck mich morgen früh um sechs | alarm_set day=tomorrow hour=6 minute=0
+de | wecker für morgen um halb sieben | alarm_set day=tomorrow h12=1 hour=6 minute=30
+de | stelle den wecker auf neunzehn uhr fünfzehn | alarm_set hour=19 minute=15
+de | wecker um ein uhr mittags | alarm_set hour=13 minute=0
+de | wecker heute abend um acht | alarm_set day=today hour=20 minute=0
+de | wecker jeden tag um sieben uhr | alarm_set h12=1 hour=7 minute=0 repeat=mon,tue,wed,thu,fri,sat,sun
+de | jeden morgen um sieben wecken | alarm_set hour=7 minute=0 repeat=mon,tue,wed,thu,fri,sat,sun
+de | wecker werktags um sechs uhr dreißig | alarm_set h12=1 hour=6 minute=30 repeat=mon,tue,wed,thu,fri
+de | wecker am wochenende um neun | alarm_set h12=1 hour=9 minute=0 repeat=sat,sun
+de | wecker jeden montag um acht uhr morgens | alarm_set hour=8 minute=0 repeat=mon
+de | wecker montags und mittwochs um sieben | alarm_set h12=1 hour=7 minute=0 repeat=mon,wed
+de | wecker montag bis freitag um viertel nach sechs | alarm_set h12=1 hour=6 minute=15 repeat=mon,tue,wed,thu,fri
+de | wecker am freitag um siebzehn uhr | alarm_set day=fri hour=17 minute=0
+de | wecker um mitternacht | alarm_set hour=0 minute=0
+de | weck mich in zwanzig minuten | timer_set seconds=1200
+de | wecke mich in einer halben stunde | timer_set seconds=1800
+de | wecke mich in einer stunde | timer_set seconds=3600
+de | lösche den wecker | alarm_cancel
+de | lösche alle wecker | alarm_cancel all=1
+de | lösche den wecker um sieben uhr dreißig | alarm_cancel h12=1 hour=7 minute=30
+de | stell den wecker ab | alarm_cancel
+de | welche wecker sind gestellt | alarm_list
+de | wann klingelt der wecker | alarm_list
+de | wecker übermorgen um sieben | unmatched
+de | stelle einen wecker | unmatched
+
+# German: time, date, music
+de | wie spät ist es | time_get
+de | Wie spät ist es? | time_get
+de | wie viel uhr ist es | time_get
+de | wieviel uhr haben wir | time_get
+de | sag mir die uhrzeit | time_get
+de | wie spät ist es in tokio | unmatched
+de | welcher tag ist heute | date_get
+de | welches datum haben wir heute | date_get
+de | den wievielten haben wir heute | date_get
+de | pause | media command=pause
+de | musik anhalten | media command=pause
+de | stoppe die musik | media command=pause
+de | musik aus | media command=pause
+de | weiter | media command=resume
+de | musik fortsetzen | media command=resume
+de | musik an | media command=resume
+de | nächstes lied | media command=next
+de | weiter zum nächsten titel | media command=next
+de | überspringen | media command=next
+de | vorheriges lied | media command=previous
+de | zurück | media command=previous
+de | spiele jazz | unmatched
+de | wie wird das wetter morgen | unmatched
+de | mach das licht in der küche an | unmatched

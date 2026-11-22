@@ -48,6 +48,7 @@ telnet extra 0 root shell without authentication on port 23 of the USB network
 zigbee extra 0 Zigbee coordinator: zigbeed on the multi-PAN EFR32 radio, EZSP over TCP port 6638 for Home Assistant (ZHA); runs alongside thread
 thread extra 0 Thread border router: otbr-agent on the multi-PAN EFR32 radio, REST API on port 8081 for Home Assistant; runs alongside zigbee
 visualizer extra 0 sound display on the LED ring: spectrum or level of whatever the speaker plays, below the displays of the ring service
+assistant extra 0 voice assistant: timers, alarms, volume, music, time and date by command (English or German), as text on /run/lidar-assistant.fifo until speech recognition is part of the image. Needs the volume service; alarms and the time need the clock from the network (wifi)
 '
 
 # feature key default allowed description
@@ -85,12 +86,15 @@ dsp boost 0 0-6 loudness boost in dB into the compressor and limiter of the spea
 ring auto_brightness on on|off on: ring brightness follows the light sensor, as stock does; off: always full
 ring min_brightness 15 5-100 ring brightness in the dark, percent of full
 webui setup_done no no|yes yes: the first-run setup of the web interface was finished; no: the web interface opens it for clients on the USB network
-webui auth off off|wifi|all login for the web interface: off: none; wifi: asked of clients that are not on the USB network; all: asked of USB clients too. Set from the web interface (setup, or System), which stores auth_hash and auth_kind with it
+webui auth off off|wifi|all login for the web interface: off: none; wifi: asked of clients that are not on the USB network; all: asked of USB clients too. Set from the web interface (setup, or Security), which stores auth_hash and auth_kind with it
 webui auth_kind - pin|password what the login is, for the page to ask for the right thing: pin (digits only, at least 6) or password (at least 10 characters)
 webui auth_hash - crypt sha512-crypt hash of the PIN or password of the web interface (cryptpw -m sha512), never shown; without it there is no login, whatever auth says
 webui fireos_image_saved no no|yes yes: the owner confirmed in the setup that the full Fire OS image (system_a) was downloaded and saved
 voice wake_word hey_jarvis hey_jarvis word the voice assistant listens for (hey_jarvis is the only one for now)
 voice language en en|de language the voice assistant understands and speaks: en English, de German
+voice timezone UTC0 tz time zone of alarms and the time, as a POSIX TZ string: CET-1CEST,M3.5.0,M10.5.0/3 Central Europe, GMT0BST,M3.5.0/1,M10.5.0 UK, EST5EDT,M3.2.0,M11.1.0 US Eastern
+voice ring_volume 30 0-100 volume an alarm or timer rings at, at least, in percent; the speaker is unmuted for it. 0: volume and mute stay as they are
+voice voice_de thorsten thorsten|eva_k German voice: thorsten (natural, slower) or eva_k (smaller, about twice as fast); installed by lidar-models
 voice sensitivity medium low|medium|high how readily the wake word triggers: low misses more, high triggers more often by mistake
 voice api_key - secret Claude API key of the voice assistant, kept in plain text in lidar.conf (readable by root only) and never shown
 '
@@ -227,6 +231,19 @@ valid() { # allowed value
 		case $2 in *[![:graph:]]*) return 1 ;; esac
 		[ ${#2} -ge 16 ] && [ ${#2} -le 200 ] && return 0
 		;;
+	tz)
+		# a POSIX TZ rule (name and offset, e.g. CET-1CEST,...), not a
+		# zone file name: the image has no tzdata, and musl would quietly
+		# take Europe/Berlin or a bare CET as UTC
+		case $2 in '' | *[!A-Za-z0-9+,./:\<\>-]*) return 1 ;; esac
+		std=${2%%,*}
+		case $std in
+		:* | */*) return 1 ;;
+		[A-Za-z][A-Za-z][A-Za-z]*[0-9]* | '<'*'>'*[0-9]*) ;;
+		*) return 1 ;;
+		esac
+		[ ${#2} -le 48 ] && return 0
+		;;
 	crypt)
 		case $2 in *[!A-Za-z0-9./\$]*) return 1 ;; esac
 		case $2 in '$6$'?*'$'?*) [ ${#2} -le 128 ] && return 0 ;; esac
@@ -296,6 +313,7 @@ set)
 		passphrase) echo "invalid passphrase for $2 $3 (allowed: 8-63 printable ASCII characters)" >&2 ;;
 		secret) echo "invalid secret for $2 $3 (allowed: 16-200 printable ASCII characters without spaces)" >&2 ;;
 		crypt) echo "invalid hash for $2 $3 (allowed: sha512-crypt, as cryptpw -m sha512 prints it)" >&2 ;;
+		tz) echo "invalid time zone '$val' for $2 $3 (allowed: a POSIX TZ rule such as CET-1CEST,M3.5.0,M10.5.0/3 or UTC0, not a zone name)" >&2 ;;
 		ssid) echo "invalid value '$val' for $2 $3 (allowed: 1-32 bytes, no control characters)" >&2 ;;
 		label) echo "invalid value '$val' for $2 $3 (allowed: 1-48 bytes, no control characters)" >&2 ;;
 		*) echo "invalid value '$val' for $2 $3 (allowed: $ALLOWED)" >&2 ;;
