@@ -19,3 +19,6 @@ lidar-fireos-backup*.tar
 *.rej
 *.pyc
 __pycache__/
+
+# Release images the Pages deploy puts next to the installer
+installer/release/

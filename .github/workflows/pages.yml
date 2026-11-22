@@ -1,5 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# Publishes installer/ (a static site, no build step) to GitHub Pages.
+# Publishes installer/ (a static site, no build step) to GitHub Pages,
+# together with the latest published release's two images, gzipped, and
+# release.json (version, sizes and SHA-256 of the unpacked files): the
+# installer fetches them from its own origin, since a page cannot fetch
+# GitHub release assets (no CORS). A published release starts it again on
+# main: a run for the release itself would run on its tag, which the
+# github-pages environment does not let deploy (and would publish the
+# installer as it was at the tag).
 # Needs "Settings > Pages > Source: GitHub Actions" in the repository.
 name: pages
 
@@ -9,20 +16,36 @@ on:
     paths:
       - installer/**
       - .github/workflows/pages.yml
+  release:
+    types: [published]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  redeploy:
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Deploy again from main, now with this release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run pages.yml --ref "${{ github.event.repository.default_branch }}"
+
+  deploy:
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -32,6 +55,39 @@ jobs:
         run: |
           want=$(awk '$1 == "sha256" { print $2 }' installer/vendor/SOURCE.txt)
           echo "$want  installer/vendor/fastboot.mjs" | sha256sum -c -
+      - name: The latest published release's images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # none published yet: the installer falls back to picking files;
+          # any other failure stops the deploy, the site keeps its images
+          if ! tag=$(gh release view --json tagName --jq .tagName 2>&1); then
+            case $tag in
+              *"release not found"*) echo "no published release"; exit 0 ;;
+              *) echo "$tag" >&2; exit 1 ;;
+            esac
+          fi
+          d=installer/release
+          mkdir -p "$d"
+          gh release download "$tag" -D "$d" -p lidar-uboot.img -p lidar-test-system.ext4 -p SHA256SUMS
+          (cd "$d" && sha256sum -c SHA256SUMS --ignore-missing --strict)
+          gh release view "$tag" --json tagName,name,publishedAt > "$d/meta.json"
+          {
+            printf '{"tag": %s, "name": %s, "published_at": %s, "files": {' \
+              "$(jq .tagName "$d/meta.json")" "$(jq .name "$d/meta.json")" "$(jq .publishedAt "$d/meta.json")"
+            sep=
+            for f in lidar-uboot.img lidar-test-system.ext4; do
+              printf '%s"%s": {"size": %s, "sha256": "%s", "gz": "%s.gz"}' "$sep" "$f" \
+                "$(stat -c %s "$d/$f")" "$(sha256sum "$d/$f" | cut -d' ' -f1)" "$f"
+              sep=", "
+              gzip -9 -n "$d/$f"
+            done
+            printf '}}\n'
+          } > "$d/release.json"
+          rm "$d/meta.json"
+          jq . "$d/release.json"
+          ls -la "$d"
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:

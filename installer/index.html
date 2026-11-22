@@ -167,9 +167,21 @@
   <section id="step-3" hidden>
     <header>
       <h2>Images</h2>
-      <p class="lead">Pick the two images you built (<code>out/</code> in the source tree) or downloaded. They stay on this computer.</p>
+      <p class="lead">Download the two images of the latest release, then pick them below. They stay on this computer.</p>
     </header>
+    <div class="card" id="release-card">
+      <div class="ch"><h3>Latest release</h3><span class="pill" id="release-pill">looking</span></div>
+      <p class="muted" id="release-note">Asking GitHub for the latest release…</p>
+      <div class="bar" id="release-get-bar" hidden><button class="pri" id="release-get">Download and use</button></div>
+      <div class="prog" id="release-prog" hidden><progress max="1" value="0"></progress><span></span></div>
+      <div class="bar" id="release-links" hidden>
+        <a class="btn" id="dl-uboot" rel="noopener">lidar-uboot.img</a>
+        <a class="btn" id="dl-system" rel="noopener">lidar-test-system.ext4</a>
+      </div>
+      <p class="note" id="release-more"></p>
+    </div>
     <div class="card">
+      <h3>Pick the downloaded images</h3>
       <ul class="rows">
         <li><div class="stack"><span class="name">U-Boot: <code>lidar-uboot.img</code></span>
           <input type="file" id="file-uboot" accept=".img" aria-label="lidar-uboot.img">
@@ -177,16 +189,15 @@
         <li><div class="stack"><span class="name">System: <code>lidar-test-system.ext4</code></span>
           <input type="file" id="file-system" accept=".ext4,.img" aria-label="lidar-test-system.ext4">
           <span class="meta" id="img-system-meta">Not chosen</span></div><span class="pill" id="img-system-pill">missing</span></li>
-        <li><div class="stack"><span class="name">Checksums: <code>SHA256SUMS</code> <span class="muted">(optional)</span></span>
-          <input type="file" id="file-sums" aria-label="SHA256SUMS">
-          <span class="meta" id="sums-meta">With it, both images are verified before anything is flashed. Without it, compare the SHA-256 values shown here with the published ones yourself.</span></div></li>
       </ul>
-    </div>
-    <div class="card" id="mirror-card">
-      <h3>Or download them</h3>
-      <p class="muted" id="mirror-note"></p>
-      <div class="bar"><button id="mirror-btn">Download images</button></div>
-      <div class="prog" id="mirror-prog" hidden><progress max="1" value="0"></progress><span></span></div>
+      <details>
+        <summary>Images you built yourself</summary>
+        <p class="muted">They are in <code>out/</code> of the source tree, and differ from the release's: pick them above and they
+          show as "not verified". To check them anyway, write their checksums in <code>out/</code> with
+          <code>sha256sum lidar-uboot.img lidar-test-system.ext4 &gt; SHA256SUMS</code> and pick that file here.</p>
+        <input type="file" id="file-sums" aria-label="SHA256SUMS">
+        <p class="meta" id="sums-meta"></p>
+      </details>
     </div>
     <p class="msg bad" id="img-msg" hidden></p>
     <div class="bar"><button data-go="2">Back</button><span class="grow"></span><button class="pri" data-go="4" id="next-3" disabled>Next</button></div>

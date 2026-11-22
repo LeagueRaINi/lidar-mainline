@@ -20,12 +20,12 @@ import { FastbootDevice, FastbootError, TimeoutError } from "./vendor/fastboot.m
 
 const REPO_URL = "https://github.com/LeagueRaINi/lidar-mainline";
 
-// Where "Download images" fetches lidar-uboot.img, lidar-test-system.ext4 and
-// SHA256SUMS from. Empty: no mirror yet, the button is disabled. It has to be
-// a host that sends "Access-Control-Allow-Origin" (the planned
-// Cloudflare-hosted mirror): GitHub release assets cannot be fetched
-// cross-origin from a page, their download URLs redirect without CORS headers.
-const IMAGE_BASE_URL = "";
+// The latest published release, from the GitHub API (which allows
+// cross-origin requests). Its files cannot be fetched from a page: their
+// download URLs redirect to a host without CORS headers. So the page links
+// to them for a normal browser download, and takes their SHA-256 from the
+// API's "digest" field to check the files the user then picks.
+const RELEASE_API = "https://api.github.com/repos/LeagueRaINi/lidar-mainline/releases/latest";
 
 // The only partitions this page ever writes. system_a holds Fire OS; it stays
 // off limits until the project releases it as lidar's second slot.
@@ -163,9 +163,13 @@ function initBrowserCheck() {
 
 /* ---------- step 3: images ---------- */
 
-// name -> { blob, name, sha256, verified }; verified: true (matches SHA256SUMS) or false (no checksum to compare)
+// key -> { blob, name, sha256, verifiedBy, strict }; verifiedBy: what it matched ("release v0.0.1",
+// "SHA256SUMS (file)"), "" if nothing; strict: it came from the one-click download
 const images = {};
-let sums = null;        // Map file name -> sha256, from a SHA256SUMS file
+let release = null;     // { tag, sums: Map file -> sha256 } of the latest published release
+let hosted = null;      // release.json the Pages deploy put next to the page, with the gzipped images
+let userSums = null;    // { from, sums } from a SHA256SUMS the user picked (images built yourself)
+const pickSeq = {};     // per image: a newer pick wins over a slower check of an older one
 
 function parseSums(text) {
   const map = new Map();
@@ -183,67 +187,158 @@ function showImage(key, pill, cls, meta) {
 }
 
 // Checks one image (format, then checksum) and stores it, or says why not.
-async function takeImage(key, blob, name) {
+// A SHA256SUMS the user picked must match. The release's checksum must match
+// a one-click download (strict); a file picked by hand that differs from it
+// is the user's own build or another version: flashable, but not verified.
+async function takeImage(key, blob, name, strict = false) {
   const spec = IMAGES[key];
+  const seq = pickSeq[key] = (pickSeq[key] || 0) + 1;
   delete images[key];
   if (!blob) return showImage(key, "missing", "", "Not chosen");
   showImage(key, "checking", "", name + ", " + mib(blob.size));
-  if (!(await spec.check(blob)))
-    return showImage(key, "wrong file", "warn", name + " is not " + spec.what + ". Expected " + spec.file + ".");
+  const ok = await spec.check(blob);
+  if (seq !== pickSeq[key]) return;
+  if (!ok) return showImage(key, "wrong file", "warn", name + " is not " + spec.what + ". Expected " + spec.file + ".");
   const hash = await sha256(blob);
-  const want = sums && sums.get(spec.file);
-  if (want && want !== hash)
-    return showImage(key, "checksum mismatch", "warn", name + " does not match SHA256SUMS. It is damaged or not the published file; " +
-      "it will not be flashed. SHA-256 " + hash);
-  images[key] = { blob, name, sha256: hash, verified: !!want };
-  showImage(key, want ? "verified" : "not verified", want ? "on" : "hint", name + ", " + mib(blob.size) + ", SHA-256 " + hash);
+  if (seq !== pickSeq[key]) return;
+  const head = name + ", " + mib(blob.size), tail = ". SHA-256 " + hash;
+  const keep = (verifiedBy) => { images[key] = { blob, name, sha256: hash, verifiedBy, strict }; };
+  const mine = userSums && userSums.sums.get(spec.file);
+  if (mine && mine !== hash)
+    return showImage(key, "checksum mismatch", "warn", head + " does not match " + userSums.from + ": damaged or not that file, it will not be flashed" + tail);
+  if (mine) {
+    keep(userSums.from);
+    return showImage(key, "verified", "on", head + ", matches " + userSums.from + tail);
+  }
+  const rel = release && release.sums.get(spec.file);
+  if (rel && rel === hash) {
+    keep("release " + release.tag);
+    return showImage(key, "verified", "on", head + ", matches release " + release.tag + tail);
+  }
+  if (rel && strict)
+    return showImage(key, "checksum mismatch", "warn", head + " does not match release " + release.tag +
+      ": the download is damaged, it will not be flashed. Try again" + tail);
+  keep("");
+  showImage(key, "not verified", "hint", head + (rel ? ": not the file of release " + release.tag +
+    " (built yourself, or another version)" : "") + tail);
 }
 
 async function recheckImages() {
   for (const key of Object.keys(IMAGES)) {
     const have = images[key];
     const input = $("file-" + key);
-    if (have) await takeImage(key, have.blob, have.name);
+    if (have) await takeImage(key, have.blob, have.name, have.strict);
     else if (input.files[0]) await takeImage(key, input.files[0], input.files[0].name);
   }
 }
 
-async function fetchWithProgress(name, onProgress) {
-  const resp = await fetch(IMAGE_BASE_URL + name, { cache: "no-store", referrerPolicy: "no-referrer" });
-  if (!resp.ok) throw new Error(name + ": HTTP " + resp.status);
+// One image from next to the page: gzipped by the Pages deploy (if the
+// server already undid the gzip, it is taken as it is)
+async function fetchHosted(gz, onProgress) {
+  const resp = await fetch("release/" + gz, { cache: "no-store" });
+  if (!resp.ok) throw new Error(gz + ": HTTP " + resp.status);
   const total = Number(resp.headers.get("Content-Length")) || 0;
-  const parts = [];
   let got = 0;
-  for (const reader = resp.body.getReader(); ;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parts.push(value);
-    got += value.length;
-    onProgress(total ? got / total : 0, got);
-  }
-  return new Blob(parts);
+  const reader = resp.body.getReader();
+  const first = await reader.read();
+  const count = (chunk) => { got += chunk.length; onProgress(total ? got / total : 0, got, total); return chunk; };
+  const body = new ReadableStream({
+    start(c) { if (!first.done) c.enqueue(count(first.value)); else c.close(); },
+    async pull(c) { const r = await reader.read(); if (r.done) c.close(); else c.enqueue(count(r.value)); },
+    cancel(reason) { return reader.cancel(reason); },
+  });
+  const gzipped = !first.done && first.value[0] === 0x1f && first.value[1] === 0x8b;
+  return await new Response(gzipped ? body.pipeThrough(new DecompressionStream("gzip")) : body).blob();
 }
 
-async function downloadImages() {
-  $("mirror-btn").disabled = true;
+async function getRelease() {
+  $("release-get").disabled = true;
   setMsg("img-msg", "", "");
   try {
-    try {
-      const resp = await fetch(IMAGE_BASE_URL + "SHA256SUMS", { cache: "no-store", referrerPolicy: "no-referrer" });
-      if (resp.ok) sums = parseSums(await resp.text());
-    } catch (e) { /* no checksums: the images show as "not verified" */ }
-    $("sums-meta").textContent = sums ? "SHA256SUMS loaded from the mirror." : "The mirror has no SHA256SUMS; the images are not verified.";
     for (const key of Object.keys(IMAGES)) {
-      const name = IMAGES[key].file;
-      const blob = await fetchWithProgress(name, (f, got) => setProgress("mirror-prog", f, name + ": " + mib(got)));
-      await takeImage(key, blob, name);
+      const file = IMAGES[key].file;
+      const blob = await fetchHosted(hosted.files[file].gz, (f, got, total) =>
+        setProgress("release-prog", f, file + ": " + mib(got) + (total ? " of " + mib(total) : "")));
+      await takeImage(key, blob, file, true);
     }
-    $("mirror-prog").hidden = true;
   } catch (e) {
-    $("mirror-prog").hidden = true;
-    setMsg("img-msg", "bad", "Download failed (" + e.message + "). Check the connection and try again, or pick the files by hand above.");
+    setMsg("img-msg", "bad", "Download failed (" + e.message + "). Try again, or download the files with the links and pick them below.");
   }
-  $("mirror-btn").disabled = false;
+  $("release-prog").hidden = true;
+  $("release-get").disabled = false;
+}
+
+// The latest release: what GitHub's API says (links, checksums), and the
+// copy the Pages deploy put next to the page (one-click download)
+async function loadRelease() {
+  $("release-more").textContent = "";
+  const all = Object.assign(document.createElement("a"), { href: REPO_URL + "/releases", target: "_blank", rel: "noopener", textContent: "All releases" });
+  try {
+    const r = await fetch("release/release.json", { cache: "no-store" });
+    if (r.ok) hosted = await r.json();
+  } catch (e) { /* deployed without images */ }
+  let api = null, why = "", answered = false;   // answered: GitHub said which release is the latest (or none)
+  try {
+    const resp = await fetch(RELEASE_API, { cache: "no-store", referrerPolicy: "no-referrer" });
+    if (resp.status === 404) { why = "no release published yet"; answered = true; }
+    else if (resp.headers.get("x-ratelimit-remaining") === "0")
+      why = "GitHub's request limit for this network is used up until " +
+        new Date(1000 * Number(resp.headers.get("x-ratelimit-reset"))).toLocaleTimeString();
+    else if (!resp.ok) why = "GitHub answered " + resp.status;
+    else { api = await resp.json(); answered = true; }
+  } catch (e) {
+    why = "no connection to GitHub";
+  }
+  const sums = new Map();
+  let tag = "";
+  if (api) {
+    tag = api.tag_name;
+    for (const key of Object.keys(IMAGES)) {
+      const asset = (api.assets || []).find((a) => a.name === IMAGES[key].file);
+      if (!asset || !String(asset.browser_download_url).startsWith(REPO_URL + "/releases/download/")) {
+        why = tag + " has no usable " + IMAGES[key].file;
+        api = null;
+        tag = "";
+        break;
+      }
+      $("dl-" + key).href = asset.browser_download_url;
+      $("dl-" + key).textContent = "Download " + asset.name + " (" + mib(asset.size) + ")";
+      const m = /^sha256:([0-9a-f]{64})$/.exec(asset.digest || "");
+      if (m) sums.set(asset.name, m[1]);
+    }
+  }
+  // the copy next to the page only if it is that release (or GitHub could
+  // not be asked) and agrees with GitHub's checksums
+  if (hosted && (tag ? hosted.tag === tag : !answered)) {
+    for (const key of Object.keys(IMAGES)) {
+      const f = hosted.files && hosted.files[IMAGES[key].file];
+      const s = f && String(f.sha256).toLowerCase();
+      if (!f || !/^[0-9a-f]{64}$/.test(s) || (sums.has(IMAGES[key].file) && sums.get(IMAGES[key].file) !== s)) { hosted = null; break; }
+      sums.set(IMAGES[key].file, s);
+    }
+    if (hosted) tag = String(hosted.tag);
+  } else {
+    hosted = null;
+  }
+  if (!tag) {
+    setPill("release-pill", why === "no release published yet" ? "not found" : "unavailable", "hint");
+    $("release-note").textContent = "Could not get the latest release (" + why + "). Download the images from the releases page, " +
+      "or build them yourself, and pick them below.";
+    $("release-more").append(all);
+    return;
+  }
+  release = { tag, sums };
+  setPill("release-pill", tag, "on");
+  $("release-get").textContent = "Download and use " + tag;
+  $("release-get-bar").hidden = !hosted;
+  $("release-links").hidden = !api;
+  $("release-note").textContent = (api ? (api.name || tag) + ", published " + new Date(api.published_at).toLocaleDateString() : tag) + ". " +
+    (hosted ? "One click downloads both images and checks them against the release."
+      : sums.size ? "Download both images, then pick them below: they are checked against the release before anything is flashed."
+        : "GitHub gave no checksums: compare the SHA-256 values shown below with the release's SHA256SUMS yourself.");
+  $("release-more").append(hosted ? "Or download the files yourself and pick them below. " : "",
+    "Older versions and the release notes: ", all, ".");
+  recheckImages();
 }
 
 function initImages() {
@@ -255,28 +350,23 @@ function initImages() {
   }
   $("file-sums").addEventListener("change", async (e) => {
     const f = e.target.files[0];
-    sums = f ? parseSums(await f.text()) : null;
-    if (f && !sums.size) {
-      sums = null;
+    const parsed = f ? parseSums(await f.text()) : null;
+    if (f && !parsed.size) {
       $("sums-meta").textContent = f.name + " has no SHA-256 lines.";
-    } else {
-      $("sums-meta").textContent = f ? f.name + " loaded." : "No checksums; compare the SHA-256 values shown here yourself.";
+      return;
     }
+    userSums = f ? { from: "SHA256SUMS (" + f.name + ")", sums: parsed } : null;
+    $("sums-meta").textContent = f ? f.name + " loaded: the images are checked against it." : "";
     recheckImages();
   });
-  if (IMAGE_BASE_URL) {
-    $("mirror-note").textContent = "From " + new URL(IMAGE_BASE_URL).host + ", checked against its SHA256SUMS.";
-    $("mirror-btn").addEventListener("click", downloadImages);
-  } else {
-    $("mirror-note").textContent = "There is no download mirror yet. Build the images from the source tree, or get them from the project's releases page, and pick them above.";
-    $("mirror-btn").disabled = true;
-  }
+  $("release-get").addEventListener("click", getRelease);
+  loadRelease();
 }
 
 function describeImage(key, id, partition) {
   const img = images[key];
   $(id).textContent = img
-    ? img.name + " (" + mib(img.blob.size) + ", " + (img.verified ? "checksum verified" : "checksum not verified") + ") → " + partition
+    ? img.name + " (" + mib(img.blob.size) + ", " + (img.verifiedBy ? "matches " + img.verifiedBy : "checksum not verified") + ") → " + partition
     : "No image for this phase yet: go back to Images and pick " + IMAGES[key].file + ".";
 }
 
@@ -389,7 +479,7 @@ function confirmFlash(partition, img, warning) {
   const kv = $("confirm-kv");
   kv.textContent = "";
   for (const [k, v] of [["Partition", partition], ["Image", img.name], ["Size", mib(img.blob.size)], ["SHA-256", img.sha256],
-    ["Checksum", img.verified ? "matches SHA256SUMS" : "not verified"]]) {
+    ["Checksum", img.verifiedBy ? "matches " + img.verifiedBy : "not verified"]]) {
     kv.append(Object.assign(document.createElement("dt"), { textContent: k }), Object.assign(document.createElement("dd"), { textContent: v }));
   }
   $("confirm-warn").textContent = warning;

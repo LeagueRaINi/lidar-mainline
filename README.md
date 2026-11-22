@@ -232,11 +232,17 @@ Chromium browser (Chrome, Edge, Brave, Opera) over WebUSB. It needs what
 the manual way needs: Kaeru fastboot already on the device, your own
 `boot_a` dump, and the pogo-pin USB. It contains no unlock code.
 
-- You pick `lidar-uboot.img` and `lidar-test-system.ext4` from disk, and
-  optionally a `SHA256SUMS` file to verify them. Nothing is uploaded. The
-  page cannot download the images itself yet: a page cannot fetch GitHub
-  release assets (their download URLs redirect without CORS headers), so
-  that waits for a mirror.
+- One click on "Download and use" fetches the latest published release's
+  two images and checks them. A page cannot fetch GitHub release assets
+  (their download URLs redirect to a host without CORS headers, tested),
+  so the Pages workflow (`.github/workflows/pages.yml`, run again for every
+  published release) puts the release's images, gzipped (about 37 MB), and
+  `release.json` with their SHA-256 next to the page; the page unpacks them
+  and compares them with that and with the `digest` the GitHub API gives
+  for each release file. Files you download or build yourself can still
+  be picked: they are checked against the release, or against a
+  `SHA256SUMS` you pick, and otherwise flashed as "not verified" after a
+  warning. Nothing is uploaded.
 - For each phase a photo of the Echo's top shows the button to hold,
   circled: Action for Kaeru fastboot, Volume Up for U-Boot's.
 - It writes `boot_a` and `system_b` only and refuses any other partition.
