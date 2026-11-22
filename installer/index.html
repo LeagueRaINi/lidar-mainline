@@ -1,324 +1,444 @@
 <!-- SPDX-License-Identifier: GPL-2.0-only -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>lidar installer</title>
+<title>lidar-mainline: open firmware for the Echo Plus (2nd gen)</title>
+<meta name="description" content="Mainline Linux and U-Boot for the Amazon Echo Plus (2nd generation): a Bluetooth speaker with its own tuning, a light ring that follows the music, an experimental on-device voice assistant and a web interface on the speaker itself. Installed from the browser over USB.">
+<meta name="color-scheme" content="dark light">
 <script>
-/* Theme before the first paint: the stored choice, else the system's. */
+/* Theme before the first paint, shared with the installer: the stored choice, else the system's. */
 (function () {
   var t = null;
   try { t = localStorage.getItem('theme'); } catch (e) {}
-  if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   document.documentElement.dataset.theme = t;
 })();
 </script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="landing.css">
 </head>
-<body>
+<body class="lp">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M8.5 7.5 4 12l4.5 4.5M15.5 7.5 20 12l-4.5 4.5M13.5 5l-3 14"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="3"/><circle cx="12" cy="14" r="3.6"/><path d="M12 6.6h.01"/></symbol>
+  <symbol id="i-ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6" stroke-dasharray="2.7 1.8"/><circle cx="12" cy="12" r="3.2"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></symbol>
+  <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18M6.5 6.5h.01M9 6.5h.01"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.5-3.2 8.2-7.5 9.5-4.3-1.3-7.5-5-7.5-9.5V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5M4.5 15v3.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V15"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10.5v3"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 3.5V17h0A1.5 1.5 0 0 1 4 15.5z"/><path d="M8.5 9h7M8.5 12.5h4.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <!-- one LED of the ring: a 30-degree arc at the top of a 100 x 100 box, rotated into place; the twelve tile the ring -->
+  <symbol id="led" viewBox="0 0 100 100" overflow="visible"><path d="M38.22 6.05A45.5 45.5 0 0 1 61.78 6.05"/></symbol>
 </svg>
 
-<aside id="side">
-  <div class="brand">
-    <svg class="logo" id="logo" viewBox="0 0 30 30" role="img" aria-labelledby="logo-title"><title id="logo-title">Progress</title><circle cx="15" cy="15" r="11.5"/><circle class="arc" id="logo-arc" cx="15" cy="15" r="11.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 15 15)"/></svg>
-    <div>
-      <h1>lidar installer</h1>
-      <p>Echo Plus 2nd gen</p>
+<a class="skip" href="#top">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand-lp" href="#top" aria-label="lidar-mainline, top of the page">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><circle class="arc" cx="16" cy="16" r="12" pathLength="100" stroke-dasharray="34 100" transform="rotate(-100 16 16)"/></svg>
+      <span>lidar-mainline</span>
+    </a>
+    <nav class="links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#interface">Interface</a>
+      <a href="#voice">Voice</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="top-act">
+      <button id="theme" class="ghost icon-btn" type="button" hidden><svg class="i" aria-hidden="true"><use href="#i-theme"/></svg><span class="sr" id="theme-label">Theme</span></button>
+      <a class="btn ghost icon-btn" href="https://github.com/LeagueRaINi/lidar-mainline" title="Source on GitHub"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg><span class="sr">Source on GitHub</span></a>
+      <a class="btn pri top-cta" href="install.html">Install</a>
     </div>
   </div>
-  <nav aria-label="Steps">
-    <button data-step="1"><span class="n">1</span><span>Browser</span></button>
-    <button data-step="2"><span class="n">2</span><span>Before you start</span></button>
-    <button data-step="3"><span class="n">3</span><span>Images</span></button>
-    <button data-step="4"><span class="n">4</span><span>U-Boot</span></button>
-    <button data-step="5"><span class="n">5</span><span>System</span></button>
-    <button data-step="6"><span class="n">6</span><span>Done</span></button>
-  </nav>
-  <div class="side-foot">
-    <button id="theme" class="ghost"><svg class="i" aria-hidden="true"><use href="#i-theme"/></svg><span id="theme-label">Theme</span></button>
-  </div>
-</aside>
+</header>
 
-<main>
-  <noscript><p class="msg bad">This installer needs JavaScript.</p></noscript>
-  <p class="msg bad" id="boot-msg" hidden></p>
+<main id="top">
+  <!-- hero -->
+  <section class="hero backdrop" aria-labelledby="hero-title">
+    <div class="wrap hero-in">
+      <div class="hero-copy">
+        <p class="tag"><span class="dot" aria-hidden="true"></span>Early test release v0.0.1</p>
+        <h1 id="hero-title">Your Echo Plus, <span class="grad">running open firmware.</span></h1>
+        <p class="pitch">lidar-mainline replaces Fire OS on the Amazon Echo Plus (2nd generation) with mainline Linux and U-Boot.
+          A Bluetooth speaker with its own tuning, a light ring that follows the music, an experimental voice assistant that
+          listens on the device, and a web interface served by the speaker itself.</p>
+        <div class="cta">
+          <a class="btn pri big" href="install.html">Install in your browser <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          <a class="btn big soft" href="https://github.com/LeagueRaINi/lidar-mainline"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg> Source on GitHub</a>
+        </div>
+        <ul class="facts" aria-label="At a glance">
+          <li><b>Mainline</b> Linux and U-Boot</li>
+          <li><b>7</b> microphones</li>
+          <li><b>12</b> ring LEDs</li>
+          <li><b>Open</b> source</li>
+        </ul>
+      </div>
 
-  <!-- 1: browser -->
-  <section id="step-1" hidden>
-    <header>
-      <h2>Browser check</h2>
-      <p class="lead">The installer talks to the Echo's fastboot over USB, straight from this page (WebUSB). Nothing is uploaded anywhere.</p>
-    </header>
-    <div class="card">
-      <ul class="rows">
-        <li><div class="stack"><span class="name">WebUSB</span><span class="meta">Chrome, Edge, Brave or Opera on a desktop computer. Firefox and Safari do not have it.</span></div><span class="pill" id="chk-usb">…</span></li>
-        <li><div class="stack"><span class="name">Secure page</span><span class="meta">WebUSB only works on https pages or on localhost.</span></div><span class="pill" id="chk-ctx">…</span></li>
-      </ul>
-      <p class="msg bad" id="browser-msg" hidden></p>
+      <div class="hero-art">
+        <div class="device">
+          <!-- the Echo Plus (2nd gen) from above, drawn: light ring in its channel at the edge, four buttons, seven microphone holes -->
+          <svg class="echo" viewBox="0 0 100 100" role="img" aria-labelledby="echo-title">
+            <title id="echo-title">An Echo Plus (2nd generation) from above: four buttons, seven microphone holes and the light ring around the edge, glowing cyan</title>
+            <defs>
+              <radialGradient id="g-rim" cx="50%" cy="40%" r="62%"><stop offset="0" stop-color="#3b4048"/><stop offset="1" stop-color="#17191d"/></radialGradient>
+              <radialGradient id="g-cap" cx="42%" cy="30%" r="78%"><stop offset="0" stop-color="#434951"/><stop offset=".6" stop-color="#2d3137"/><stop offset="1" stop-color="#22262b"/></radialGradient>
+              <linearGradient id="g-btn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#25292e"/><stop offset="1" stop-color="#3a3f46"/></linearGradient>
+              <filter id="blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.4"/></filter>
+              <!-- the ring's diffuser: neighbouring LEDs blend into one band of light -->
+              <filter id="diffuse" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation=".75"/></filter>
+              <!-- the mute glyph: the slash cuts a gap into the circle where it crosses it -->
+              <mask id="mute-cut" maskUnits="userSpaceOnUse" x="40" y="19" width="20" height="20"><rect x="40" y="19" width="20" height="20" fill="#fff"/><path d="M47.15 26.15l5.7 5.7" stroke="#000" stroke-width="2.3" stroke-linecap="round"/></mask>
+            </defs>
+            <circle cx="50" cy="50" r="49.6" fill="url(#g-rim)"/>
+            <circle cx="50" cy="50" r="45.5" fill="none" stroke="#090b0d" stroke-width="3.8"/>
+            <circle class="track" cx="50" cy="50" r="45.5"/>
+            <circle cx="50" cy="50" r="43.5" fill="url(#g-cap)"/>
+            <circle cx="50" cy="50" r="43.3" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width=".4"/>
+            <g class="mics" fill="#111316"><circle cx="50" cy="50" r=".8"/><circle cx="50" cy="17.5" r=".8"/><circle cx="78.1" cy="33.75" r=".8"/><circle cx="78.1" cy="66.25" r=".8"/><circle cx="50" cy="82.5" r=".8"/><circle cx="21.9" cy="66.25" r=".8"/><circle cx="21.9" cy="33.75" r=".8"/></g>
+            <g class="btns" fill="url(#g-btn)" stroke="#121417" stroke-width=".7"><circle cx="50" cy="29" r="6.4"/><circle cx="71" cy="50" r="6.4"/><circle cx="50" cy="71" r="6.4"/><circle cx="29" cy="50" r="6.4"/></g>
+            <g class="btn-hi" fill="none" stroke="#fff" stroke-opacity=".06" stroke-width=".5"><circle cx="50" cy="29" r="5.8"/><circle cx="71" cy="50" r="5.8"/><circle cx="50" cy="71" r="5.8"/><circle cx="29" cy="50" r="5.8"/></g>
+            <g class="glyphs" fill="none" stroke="#8d959f" stroke-width=".75" stroke-linecap="round">
+              <circle cx="50" cy="29" r="2.4" mask="url(#mute-cut)"/><path d="M47.15 26.15l5.7 5.7"/>
+              <path d="M71 47.6v4.8M68.6 50h4.8"/>
+              <path d="M26.6 50h4.8"/>
+              <circle cx="50" cy="71" r=".9" fill="#c9ced4" stroke="none"/>
+            </g>
+            <g class="leds halo" filter="url(#blur)">
+              <use href="#led" style="--i:0"/><use href="#led" style="--i:1" transform="rotate(30 50 50)"/><use href="#led" style="--i:2" transform="rotate(60 50 50)"/><use href="#led" style="--i:3" transform="rotate(90 50 50)"/><use href="#led" style="--i:4" transform="rotate(120 50 50)"/><use href="#led" style="--i:5" transform="rotate(150 50 50)"/><use href="#led" style="--i:6" transform="rotate(180 50 50)"/><use href="#led" style="--i:7" transform="rotate(210 50 50)"/><use href="#led" style="--i:8" transform="rotate(240 50 50)"/><use href="#led" style="--i:9" transform="rotate(270 50 50)"/><use href="#led" style="--i:10" transform="rotate(300 50 50)"/><use href="#led" style="--i:11" transform="rotate(330 50 50)"/>
+            </g>
+            <g class="leds" filter="url(#diffuse)">
+              <use href="#led" style="--i:0"/><use href="#led" style="--i:1" transform="rotate(30 50 50)"/><use href="#led" style="--i:2" transform="rotate(60 50 50)"/><use href="#led" style="--i:3" transform="rotate(90 50 50)"/><use href="#led" style="--i:4" transform="rotate(120 50 50)"/><use href="#led" style="--i:5" transform="rotate(150 50 50)"/><use href="#led" style="--i:6" transform="rotate(180 50 50)"/><use href="#led" style="--i:7" transform="rotate(210 50 50)"/><use href="#led" style="--i:8" transform="rotate(240 50 50)"/><use href="#led" style="--i:9" transform="rotate(270 50 50)"/><use href="#led" style="--i:10" transform="rotate(300 50 50)"/><use href="#led" style="--i:11" transform="rotate(330 50 50)"/>
+            </g>
+          </svg>
+        </div>
+        <ul class="chips" aria-hidden="true">
+          <li class="c1"><svg class="i"><use href="#i-mic"/></svg>"Hey Jarvis", on the device</li>
+          <li class="c2"><svg class="i"><use href="#i-speaker"/></svg>Bluetooth AAC and SBC</li>
+          <li class="c3"><svg class="i"><use href="#i-wave"/></svg>7-band spectrum on the ring</li>
+        </ul>
+      </div>
     </div>
-    <div class="card">
-      <details id="win-driver">
-        <summary>Windows: the Echo needs the WinUSB driver</summary>
-        <p>On Windows a browser can only open a USB device that is bound to the <b>WinUSB</b> driver. If you have used
-          <code>fastboot</code> with this Echo from this PC, that driver is normally in place already; U-Boot's fastboot uses the
-          same USB IDs as Kaeru's, so one driver serves both phases.</p>
-        <p>If the Echo does not appear in the browser's device list, or connecting fails with "Access denied":</p>
-        <ol class="steps">
-          <li>Put the Echo into fastboot (hold <b>Action</b> while plugging in power) and open the Device Manager. The Echo
-            shows up as <i>Android Bootloader Interface</i>, <i>Android ADB Interface</i>, or as an unknown <i>Android</i> device
-            (USB ID <code>0BB4:0C01</code>).</li>
-          <li>Either install the Google USB Driver (from Android Studio's SDK Manager or
-            <a href="https://developer.android.com/studio/run/win-usb" target="_blank" rel="noopener">developer.android.com</a>),
-            then: right-click the device → Update driver → Browse my computer → Let me pick → Have Disk → the driver's
-            <code>android_winusb.inf</code> → <i>Android Bootloader Interface</i>.<br>
-            Or run <a href="https://zadig.akeo.ie/" target="_blank" rel="noopener">Zadig</a>, pick the device with USB ID
-            <code>0BB4 0C01</code>, choose <b>WinUSB</b> and press Install Driver.</li>
-          <li>Unplug and plug in again. Close anything else that holds the device, such as a running <code>fastboot</code> command.</li>
-        </ol>
-      </details>
-      <details>
-        <summary>Linux: USB permissions</summary>
-        <p>If connecting fails with "Access denied", allow your user to open the device with a udev rule, then replug:</p>
-        <pre class="text">SUBSYSTEM=="usb", ATTR{idVendor}=="0bb4", ATTR{idProduct}=="0c01", TAG+="uaccess"</pre>
-        <p class="note">Save it as <code>/etc/udev/rules.d/51-fastboot.rules</code> and run <code>sudo udevadm control --reload</code>.</p>
-      </details>
-    </div>
-    <div class="bar"><span class="grow"></span><button class="pri" data-go="2" id="next-1" disabled>Next</button></div>
   </section>
 
-  <!-- 2: prerequisites -->
-  <section id="step-2" hidden>
-    <header>
-      <h2>Before you start</h2>
-      <p class="lead">This installs U-Boot and the lidar test system, as described under "Installing" in the project README.</p>
-    </header>
-    <div class="card">
-      <h3>What you need</h3>
-      <ul class="plain">
-        <li>An Echo Plus 2nd gen that is <b>already unlocked and has Kaeru fastboot</b>: holding <b>Action</b> while plugging in
-          power starts it. This page does not unlock anything; see
-          <a id="link-prereq" target="_blank" rel="noopener">Prerequisites in the README</a>.</li>
-        <li>Your own eMMC dump from the unlock, at least <code>boot_a</code>. It is the way back to the stock boot path.</li>
-        <li>The pogo-pin USB: a USB cable on the six contacts underneath the Echo (D+, D− and GND, see below), for example with the project's pogo-pin jig.</li>
-        <li>The two images, <code>lidar-uboot.img</code> and <code>lidar-test-system.ext4</code> (next step).</li>
-      </ul>
-      <figure class="echo-pads">
-        <img src="echo-pads.webp" width="1240" height="520" alt="The underside of the Echo with its label text upright and the window with six gold contacts to the right of it. Top row, left to right: TM45, D+, D−. Bottom row: TM35, GND, and 17 V at the bottom right">
-        <svg viewBox="0 0 100 41.94" aria-hidden="true">
-          <circle class="free" cx="70.8" cy="9.84" r="2.4"/><text x="70.8" y="5.6">TM45</text>
-          <circle class="sig" cx="76.0" cy="9.84" r="2.4"/><text x="76.0" y="5.6">D+</text>
-          <circle class="sig" cx="81.6" cy="9.84" r="2.4"/><text x="81.6" y="5.6">D−</text>
-          <circle class="free" cx="70.8" cy="15.08" r="2.4"/><text x="70.8" y="20.4">TM35</text>
-          <circle class="gnd" cx="76.0" cy="15.08" r="2.4"/><text x="76.0" y="20.4">GND</text>
-          <circle class="hot" cx="81.6" cy="15.08" r="2.4"/><text class="hot" x="81.6" y="20.4">17 V</text>
-        </svg>
-        <figcaption>The contacts underneath the Echo, seen with the label text upright as here.</figcaption>
-      </figure>
-      <div class="pads-detail">
-        <table class="pads">
-          <thead><tr><th>Contact</th><th>Signal</th><th>Connect</th></tr></thead>
-          <tbody>
-            <tr><td>top middle (TM4)</td><td>USB D+</td><td>yes</td></tr>
-            <tr><td>top right (TM5)</td><td>USB D−</td><td>yes</td></tr>
-            <tr><td>bottom middle (TM37)</td><td>ground</td><td>yes</td></tr>
-            <tr class="hot"><td>bottom right (TM33)</td><td>about 17 V from the power adapter</td><td><b>never</b></td></tr>
-            <tr><td>top left (TM45)</td><td>USB ID</td><td>no, leave free</td></tr>
-            <tr><td>bottom left (TM35)</td><td>not known yet (probably USB power from the factory fixture)</td><td>no, leave free</td></tr>
-          </tbody>
-        </table>
-        <figure class="echo-jig">
-          <img src="echo-jig.webp" width="640" height="640" alt="The pogo-pin jig clamped to the underside of the Echo, its cable leading off to the right">
-          <figcaption>The project's pogo-pin jig (<code>pogo-jig/</code>) in place: only D+, D− and GND are wired.</figcaption>
+  <!-- features -->
+  <section class="band" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <header class="head">
+        <p class="eyebrow">What it does</p>
+        <h2 id="features-title">A speaker you can open up</h2>
+        <p class="sub">Everything runs on the Echo: no account, no app, no cloud service in between.</p>
+      </header>
+      <div class="grid">
+        <article class="feat">
+          <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-speaker"/></svg></span>
+          <h3>Speaker</h3>
+          <p>Plays as a Bluetooth speaker (AAC and SBC); pair by holding the action button, with chimes. Its own tuning, bass, mids,
+            treble and a loudness boost, sits on top of the stock tuning. Volume and mute buttons work as before.</p>
+        </article>
+        <article class="feat">
+          <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-ring"/></svg></span>
+          <h3>Light ring</h3>
+          <p>A volume arc, red for mute, and a sound display that moves with the music, as a level or a 7-band spectrum.
+            The ambient light sensor dims the ring with the room.</p>
+        </article>
+        <article class="feat">
+          <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-mic"/></svg></span>
+          <h3>Voice <span class="pill hint">experimental</span></h3>
+          <p>"Hey Jarvis" wake word, seven microphones with echo cancellation and beamforming, and an assistant for timers,
+            alarms, volume and music. Speech recognition, spoken answers and Claude come with the next release.</p>
+        </article>
+        <article class="feat">
+          <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-window"/></svg></span>
+          <h3>Web interface</h3>
+          <p>Served by the Echo itself: overview, music library, sound, voice, light ring, Wi-Fi, Bluetooth and security.
+            Light and dark theme, made for phones too, with an optional PIN or password.</p>
+        </article>
+        <article class="feat">
+          <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg></span>
+          <h3>Privacy</h3>
+          <p>The hardware mute still cuts the microphones. No audio leaves the Echo: wake word and recognition run on it. With
+            a Claude key, only the text of questions the assistant cannot answer itself goes out.</p>
+        </article>
+        <article class="feat">
+          <span class="ico"><svg class="i" aria-hidden="true"><use href="#i-code"/></svg></span>
+          <h3>Open source</h3>
+          <p>Mainline Linux, U-Boot and the tools on top, mostly GPL-2.0 (see Licensing in the README). Build the images yourself; self-built images can also
+            run the Zigbee and Thread radio for Home Assistant.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- web interface showcase -->
+  <section class="band alt" id="interface" aria-labelledby="interface-title">
+    <div class="wrap">
+      <header class="head">
+        <p class="eyebrow">Web interface</p>
+        <h2 id="interface-title">Served by the speaker</h2>
+        <p class="sub">Open the Echo in any browser on your network. No app to install; these are screenshots of the real thing.</p>
+      </header>
+
+      <div class="show">
+        <input type="radio" name="shot" id="s-overview" checked>
+        <input type="radio" name="shot" id="s-voice">
+        <input type="radio" name="shot" id="s-sound">
+        <input type="radio" name="shot" id="s-ring">
+        <input type="radio" name="shot" id="s-music">
+        <input type="radio" name="shot" id="s-bluetooth">
+        <input type="radio" name="shot" id="s-wifi">
+        <input type="radio" name="shot" id="s-security">
+        <div class="tabs">
+          <label for="s-overview">Overview</label>
+          <label for="s-voice">Voice</label>
+          <label for="s-sound">Sound</label>
+          <label for="s-ring">Light ring</label>
+          <label for="s-music">Music</label>
+          <label for="s-bluetooth">Bluetooth</label>
+          <label for="s-wifi">Wi-Fi</label>
+          <label for="s-security">Security</label>
+        </div>
+        <div class="frame">
+          <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span class="url">http://169.254.7.2/</span></div>
+          <div class="view">
+            <a class="shot p-overview" href="shots/overview.webp"><img src="shots/overview.webp" width="1600" height="1000" alt="Overview page: volume, now playing, status tiles for microphones, speaker tuning, Wi-Fi and Bluetooth, CPU, memory and temperatures"></a>
+            <a class="shot p-voice" href="shots/voice.webp"><img src="shots/voice.webp" width="1600" height="1000" loading="lazy" alt="Voice page: assistant and microphone switches, wake word, sensitivity, language and a live view of the direction the microphones listen in"></a>
+            <a class="shot p-sound" href="shots/sound.webp"><img src="shots/sound.webp" width="1600" height="1000" loading="lazy" alt="Sound page: volume, volume limit, tone controls for bass, mids and treble, loudness boost and speaker tuning status"></a>
+            <a class="shot p-ring" href="shots/ring.webp"><img src="shots/ring.webp" width="1600" height="1000" loading="lazy" alt="Light ring page: sound display style, dimming in the dark, brightness and volume arc settings"></a>
+            <a class="shot p-music" href="shots/music.webp"><img src="shots/music.webp" width="1600" height="1000" loading="lazy" alt="Music page: a player and a library where audio files are dropped onto the page"></a>
+            <a class="shot p-bluetooth" href="shots/bluetooth.webp"><img src="shots/bluetooth.webp" width="1600" height="1000" loading="lazy" alt="Bluetooth page: radio status, paired phones, pairing mode, speaker name, pairing time and sounds (addresses blurred)"></a>
+            <a class="shot p-wifi" href="shots/wifi.webp"><img src="shots/wifi.webp" width="1600" height="1000" loading="lazy" alt="Wi-Fi page: the connected network with signal and band, scan, and country setting"></a>
+            <a class="shot p-security" href="shots/security.webp"><img src="shots/security.webp" width="1600" height="1000" loading="lazy" alt="Security page: optional PIN or password login and where the web interface can be reached from"></a>
+          </div>
+        </div>
+        <div class="caps">
+          <p class="p-overview">The speaker at a glance: volume, what is playing, microphones, tuning, connections and the hardware.</p>
+          <p class="p-voice">Wake word, sensitivity and language, with a live view of the beamformer: the bar that lights up is where the Echo listens.</p>
+          <p class="p-sound">Equalizer for bass, mids and treble and a loudness boost, on top of the stock speaker tuning.</p>
+          <p class="p-ring">What the ring shows: volume arc, mute, a level or 7-band spectrum to the music, and how it dims in the dark.</p>
+          <p class="p-music">Drop audio files on the page; they play on the Echo.</p>
+          <p class="p-bluetooth">Pairing mode, paired phones, the name phones see and the pairing chimes.</p>
+          <p class="p-wifi">The network the Echo joins, with signal, band and bit rate.</p>
+          <p class="p-security">An optional PIN or password for the whole interface, and from where it can be reached.</p>
+        </div>
+      </div>
+
+      <div class="phones">
+        <div class="phones-copy">
+          <h3>Fits in one hand</h3>
+          <p>The same interface on a phone, with a tab bar at the bottom. It follows the system theme, light or dark.</p>
+          <ul class="ticks">
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>No app, just the browser</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Optional login with a PIN or password</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Setup wizard on first start</span></li>
+          </ul>
+        </div>
+        <figure class="phone"><img src="shots/overview-phone.webp" width="600" height="1298" loading="lazy" alt="Overview page on a phone"></figure>
+        <figure class="phone tilt"><img src="shots/voice-phone.webp" width="600" height="1298" loading="lazy" alt="Voice page on a phone"></figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- voice -->
+  <section class="band" id="voice" aria-labelledby="voice-title">
+    <div class="wrap">
+      <header class="head">
+        <p class="eyebrow">Voice <span class="pill hint">experimental</span></p>
+        <h2 id="voice-title">From wake word to answer, on the Echo</h2>
+        <p class="sub">The voice path runs on the speaker. Only questions the assistant cannot handle can go out, and only if you set it up.</p>
+      </header>
+      <ol class="flow">
+        <li>
+          <span class="num">1</span>
+          <h3>Wake word</h3>
+          <p>"Hey Jarvis" is detected on the device, with an adjustable sensitivity.</p>
+        </li>
+        <li>
+          <span class="num">2</span>
+          <h3>Direction</h3>
+          <p>Seven microphones with echo cancellation and beamforming. The ring lights up toward whoever speaks.</p>
+        </li>
+        <li>
+          <span class="num">3</span>
+          <h3>Recognition <span class="pill hint">next release</span></h3>
+          <p>Speech is turned into text on the Echo, in English or German. The model is downloaded onto the Echo once.</p>
+        </li>
+        <li>
+          <span class="num">4</span>
+          <h3>Assistant</h3>
+          <p>Timers, alarms, volume, music control, time and date, built in. With the next release, anything else can go to Claude with your own API key, if you add one.</p>
+        </li>
+      </ol>
+      <div class="voice-more">
+        <figure class="beam">
+          <img src="shots/beam.webp" width="800" height="638" loading="lazy" alt="The Listening card of the web interface: twelve bars around the Echo, the one at 30 degrees lit, wake word heard 13 times">
+          <figcaption>The beamformer, live in the web interface.</figcaption>
         </figure>
+        <div class="card priv">
+          <h3><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>Privacy, by design of the hardware and the software</h3>
+          <ul class="ticks">
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>The mute button still cuts the microphones in hardware; the ring turns red.</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>No audio leaves the Echo: wake word and speech recognition run on it.</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Only with a Claude key: the text of questions the built-in assistant cannot handle.</span></li>
+          </ul>
+          <div class="route" aria-hidden="true">
+            <div class="node"><b>On the Echo</b><span>wake word</span><span>recognition</span><span>assistant</span></div>
+            <div class="wire"><span>only what it cannot answer, with your key</span></div>
+            <div class="node opt"><b>Claude</b><span>optional</span></div>
+          </div>
+          <p class="soon"><svg class="i" aria-hidden="true"><use href="#i-chat"/></svg><span><b>Next release:</b> speech recognition, spoken answers with local Piper voices, and Claude.</span></p>
+        </div>
       </div>
-      <p class="callout"><b>The bottom right contact carries about 17 V.</b> Never connect anything to it, and do not bridge it to its neighbours.</p>
     </div>
-    <div class="card">
-      <h3>What gets written</h3>
-      <p>Two partitions, each with its own job:</p>
-      <ul class="rows">
-        <li><div class="stack"><span class="name"><code>boot_a</code> ← lidar-uboot.img</span><span class="meta">The boot partition: the bootloader (LK) starts whatever is in it. Today that is Fire OS's kernel; afterwards it is lidar's bootloader (U-Boot), which starts lidar.</span></div></li>
-        <li><div class="stack"><span class="name"><code>system_b</code> ← lidar-test-system.ext4</span><span class="meta">The spare system partition Fire OS keeps for its updates. lidar's system goes here; what was on it is erased.</span></div></li>
-      </ul>
-      <p><b>Fire OS no longer starts afterwards.</b> This install does not touch its own system on <code>system_a</code> (lidar
-        takes the Wi-Fi firmware and the speaker tuning from it). While Fire OS is still there, restoring your own
-        <code>boot_a</code> dump through Kaeru fastboot (hold <b>Action</b> while plugging in power) brings it back.</p>
-      <p class="note">Later versions of lidar will use <code>system_a</code> as their second partition for updates. They ask first,
-        and offer to save a full image of Fire OS to your computer before anything is written there; without that image there is no
-        way back to Fire OS afterwards.</p>
-      <p class="note">Nothing else is written, and the installer refuses any other partition. Kaeru fastboot lives in partitions this
-        project never touches, so it stays available for recovery.</p>
-      <p class="callout">Fire OS normally runs from <code>system_a</code>. If yours runs from <code>system_b</code>, do not use this
-        page: it would erase it. Follow the README by hand with <code>system_a</code> instead.</p>
-    </div>
-    <div class="card">
-      <label class="check"><input type="checkbox" id="pre-ok"><span>My Echo Plus 2nd gen is unlocked and has Kaeru fastboot, and I have my own
-        <code>boot_a</code> dump. I accept that <code>system_b</code> is erased and that Fire OS no longer starts until I restore that
-        dump. I do this at my own risk.</span></label>
-    </div>
-    <div class="bar"><button data-go="1">Back</button><span class="grow"></span><button class="pri" data-go="3" id="next-2" disabled>Next</button></div>
   </section>
 
-  <!-- 3: images -->
-  <section id="step-3" hidden>
-    <header>
-      <h2>Images</h2>
-      <p class="lead">Download the two images of the latest release, then pick them below. They stay on this computer.</p>
-    </header>
-    <div class="card" id="release-card">
-      <div class="ch"><h3>Latest release</h3><span class="pill" id="release-pill">looking</span></div>
-      <p class="muted" id="release-note">Asking GitHub for the latest release…</p>
-      <div class="bar" id="release-get-bar" hidden><button class="pri" id="release-get">Download and use</button></div>
-      <div class="prog" id="release-prog" hidden><progress max="1" value="0"></progress><span></span></div>
-      <div class="bar" id="release-links" hidden>
-        <a class="btn" id="dl-uboot" rel="noopener">lidar-uboot.img</a>
-        <a class="btn" id="dl-system" rel="noopener">lidar-test-system.ext4</a>
+  <!-- install -->
+  <section class="band alt" id="install" aria-labelledby="install-title">
+    <div class="wrap">
+      <header class="head">
+        <p class="eyebrow">Install</p>
+        <h2 id="install-title">Flash it from the browser</h2>
+        <p class="sub">The installer talks to the Echo over USB (WebUSB), straight from the page. It writes two partitions and nothing else.</p>
+      </header>
+      <div class="install">
+        <ol class="steps-lp">
+          <li>
+            <span class="num">1</span>
+            <div><h3>Unlock and back up</h3>
+              <p>The Echo must already be unlocked (Kaeru fastboot), and you need your own <code>boot_a</code> backup. This site has no unlock or exploit code;
+                the <a href="https://github.com/LeagueRaINi/lidar-mainline#prerequisites">README</a> lists the prerequisites.</p></div>
+          </li>
+          <li>
+            <span class="num">2</span>
+            <div><h3>Connect USB</h3>
+              <p>A pogo-pin USB connection to the test pads underneath. The installer shows the pads with photos.</p></div>
+          </li>
+          <li>
+            <span class="num">3</span>
+            <div><h3>Open the installer</h3>
+              <p>In Chrome, Edge, Brave or Opera on a desktop. One click downloads the latest release and checks it.</p></div>
+          </li>
+          <li>
+            <span class="num">4</span>
+            <div><h3>Flash and start</h3>
+              <p>U-Boot first, then the system. The Echo boots lidar, and its web interface runs the setup.</p></div>
+          </li>
+        </ol>
+        <aside class="card req" aria-labelledby="req-title">
+          <img src="echo-jig.webp" width="640" height="640" loading="lazy" alt="The underside of the Echo with a pogo-pin jig on the test pads">
+          <h3 id="req-title">You need</h3>
+          <ul class="ticks">
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>An Echo Plus (2nd gen), already unlocked</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Your own <code>boot_a</code> backup</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>Pogo-pin USB to the test pads</span></li>
+            <li><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>A desktop Chromium browser</span></li>
+          </ul>
+          <a class="btn pri big wide" href="install.html">Open the installer <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+        </aside>
       </div>
-      <p class="note" id="release-more"></p>
     </div>
-    <div class="card">
-      <h3>Pick the downloaded images</h3>
-      <ul class="rows">
-        <li><div class="stack"><span class="name">U-Boot: <code>lidar-uboot.img</code></span>
-          <input type="file" id="file-uboot" accept=".img" aria-label="lidar-uboot.img">
-          <span class="meta" id="img-uboot-meta">Not chosen</span></div><span class="pill" id="img-uboot-pill">missing</span></li>
-        <li><div class="stack"><span class="name">System: <code>lidar-test-system.ext4</code></span>
-          <input type="file" id="file-system" accept=".ext4,.img" aria-label="lidar-test-system.ext4">
-          <span class="meta" id="img-system-meta">Not chosen</span></div><span class="pill" id="img-system-pill">missing</span></li>
-      </ul>
-      <details>
-        <summary>Images you built yourself</summary>
-        <p class="muted">They are in <code>out/</code> of the source tree, and differ from the release's: pick them above and they
-          show as "not verified". To check them anyway, write their checksums in <code>out/</code> with
-          <code>sha256sum lidar-uboot.img lidar-test-system.ext4 &gt; SHA256SUMS</code> and pick that file here.</p>
-        <input type="file" id="file-sums" aria-label="SHA256SUMS">
-        <p class="meta" id="sums-meta"></p>
-      </details>
-    </div>
-    <p class="msg bad" id="img-msg" hidden></p>
-    <div class="bar"><button data-go="2">Back</button><span class="grow"></span><button class="pri" data-go="4" id="next-3" disabled>Next</button></div>
   </section>
 
-  <!-- 4: phase 1, Kaeru fastboot -> boot_a -->
-  <section id="step-4" hidden>
-    <header>
-      <h2>U-Boot</h2>
-      <p class="lead">Phase 1 of 2: flash <code>lidar-uboot.img</code> to <code>boot_a</code> through Kaeru's fastboot.</p>
-    </header>
-    <div class="card">
-      <h3>Start Kaeru fastboot</h3>
-      <ol class="steps">
-        <li>Unplug the Echo's power. Keep the pogo-pin USB connected.</li>
-        <li>Hold the <b>Action</b> button (the one with the dot, circled below) and plug in power. Keep holding for a few seconds.</li>
-        <li>Press Connect and choose the device in the browser's list.</li>
-      </ol>
-      <figure class="echo-top">
-        <img src="echo-top.webp" width="720" height="720" alt="Top of the Echo: the Action button, the one with the dot, is circled">
-        <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="49.96" cy="70.45" r="8.5"/></svg>
-        <figcaption>Hold <b>Action</b> (●), then plug in power.</figcaption>
-      </figure>
-      <div class="bar"><button class="pri" id="p1-connect">Connect</button><span class="pill" id="p1-pill">not connected</span></div>
+  <!-- faq -->
+  <section class="band" id="faq" aria-labelledby="faq-title">
+    <div class="wrap narrow">
+      <header class="head">
+        <p class="eyebrow">Status and questions</p>
+        <h2 id="faq-title">Before you flash</h2>
+      </header>
+      <div class="faq">
+        <details open>
+          <summary>How finished is it?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p>These are early test releases (v0.0.1), and things change between them. Voice is experimental, and the installer is new:
+            read the <a href="https://github.com/LeagueRaINi/lidar-mainline#status">status in the README</a> before you start.</p>
+        </details>
+        <details>
+          <summary>Is it safe?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p>The installer writes two partitions only, U-Boot and the system, and asks before each one. Fire OS stays restorable from your own backup.
+            It is still your device and your risk: there is no warranty.</p>
+        </details>
+        <details>
+          <summary>Can I go back to Fire OS?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p>Yes. Hold Action while plugging in power to reach Kaeru fastboot, then flash your <code>boot_a</code> backup; the
+            <a href="https://github.com/LeagueRaINi/lidar-mainline#installing">README</a> has the commands.</p>
+        </details>
+        <details>
+          <summary>Which browsers work?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p>Chrome, Edge, Brave and Opera on a desktop computer, since they have WebUSB. Firefox and Safari do not; with them, follow the
+            README and use the <code>fastboot</code> command-line tool instead.</p>
+        </details>
+        <details>
+          <summary>Does it need an account or a cloud service?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p>No account. The Echo goes online only for the clock (NTP), the one-time download of the speech model, and Claude if you add your own API key.</p>
+        </details>
+        <details>
+          <summary>What about Zigbee and Thread?<svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></summary>
+          <p>Self-built images can run the Echo's Zigbee and Thread radio for Home Assistant. Release images do not include that part:
+            it needs Silicon Labs software that is not redistributed with the releases.</p>
+        </details>
+      </div>
     </div>
-    <div class="card">
-      <h3>Flash</h3>
-      <p class="muted" id="p1-image"></p>
-      <div class="bar"><button class="pri" id="p1-flash" disabled>Flash U-Boot to boot_a</button></div>
-      <div class="prog" id="p1-prog" hidden><progress max="1" value="0"></progress><span></span></div>
-    </div>
-    <p class="msg" id="p1-msg" hidden></p>
-    <div class="bar"><button data-go="3">Back</button><button class="link" id="p1-skip">U-Boot is already installed: skip this phase</button>
-      <span class="grow"></span><button class="pri" data-go="5" id="next-4" disabled>Next</button></div>
   </section>
 
-  <!-- 5: phase 2, U-Boot fastboot -> system_b -->
-  <section id="step-5" hidden>
-    <header>
-      <h2>System</h2>
-      <p class="lead">Phase 2 of 2: flash <code>lidar-test-system.ext4</code> to <code id="p2-part">system_b</code> through U-Boot's fastboot and make it the boot slot.</p>
-    </header>
-    <div class="card">
-      <h3>Start U-Boot fastboot</h3>
-      <p>With an empty or unbootable system slot, U-Boot enters its fastboot by itself after the reboot. Otherwise:</p>
-      <ol class="steps">
-        <li>Unplug the Echo's power. Keep the pogo-pin USB connected.</li>
-        <li>Hold <b>Volume Up</b> (+, circled below) and plug in power. Keep holding for a few seconds.</li>
-        <li>Press Connect and choose the device in the browser's list.</li>
-      </ol>
-      <figure class="echo-top">
-        <img src="echo-top.webp" width="720" height="720" alt="Top of the Echo: the Volume Up button, marked +, is circled">
-        <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="70.68" cy="49.57" r="8.5"/></svg>
-        <figcaption>Hold <b>Volume Up</b> (+), then plug in power.</figcaption>
-      </figure>
-      <div class="bar"><button class="pri" id="p2-connect">Connect</button><span class="pill" id="p2-pill">not connected</span></div>
+  <!-- closing call -->
+  <section class="final" aria-labelledby="final-title">
+    <div class="wrap final-in">
+      <h2 id="final-title">Ready when your Echo is.</h2>
+      <div class="cta">
+        <a class="btn pri big" href="install.html">Install in your browser <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
+        <a class="btn big soft" href="https://github.com/LeagueRaINi/lidar-mainline/releases">Releases</a>
+      </div>
     </div>
-    <div class="card">
-      <h3>Flash</h3>
-      <p class="muted" id="p2-image"></p>
-      <p class="bar" id="p2-slot-row" hidden><label for="p2-slot">Slot</label><select id="p2-slot"></select></p>
-      <div class="bar"><button class="pri" id="p2-flash" disabled>Flash the system</button></div>
-      <div class="prog" id="p2-prog" hidden><progress max="1" value="0"></progress><span></span></div>
-    </div>
-    <p class="msg" id="p2-msg" hidden></p>
-    <div class="bar"><button data-go="4">Back</button><span class="grow"></span><button class="pri" data-go="6" id="next-5" disabled>Next</button></div>
   </section>
-
-  <!-- 6: done -->
-  <section id="step-6" hidden>
-    <header>
-      <h2>Done</h2>
-      <p class="lead">The Echo is booting lidar.</p>
-    </header>
-    <div class="card">
-      <h3>Open the web interface</h3>
-      <ol class="steps">
-        <li>Leave the pogo-pin USB connected. The Echo now appears as a USB network adapter (and a serial port).</li>
-        <li>The Echo is <code>169.254.7.2/16</code>. Give the computer's new USB network interface any other link-local
-          address, for example <code>169.254.7.1</code> with netmask <code>255.255.0.0</code>. Many systems pick one
-          by themselves after a short wait.</li>
-        <li>Open <a href="http://169.254.7.2/" target="_blank" rel="noopener">http://169.254.7.2/</a>. The setup wizard runs
-          there.</li>
-      </ol>
-      <pre class="text" aria-label="USB network">  PC  169.254.x.y ═══ USB network ═══ 169.254.7.2  Echo      →  http://169.254.7.2/</pre>
-    </div>
-    <div class="card">
-      <h3>If something is wrong</h3>
-      <ul class="plain">
-        <li><b>U-Boot fastboot:</b> hold <b>Volume Up</b> while plugging in power, then repeat the System step here.</li>
-        <li><b>Kaeru fastboot:</b> hold <b>Action</b> while plugging in power. <code>fastboot flash boot_a &lt;your boot_a dump&gt;</code>
-          restores the stock boot path.</li>
-        <li>More in the <a id="link-install" target="_blank" rel="noopener">README</a>.</li>
-      </ul>
-    </div>
-    <div class="bar"><button data-go="5">Back</button></div>
-  </section>
-
-  <footer>
-    <p>An independent community project, not affiliated with or endorsed by Amazon or any other company. Product names belong to
-      their owners. No warranty; you flash your own device at your own risk.
-      <a id="link-repo" target="_blank" rel="noopener">Source code</a> (GPL-2.0-only); USB access by
-      <a href="https://github.com/kdrag0n/fastboot.js" target="_blank" rel="noopener">fastboot.js</a> (MIT).</p>
-  </footer>
 </main>
 
-<dialog id="confirm" aria-labelledby="confirm-title">
-  <h3 id="confirm-title"></h3>
-  <dl class="kv" id="confirm-kv"></dl>
-  <p class="callout" id="confirm-warn"></p>
-  <div class="bar"><button id="confirm-no" autofocus>Cancel</button><button class="armed" id="confirm-yes">Flash</button></div>
-</dialog>
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div>
+      <p class="foot-brand">lidar-mainline</p>
+      <p>Open firmware for the Echo Plus (2nd gen). Mostly GPL-2.0; see Licensing in the README.</p>
+    </div>
+    <nav class="foot-links" aria-label="Project">
+      <a href="install.html">Installer</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline">Source</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline/releases">Releases</a>
+      <a href="https://github.com/LeagueRaINi/lidar-mainline/blob/main/LICENSE">Licence</a>
+    </nav>
+    <p class="legal">An independent project, not affiliated with, endorsed by or sponsored by Amazon. Echo and related marks are trademarks of
+      Amazon.com, Inc. or its affiliates. Claude is a product of Anthropic, which is not affiliated with this project either. No warranty;
+      you flash your own device at your own risk.</p>
+  </div>
+</footer>
 
 <script>
-/* Modules do not load from file://, so say so instead of showing an empty page. */
-if (location.protocol === 'file:') {
-  var m = document.getElementById('boot-msg');
-  m.textContent = 'Open this page over https or from a local web server (for example "python -m http.server" in this folder, then http://localhost:8000/). It cannot run from a file.';
-  m.hidden = false;
-}
+/* Theme switch, as in the installer: auto, light, dark; remembered in localStorage. */
+(function () {
+  var themes = ['auto', 'light', 'dark'], b = document.getElementById('theme'), l = document.getElementById('theme-label');
+  var light = matchMedia('(prefers-color-scheme: light)'), theme = 'auto';
+  try { theme = localStorage.getItem('theme') || 'auto'; } catch (e) {}
+  if (themes.indexOf(theme) < 0) theme = 'auto';
+  function apply() {
+    document.documentElement.dataset.theme = theme === 'auto' ? (light.matches ? 'light' : 'dark') : theme;
+    l.textContent = b.title = 'Theme: ' + theme;
+  }
+  b.addEventListener('click', function () {
+    theme = themes[(themes.indexOf(theme) + 1) % themes.length];
+    try { localStorage.setItem('theme', theme); } catch (e) {}
+    apply();
+  });
+  light.addEventListener('change', apply);
+  b.hidden = false;
+  apply();
+})();
 </script>
-<script type="module" src="installer.js"></script>
 </body>
 </html>

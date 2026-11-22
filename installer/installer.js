@@ -262,7 +262,7 @@ async function getRelease() {
       await takeImage(key, blob, file, true);
     }
   } catch (e) {
-    setMsg("img-msg", "bad", "Download failed (" + e.message + "). Try again, or download the files with the links and pick them below.");
+    setMsg("img-msg", "bad", "Download failed (" + e.message + "). Try again, or get the files from All releases and pick them below.");
   }
   $("release-prog").hidden = true;
   $("release-get").disabled = false;
@@ -322,8 +322,8 @@ async function loadRelease() {
   }
   if (!tag) {
     setPill("release-pill", why === "no release published yet" ? "not found" : "unavailable", "hint");
-    $("release-note").textContent = "Could not get the latest release (" + why + "). Download the images from the releases page, " +
-      "or build them yourself, and pick them below.";
+    $("release-note").textContent = "Could not get the latest release (" + why + "). Get the images from the releases page, " +
+      "or build them, then pick them below.";
     $("release-more").append(all);
     return;
   }
@@ -331,13 +331,13 @@ async function loadRelease() {
   setPill("release-pill", tag, "on");
   $("release-get").textContent = "Download and use " + tag;
   $("release-get-bar").hidden = !hosted;
-  $("release-links").hidden = !api;
-  $("release-note").textContent = (api ? (api.name || tag) + ", published " + new Date(api.published_at).toLocaleDateString() : tag) + ". " +
-    (hosted ? "One click downloads both images and checks them against the release."
-      : sums.size ? "Download both images, then pick them below: they are checked against the release before anything is flashed."
-        : "GitHub gave no checksums: compare the SHA-256 values shown below with the release's SHA256SUMS yourself.");
-  $("release-more").append(hosted ? "Or download the files yourself and pick them below. " : "",
-    "Older versions and the release notes: ", all, ".");
+  // with the one-click download there is no need for the two single links
+  $("release-links").hidden = !api || !!hosted;
+  $("release-note").textContent = hosted ? ""
+    : sums.size ? "Download both images, then pick them below. They are checked against the release before anything is flashed."
+      : "GitHub gave no checksums: compare the SHA-256 shown below with the release's SHA256SUMS yourself.";
+  $("release-more").append(api ? "Published " + new Date(api.published_at).toLocaleDateString() + ". " : "",
+    "Older versions and release notes: ", all, ".");
   recheckImages();
 }
 
@@ -367,7 +367,7 @@ function describeImage(key, id, partition) {
   const img = images[key];
   $(id).textContent = img
     ? img.name + " (" + mib(img.blob.size) + ", " + (img.verifiedBy ? "matches " + img.verifiedBy : "checksum not verified") + ") → " + partition
-    : "No image for this phase yet: go back to Images and pick " + IMAGES[key].file + ".";
+    : "No image yet: go back to Images and pick " + IMAGES[key].file + ".";
 }
 
 /* ---------- fastboot ---------- */
@@ -464,11 +464,11 @@ async function reboot() {
 // `connecting`: the error comes from choosing and opening the device, not from talking to it.
 function explain(e, connecting) {
   if (e instanceof FastbootError) return "The bootloader refused: " + (e.bootloaderMessage || e.status || "no reason given") + ".";
-  if (e instanceof TimeoutError) return "The device did not answer. Unplug power, start fastboot again and reconnect.";
-  if (e.name === "SecurityError" || /access denied/i.test(e.message)) return "The browser may not open the device (access denied). " +
-    "Close other programs that use it, such as a running fastboot. On Windows it needs the WinUSB driver, on Linux a udev rule (step 1).";
-  if (connecting && e.name === "NotFoundError") return "No device was chosen. If the list was empty, the Echo is not in fastboot or the computer does not see it: " +
-    "check the USB connection, hold the button while plugging in power, and on Windows check the driver (step 1).";
+  if (e instanceof TimeoutError) return "No answer from the device. Unplug power, start fastboot again and reconnect.";
+  if (e.name === "SecurityError" || /access denied/i.test(e.message)) return "Access denied. Close other programs using the Echo, such as fastboot. " +
+    "Windows needs the WinUSB driver, Linux a udev rule (step 1).";
+  if (connecting && e.name === "NotFoundError") return "No device chosen. An empty list means the Echo is not in fastboot or not seen: " +
+    "check the USB, hold the button while plugging in power, and on Windows the driver (step 1).";
   if (["NetworkError", "InvalidStateError", "NotFoundError", "AbortError"].includes(e.name)) return "The USB connection was lost.";
   return e.message || String(e);
 }
@@ -500,11 +500,11 @@ const PHASES = {
   p1: {
     want: "kaeru", image: "uboot", partition: () => "boot_a", next: "next-4",
     found: "Kaeru fastboot",
-    wrong: "This is U-Boot's fastboot, so U-Boot is already on boot_a. Skip this phase (link below) and continue with the System step. " +
-      "To get Kaeru's fastboot instead, unplug power, hold Action and plug in again.",
-    warn: () => "This replaces the boot image on boot_a. Keep your own boot_a dump: it is the way back.",
-    recover: "Nothing is lost: Kaeru's fastboot does not depend on boot_a. Unplug power, hold Action, plug in, connect and try again. " +
-      "If the bootloader refuses to flash, the device may not be unlocked with Kaeru (see Before you start).",
+    wrong: "This is U-Boot's fastboot: U-Boot is already on boot_a. Skip this phase (below). " +
+      "For Kaeru's fastboot, unplug power, hold Action and plug in again.",
+    warn: () => "This replaces boot_a. Keep your boot_a dump: it is your way back.",
+    recover: "Nothing is lost: Kaeru's fastboot does not depend on boot_a. Unplug power, hold Action, plug in and try again. " +
+      "If the bootloader refuses, the Echo may not be unlocked with Kaeru.",
     done: "U-Boot is on boot_a and the Echo is rebooting. Continue with the System step.",
     async run(img, progress) {
       await flash("boot_a", img.blob, progress);
@@ -515,12 +515,11 @@ const PHASES = {
   p2: {
     want: "uboot", image: "system", partition: systemPartition, next: "next-5",
     found: "U-Boot fastboot",
-    wrong: "This is Kaeru's fastboot, not U-Boot's: Action was held, or U-Boot is not on boot_a yet (then do the U-Boot step first). " +
+    wrong: "This is Kaeru's fastboot, not U-Boot's. Either Action was held, or U-Boot is not on boot_a yet (do the U-Boot step first). " +
       "Unplug power, hold Volume Up (+) and plug in again.",
     warn: () => "This erases " + systemPartition() + " and makes it the slot lidar boots from.",
-    recover: "U-Boot's fastboot is still there: unplug power, hold Volume Up (+), plug in, connect and flash again. " +
-      "An incomplete system slot does not boot, so U-Boot also ends up in fastboot by itself. " +
-      "Kaeru's fastboot (hold Action) stays available as well.",
+    recover: "U-Boot's fastboot is still there: unplug power, hold Volume Up (+), plug in and flash again. " +
+      "With an incomplete system, U-Boot opens fastboot by itself. Kaeru's fastboot (Action) also stays available.",
     done: "The system is installed and the Echo is rebooting into lidar.",
     async check(img) {
       const size = await getHexVar("partition-size:" + systemPartition());
@@ -559,7 +558,7 @@ async function connect(id) {
     const found = await identify();
     if (found === null) {
       setPill(id + "-pill", "unknown device", "warn");
-      setMsg(id + "-msg", "bad", "This fastboot device is neither Kaeru fastboot on an Echo Plus 2nd gen nor lidar's U-Boot. Nothing was written. " +
+      setMsg(id + "-msg", "bad", "Unknown fastboot device: neither Kaeru on an Echo Plus 2nd gen nor lidar's U-Boot. Nothing was written. " +
         "Unplug other fastboot devices and try again.");
     } else if (found !== ph.want) {
       setPill(id + "-pill", "wrong mode", "warn");

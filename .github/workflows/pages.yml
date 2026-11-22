@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# Publishes installer/ (a static site, no build step) to GitHub Pages,
+# Publishes installer/ (a static site, no build step: the project page,
+# index.html, and the browser installer, install.html) to GitHub Pages,
 # together with the latest published release's two images, gzipped, and
 # release.json (version, sizes and SHA-256 of the unpacked files): the
 # installer fetches them from its own origin, since a page cannot fetch
